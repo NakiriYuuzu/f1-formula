@@ -1,0 +1,8 @@
+node_modules/
+.compiled/
+.pytest_cache/
+__pycache__/
+.DS_Store
+public/rosters/
+public/music/
+dist/

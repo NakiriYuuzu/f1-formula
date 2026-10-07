@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FORMULA NOVA 25｜新星方程式 25 攻略秘笈</title>
+<meta name="description" content="新星方程式 25 玩家攻略：操控與輔助、比賽策略、賽車設定、賽事管制與罰則、隱藏技巧與測試秘技。">
+<style>
+  :root {
+    --nv-bg: #07090d;
+    --nv-bg-2: #0d1118;
+    --nv-panel: #121722;
+    --nv-panel-hi: #1a2130;
+    --nv-line: rgba(255, 255, 255, 0.09);
+    --nv-line-strong: rgba(255, 255, 255, 0.22);
+    --nv-text: #eef2f7;
+    --nv-text-2: #a7b0c0;
+    --nv-text-3: #6c7689;
+    --nv-accent: #ff5a1f;
+    --nv-accent-2: #19d3c5;
+    --nv-danger: #ff3b4e;
+    --nv-warning: #ffb020;
+    --nv-ok: #2fd27a;
+    --nv-ers: #ffd23f;
+    --nv-purple: #b04dff;
+    --nv-tyre-soft: #e8322f;
+    --nv-tyre-medium: #f2c230;
+    --nv-tyre-hard: #f2f2f2;
+    --nv-tyre-inter: #3bb54a;
+    --nv-tyre-wet: #2f7fe8;
+    --nv-font: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --nv-font-display: 'Barlow Condensed', 'Oswald', 'Noto Sans TC', 'PingFang TC', 'Arial Narrow', system-ui, sans-serif;
+    --nv-font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+    --nv-radius: 6px;
+    --nv-radius-lg: 12px;
+    --toc-w: 250px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 500px at 85% -10%, rgba(255, 90, 31, 0.12), transparent 60%),
+      radial-gradient(900px 400px at -10% 20%, rgba(25, 211, 197, 0.06), transparent 60%),
+      var(--nv-bg);
+    color: var(--nv-text);
+    font: 16px/1.75 var(--nv-font);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--nv-accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .layout { display: grid; grid-template-columns: var(--toc-w) minmax(0, 1fr); max-width: 1240px; margin: 0 auto; gap: 40px; padding: 0 24px; }
+
+  /* hero */
+  header.hero { max-width: 1240px; margin: 0 auto; padding: 48px 24px 28px; }
+  .hero .kicker { display: inline-block; font: 700 13px/1 var(--nv-font-display); letter-spacing: 0.28em; color: var(--nv-accent-ink, #1a0a04); background: var(--nv-accent); padding: 7px 14px; transform: skewX(-8deg); }
+  .hero .kicker span { display: inline-block; transform: skewX(8deg); }
+  .hero h1 { margin: 18px 0 6px; font: 800 clamp(34px, 6vw, 60px)/1.05 var(--nv-font-display); letter-spacing: 0.01em; text-transform: uppercase; }
+  .hero h1 em { font-style: normal; color: var(--nv-accent); }
+  .hero p.lead { margin: 0; max-width: 760px; color: var(--nv-text-2); font-size: 17px; }
+  .stripe { height: 4px; margin-top: 26px; background: linear-gradient(90deg, var(--nv-accent) 0 30%, var(--nv-accent-2) 30% 46%, transparent 46%); }
+
+  /* toc */
+  nav.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto; padding: 18px 16px; background: var(--nv-panel); border: 1px solid var(--nv-line); border-radius: var(--nv-radius-lg); font-size: 14px; }
+  nav.toc h2 { margin: 0 0 10px; font: 700 13px/1 var(--nv-font-display); letter-spacing: 0.2em; color: var(--nv-text-3); text-transform: uppercase; }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; }
+  nav.toc > ol > li { margin: 10px 0 4px; }
+  nav.toc > ol > li > a { color: var(--nv-text); font-weight: 700; }
+  nav.toc ol ol { margin: 4px 0 0 2px; padding-left: 10px; border-left: 2px solid var(--nv-line); }
+  nav.toc ol ol a { display: block; padding: 2px 0; color: var(--nv-text-2); }
+  nav.toc ol ol a:hover { color: var(--nv-text); }
+
+  /* content */
+  main { min-width: 0; padding-bottom: 60px; }
+  section.chapter { margin: 0 0 56px; }
+  h2.ch { display: flex; align-items: baseline; gap: 14px; margin: 0 0 18px; padding-bottom: 10px; border-bottom: 1px solid var(--nv-line-strong); font: 800 32px/1.2 var(--nv-font-display); }
+  h2.ch .no { color: var(--nv-accent); font-size: 40px; }
+  h3 { margin: 34px 0 10px; font: 700 21px/1.35 var(--nv-font); }
+  h3::before { content: ''; display: inline-block; width: 10px; height: 18px; margin-right: 10px; vertical-align: -2px; background: var(--nv-accent); transform: skewX(-8deg); }
+  h4 { margin: 20px 0 6px; font-size: 17px; color: var(--nv-text); }
+  p, ul, ol { margin: 8px 0 12px; }
+  li { margin: 3px 0; }
+  strong { color: #fff; }
+  .muted { color: var(--nv-text-2); }
+  small, .small { font-size: 13px; color: var(--nv-text-3); }
+
+  kbd { display: inline-block; min-width: 1.7em; padding: 1px 7px; margin: 0 1px; font: 600 13px/1.6 var(--nv-font-mono); text-align: center; color: var(--nv-text); background: var(--nv-panel-hi); border: 1px solid var(--nv-line-strong); border-bottom-width: 2px; border-radius: 5px; white-space: nowrap; }
+  code { padding: 1px 6px; font: 14px/1.6 var(--nv-font-mono); color: #ffd7c7; background: rgba(255, 90, 31, 0.1); border: 1px solid rgba(255, 90, 31, 0.22); border-radius: 4px; word-break: break-all; }
+  pre { margin: 10px 0 16px; padding: 14px 16px; overflow-x: auto; background: #05070a; border: 1px solid var(--nv-line); border-radius: var(--nv-radius); }
+  pre code { padding: 0; background: none; border: 0; color: #d6f5f2; word-break: normal; }
+
+  /* tables */
+  .tbl { width: 100%; overflow-x: auto; margin: 12px 0 18px; border: 1px solid var(--nv-line); border-radius: var(--nv-radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  th, td { padding: 9px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--nv-line); }
+  thead th { position: sticky; top: 0; background: var(--nv-panel-hi); color: var(--nv-text-2); font: 700 13px/1.4 var(--nv-font); letter-spacing: 0.06em; white-space: nowrap; }
+  tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.02); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.nowrap, th.nowrap { white-space: nowrap; }
+
+  /* callouts */
+  .callout { position: relative; margin: 16px 0; padding: 14px 16px 14px 18px; background: var(--nv-panel); border: 1px solid var(--nv-line); border-left: 4px solid var(--nv-accent-2); border-radius: var(--nv-radius); }
+  .callout > :first-child { margin-top: 0; }
+  .callout > :last-child { margin-bottom: 0; }
+  .callout .tag { display: inline-block; margin-bottom: 4px; font: 700 12px/1 var(--nv-font-display); letter-spacing: 0.18em; color: var(--nv-accent-2); }
+  .callout.tip { border-left-color: var(--nv-ok); }
+  .callout.tip .tag { color: var(--nv-ok); }
+  .callout.warn { border-left-color: var(--nv-warning); }
+  .callout.warn .tag { color: var(--nv-warning); }
+  .callout.danger { border-left-color: var(--nv-danger); }
+  .callout.danger .tag { color: var(--nv-danger); }
+
+  /* chips / flags */
+  .chip { display: inline-block; padding: 0 8px; border-radius: 4px; font: 700 13px/1.7 var(--nv-font); white-space: nowrap; }
+  .f-green { background: #1f8f4e; color: #fff; }
+  .f-yellow { background: #f2c230; color: #1a1400; }
+  .f-dyellow { background: repeating-linear-gradient(90deg, #f2c230 0 50%, #e0aa10 50% 100%); color: #1a1400; }
+  .f-vsc { background: #2b2f38; color: #ffd23f; border: 1px solid #ffd23f; }
+  .f-sc { background: #ffd23f; color: #1a1400; }
+  .f-red { background: var(--nv-danger); color: #fff; }
+  .f-blue { background: #2f7fe8; color: #fff; }
+  .tyre { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-right: 6px; border-radius: 50%; font: 800 12px/1 var(--nv-font-display); color: #0b0b0b; border: 3px solid currentColor; background: #111; vertical-align: -6px; }
+  .tyre span { color: #fff; }
+
+  /* crash flow */
+  .flow { display: grid; gap: 12px; margin: 14px 0 18px; }
+  .flow .step { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; padding: 14px; background: var(--nv-panel); border: 1px solid var(--nv-line); border-radius: var(--nv-radius); }
+  .flow .n { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; font: 800 22px/1 var(--nv-font-display); color: var(--nv-accent-ink, #1a0a04); background: var(--nv-accent); transform: skewX(-8deg); }
+  .flow .step h4 { margin: 0 0 4px; }
+  .flow .step p, .flow .step ul { margin: 4px 0; }
+  .branch { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 10px 0; }
+  .branch > div { padding: 12px 14px; background: var(--nv-bg-2); border: 1px solid var(--nv-line); border-radius: var(--nv-radius); }
+  .branch > div h4 { margin: 0 0 6px; font-size: 16px; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .card { padding: 14px 16px; background: var(--nv-panel); border: 1px solid var(--nv-line); border-radius: var(--nv-radius); }
+  .card h4 { margin: 0 0 6px; }
+  .card p { margin: 4px 0; }
+
+  footer { max-width: 1240px; margin: 0 auto; padding: 24px 24px 40px; color: var(--nv-text-3); font-size: 13px; border-top: 1px solid var(--nv-line); }
+
+  @media (max-width: 960px) {
+    .layout { grid-template-columns: 1fr; gap: 20px; }
+    nav.toc { position: static; max-height: none; }
+    nav.toc ol ol { display: none; }
+    nav.toc > ol { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+    nav.toc > ol > li { margin: 2px 0; }
+  }
+  @media print {
+    :root { --nv-text: #111; --nv-text-2: #333; --nv-text-3: #555; --nv-line: #ccc; --nv-line-strong: #999; --nv-panel: #fff; --nv-panel-hi: #eee; --nv-bg-2: #fafafa; }
+    body { background: #fff; color: #111; font-size: 11pt; }
+    nav.toc, .stripe { display: none; }
+    .layout { display: block; padding: 0; }
+    strong { color: #000; }
+    code { color: #8a2a00; background: #fff4ee; }
+    pre { background: #f6f6f6; }
+    pre code { color: #111; }
+    section.chapter { break-before: page; }
+    section.chapter:first-of-type { break-before: auto; }
+    .callout, .card, .flow .step, table, pre { break-inside: avoid; }
+    a { color: #000; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="kicker"><span>STRATEGY GUIDE</span></div>
+  <h1>FORMULA NOVA 25<br><em>新星方程式 25 攻略秘笈</em></h1>
+  <p class="lead">從按鍵、輔助設定、輪胎與進站策略、各賽道的賽車設定，到黃旗、虛擬安全車、安全車、紅旗的完整規則，以及開發者用的網址秘技。內容依遊戲目前版本整理，數字都對照過遊戲實際的規則。</p>
+  <div class="stripe"></div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="目錄">
+  <h2>目錄</h2>
+  <ol>
+    <li><a href="#quick">快速上手</a></li>
+    <li><a href="#controls">1. 操控與輔助</a>
+      <ol>
+        <li><a href="#keys">按鍵一覽</a></li>
+        <li><a href="#mfd">MFD 與進站按鍵</a></li>
+        <li><a href="#flashback">回溯</a></li>
+        <li><a href="#replay">重播</a></li>
+        <li><a href="#assists">輔助系統</a></li>
+        <li><a href="#presets">輔助建議路線</a></li>
+      </ol>
+    </li>
+    <li><a href="#strategy">2. 比賽策略</a>
+      <ol>
+        <li><a href="#tyres">輪胎</a></li>
+        <li><a href="#pit">進站</a></li>
+        <li><a href="#ers">ERS 與 Overtake</a></li>
+        <li><a href="#drs">DRS／直線模式</a></li>
+        <li><a href="#wake">吸尾流與髒空氣</a></li>
+        <li><a href="#rivals">AI 對手怎麼開</a></li>
+        <li><a href="#weather">天氣與雨戰</a></li>
+        <li><a href="#damage">車損</a></li>
+      </ol>
+    </li>
+    <li><a href="#setup">3. 賽車設定</a>
+      <ol>
+        <li><a href="#setup-allround">綜合最佳設定</a></li>
+        <li><a href="#setup-tracks">各賽道最佳設定</a></li>
+        <li><a href="#setup-params">每項設定的實際效果</a></li>
+        <li><a href="#setup-why">為什麼這樣最快</a></li>
+        <li><a href="#setup-tips">調校注意事項</a></li>
+        <li><a href="#setup-method">測試方法</a></li>
+      </ol>
+    </li>
+    <li><a href="#racecontrol">4. 賽事管制與罰則</a>
+      <ol>
+        <li><a href="#flags">旗號總覽</a></li>
+        <li><a href="#nopass">禁止超車與讓回</a></li>
+        <li><a href="#vsc">虛擬安全車</a></li>
+        <li><a href="#sc">安全車</a></li>
+        <li><a href="#red">紅旗</a></li>
+        <li><a href="#formation">暖胎圈</a></li>
+        <li><a href="#blue">藍旗</a></li>
+        <li><a href="#limits">賽道界線</a></li>
+        <li><a href="#stopped">停在賽道上的車</a></li>
+        <li><a href="#crash">玩家撞車會發生什麼</a></li>
+        <li><a href="#retire">退賽</a></li>
+        <li><a href="#rcsettings">事故頻率與紅旗開關</a></li>
+        <li><a href="#penalties">罰則一覽</a></li>
+        <li><a href="#rctips">實戰技巧</a></li>
+      </ol>
+    </li>
+    <li><a href="#secrets">5. 隱藏技巧與測試秘技</a>
+      <ol>
+        <li><a href="#url">網址快速開賽</a></li>
+        <li><a href="#url-examples">範例網址</a></li>
+        <li><a href="#seed">固定種子重現比賽</a></li>
+        <li><a href="#autopilot">自動駕駛觀戰</a></li>
+        <li><a href="#console">主控台掛鉤</a></li>
+        <li><a href="#open">如何開啟這份秘笈</a></li>
+      </ol>
+    </li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- ───────────────────────── quick start ───────────────────────── -->
+<section class="chapter" id="quick">
+  <h2 class="ch"><span class="no">00</span>快速上手：新手先記這 6 件事</h2>
+  <div class="grid2">
+    <div class="card"><h4>1. 先用「新手」輔助</h4><p>首次啟動會讓你選駕駛經驗。新手預設會幫你煞車、反打方向盤、自動開 DRS，先把路線跑熟再逐步關掉。</p></div>
+    <div class="card"><h4>2. 開著「安全車限速」</h4><p>三種預設都會開啟。安全車期間它會自動把你壓在隊伍速度，幾乎不可能因為超車被罰。</p></div>
+    <div class="card"><h4>3. 看旗號再超車</h4><p>黃旗計時段、虛擬安全車、安全車、暖胎圈都禁止超車；超了要在 10 秒內讓回，否則罰 5 秒。</p></div>
+    <div class="card"><h4>4. 彎道不要四輪出界</h4><p>四輪全出白線（路緣石不算賽道）會警告並作廢該圈；正賽第 4 次起每次罰 5 秒。</p></div>
+    <div class="card"><h4>5. 撞了不要慌</h4><p>可以按 <kbd>R</kbd>（手把 <kbd>B</kbd>）回溯約 5 秒。只要還沒退賽，回溯都可以用。</p></div>
+    <div class="card"><h4>6. 安全車＝便宜進站</h4><p>全場慢下來時進站，損失的時間比綠旗時少，是換胎的好時機。</p></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── 1. controls ───────────────────────── -->
+<section class="chapter" id="controls">
+  <h2 class="ch"><span class="no">01</span>操控與輔助</h2>
+
+  <h3 id="keys">按鍵一覽（P1）</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>動作</th><th>鍵盤</th><th>Gamepad</th></tr></thead>
+    <tbody>
+      <tr><td>油門／煞車</td><td><kbd>W</kbd>／<kbd>S</kbd>（或 <kbd>↑</kbd>／<kbd>↓</kbd>）</td><td><kbd>RT</kbd>／<kbd>LT</kbd>（類比）</td></tr>
+      <tr><td>轉向</td><td><kbd>A</kbd>／<kbd>D</kbd>（或 <kbd>←</kbd>／<kbd>→</kbd>）</td><td>左搖桿</td></tr>
+      <tr><td>升檔／降檔</td><td><kbd>E</kbd>／<kbd>Q</kbd></td><td><kbd>RB</kbd>／<kbd>LB</kbd></td></tr>
+      <tr><td>DRS／直線模式</td><td><kbd>空白鍵</kbd></td><td><kbd>A</kbd></td></tr>
+      <tr><td>Overtake 加力（按住）</td><td><kbd>左 Shift</kbd></td><td><kbd>L3</kbd></td></tr>
+      <tr><td>切換 ERS 模式</td><td><kbd>X</kbd></td><td><kbd>X</kbd></td></tr>
+      <tr><td>切換鏡頭</td><td><kbd>C</kbd></td><td><kbd>Y</kbd></td></tr>
+      <tr><td>後視（按住）</td><td><kbd>V</kbd></td><td><kbd>R3</kbd></td></tr>
+      <tr><td>回溯</td><td><kbd>R</kbd></td><td><kbd>B</kbd></td></tr>
+      <tr><td>MFD（進站與 ERS）</td><td><kbd>M</kbd></td><td><kbd>Back</kbd>／<kbd>View</kbd></td></tr>
+      <tr><td>請求進站（Box）</td><td><kbd>B</kbd></td><td>十字鍵 上</td></tr>
+      <tr><td>維修道限速器</td><td><kbd>L</kbd></td><td>十字鍵 下</td></tr>
+      <tr><td>暫停</td><td><kbd>Esc</kbd> 或 <kbd>P</kbd></td><td><kbd>Start</kbd>／<kbd>Menu</kbd></td></tr>
+      <tr><td>全螢幕／隱藏 HUD</td><td><kbd>F</kbd>／<kbd>H</kbd></td><td>—</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><strong>雙人分割畫面</strong>：P2 用方向鍵駕駛，升降檔 <kbd>.</kbd>／<kbd>,</kbd>、DRS <kbd>/</kbd>、加力 <kbd>右 Shift</kbd>。P2 的按鍵只屬於 P2，所以 P1 在分割畫面要用 <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>。第 1 支手把給 P1、第 2 支給 P2。</li>
+    <li><strong>重新綁定</strong>：「設定 → 按鍵（P1）／按鍵（P2）」，每個動作最多綁 4 個鍵。</li>
+    <li><strong>忘了按鍵？</strong>暫停選單 →「操作說明」會顯示你目前的按鍵；前 3 場比賽畫面下方也會有按鍵提示列。</li>
+    <li>單人遊戲時，所有已連接的手把都控制 P1；碰撞時手把會震動（可在設定關閉）。</li>
+  </ul>
+
+  <h3 id="mfd">MFD 與進站按鍵</h3>
+  <p>按 <kbd>M</kbd> 打開 MFD（多功能顯示器），可以看 ERS 模式、下一組輪胎與預估進站損失時間。開啟時：</p>
+  <div class="tbl"><table>
+    <thead><tr><th>按鍵</th><th>功能</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>1</kbd>–<kbd>4</kbd></td><td>切換 ERS 模式（關閉／中等／飛馳圈／超車）</td></tr>
+      <tr><td><kbd>5</kbd></td><td>切換下一組要換上的輪胎配方</td></tr>
+      <tr><td><kbd>6</kbd></td><td>Box（本圈進站）／取消</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">分割畫面時，P1 用上排數字鍵、P2 用數字鍵盤。</p>
+
+  <h3 id="flashback">回溯（Flashback）</h3>
+  <ul>
+    <li>按 <kbd>R</kbd>（手把 <kbd>B</kbd>，或暫停選單「回溯」）把時間倒回約 <strong>5 秒</strong>，從那一刻重新開。</li>
+    <li>次數在規則裡設定：<strong>無限／停用／1 次／3 次／5 次</strong>；暫停選單會顯示剩餘次數。</li>
+    <li><strong>退賽後無法回溯</strong>：不論是自己從選單退賽，還是車損過重被判退賽，都不能再回溯（否則等於把車放回比賽）。</li>
+  </ul>
+  <div class="callout tip"><div class="tag">TIP</div><p>撞車後想補救，要在<strong>被判定退賽之前</strong>按下回溯。一旦出現退賽橫幅就來不及了。</p></div>
+
+  <h3 id="replay">重播</h3>
+  <p>賽後重播時：<kbd>空白鍵</kbd> 播放／暫停、<kbd>←</kbd>／<kbd>→</kbd> 前後跳 5 秒、<kbd>↑</kbd>／<kbd>↓</kbd> 調整播放速度。</p>
+
+  <h3 id="assists">輔助系統</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>輔助</th><th class="nowrap">新手</th><th class="nowrap">進階（預設）</th><th class="nowrap">專家</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">轉向輔助</td><td>開</td><td>關</td><td>關</td><td>高速時轉角較小、更穩，並在後輪滑動時自動反打方向盤。</td></tr>
+      <tr><td class="nowrap">煞車輔助</td><td>高</td><td>關</td><td>關</td><td>依前方彎道算出的煞車曲線自動煞車並收油。「低」最多只踩 6 成煞車、介入較溫和；「高」可全力煞車。</td></tr>
+      <tr><td class="nowrap">ABS 防鎖死</td><td>開</td><td>開</td><td>關</td><td>關閉時煞過頭會鎖死，縱向抓地下降、幾乎無法轉向。</td></tr>
+      <tr><td class="nowrap">循跡控制</td><td>完整</td><td>中</td><td>關</td><td>限制後輪驅動力避免出彎打滑；完整最保守，關閉時油門太大就會甩尾。</td></tr>
+      <tr><td class="nowrap">變速箱</td><td>自動</td><td>自動</td><td>手動</td><td>手動時要自己用 <kbd>E</kbd>／<kbd>Q</kbd> 換檔。</td></tr>
+      <tr><td class="nowrap">行車線</td><td>完整</td><td>僅彎道</td><td>關</td><td>地面引導線：綠＝加速、黃＝滑行、紅＝煞車。</td></tr>
+      <tr><td class="nowrap">ERS 輔助</td><td>開</td><td>開</td><td>關</td><td>依電量自動切換 ERS 模式（電量高用飛馳圈、低就關閉回充），不會自動選「超車」。</td></tr>
+      <tr><td class="nowrap">DRS 輔助</td><td>開</td><td>關</td><td>關</td><td>DRS／直線模式可用時自動打開。</td></tr>
+      <tr><td class="nowrap">安全車限速</td><td>開</td><td>開</td><td>開</td><td>安全車期間自動把你壓在排隊速度（切油門＋輕煞車），不會超越前車或安全車。HUD 會顯示「安全車限速中 — 禁止超車」。</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">另有「自訂」預設，可以逐項調整。AI 車固定使用 ABS 開、循跡控制中、自排、ERS 與 DRS 輔助開。</p>
+
+  <h3 id="presets">輔助建議路線</h3>
+  <ol>
+    <li><strong>第一週：新手。</strong>專心記賽道與煞車點，看行車線的紅色區段在哪。</li>
+    <li><strong>關掉煞車輔助、改成「僅彎道」行車線。</strong>這是最大的進步來源：自己控制煞車點才跑得快。</li>
+    <li><strong>關掉轉向輔助、DRS 輔助。</strong>手動按 DRS，學會什麼時候能開。</li>
+    <li><strong>循跡控制降到「中」→「關」。</strong>出彎油門要漸進，否則會甩尾。</li>
+    <li><strong>手動變速箱、關 ERS 輔助、關 ABS。</strong>完全掌控電量與煞車，就是專家設定。</li>
+  </ol>
+  <div class="callout"><div class="tag">建議</div><p>「安全車限速」三種預設都開著，即使是專家也建議保留，除非你想自己練習安全車期間的跟車距離。</p></div>
+</section>
+
+<!-- ───────────────────────── 2. strategy ───────────────────────── -->
+<section class="chapter" id="strategy">
+  <h2 class="ch"><span class="no">02</span>比賽策略</h2>
+
+  <h3 id="tyres">輪胎</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>配方</th><th>乾地抓地</th><th>磨耗速度</th><th>最佳溫度</th><th>適用</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap"><span class="tyre" style="color:var(--nv-tyre-soft)"><span>S</span></span>軟胎</td><td>最高（100%）</td><td>最快（基準 1.00）</td><td>80–105 °C</td><td>排位、短程衝刺、最後一段</td></tr>
+      <tr><td class="nowrap"><span class="tyre" style="color:var(--nv-tyre-medium)"><span>M</span></span>中性胎</td><td>97.5%</td><td>0.64</td><td>85–110 °C</td><td>平衡，正賽主力</td></tr>
+      <tr><td class="nowrap"><span class="tyre" style="color:var(--nv-tyre-hard)"><span>H</span></span>硬胎</td><td>95%</td><td>0.44（最耐）</td><td>88–115 °C</td><td>長距離、一停策略</td></tr>
+      <tr><td class="nowrap"><span class="tyre" style="color:var(--nv-tyre-inter)"><span>I</span></span>半雨胎</td><td>依積水</td><td>0.60（乾地會磨很快）</td><td>45–80 °C</td><td>小雨、積水中等</td></tr>
+      <tr><td class="nowrap"><span class="tyre" style="color:var(--nv-tyre-wet)"><span>W</span></span>全雨胎</td><td>依積水</td><td>0.55（乾地會磨更快）</td><td>35–70 °C</td><td>大雨、積水很深</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><strong>溫度</strong>：低於最佳區間抓地最多掉 25%，高於最多掉 30%；過熱還會加快磨耗。新胎換上時有暖胎毯溫度，但要跑一段才會進入最佳區間。</li>
+    <li><strong>磨耗懸崖</strong>：磨耗 0–70% 抓地只掉約 6%，超過 70% 之後會像懸崖一樣下滑，到 100% 時掉 30%。<strong>在 70% 左右進站</strong>最划算。</li>
+    <li>約 5 公里的賽道上，軟胎大約撐 17 圈、中性胎 27 圈、硬胎 40 圈（激烈駕駛會更短）。</li>
+    <li>胎壓調高：直線較快、升溫快，但抓地與耐磨下降。實測直線增益很小，建議值見 <a href="#setup-params">賽車設定</a>。</li>
+  </ul>
+
+  <h3 id="pit">進站</h3>
+  <ol>
+    <li>按 <kbd>B</kbd>（或 MFD 選好輪胎後按 <kbd>6</kbd>）申請「本圈進站」。駛過維修道入口時遊戲會自動接手。</li>
+    <li>進入維修道會自動減速到 <strong>80 km/h</strong> 並開啟限速器。</li>
+    <li>停站 2.0–3.5 秒換上新胎，<strong>所有有損傷的部位（前翼、尾翼、底板）都會一併修好</strong>。損傷達 30% 以上時，前翼多花 6 秒、尾翼 8 秒、底板 10 秒；損傷較輕則按比例縮短。</li>
+    <li>整趟進站大約損失 18–32 秒，依賽道而定。MFD 會顯示預估損失時間。</li>
+  </ol>
+  <div class="callout warn"><div class="tag">強制進站規則</div><p>規則開啟時，<strong>乾地正賽</strong>完賽前必須用過兩種不同的乾胎配方，否則完賽時加罰 <strong>30 秒</strong>。比賽中如果下過雨（積水夠深）或你用過雨胎，就自動豁免；衝刺賽沒有這條規則。</p></div>
+
+  <h3 id="ers">ERS 與 Overtake 加力</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>ERS 模式</th><th>2025 輸出</th><th>2026 輸出</th><th>回充</th></tr></thead>
+    <tbody>
+      <tr><td>關閉</td><td>0%</td><td>0%</td><td>油門回充最多</td></tr>
+      <tr><td>中等</td><td>55%</td><td>40%</td><td>一般</td></tr>
+      <tr><td>飛馳圈</td><td>85%</td><td>70%</td><td>較少</td></tr>
+      <tr><td>超車</td><td>100%</td><td>100%</td><td>不回充</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>電池 4 MJ。煞車、滑行、油門都會回充；按 <kbd>X</kbd> 循環切換模式。</li>
+    <li><strong>2025 規則</strong>：按住加力鍵（<kbd>左 Shift</kbd>）隨時等同 100% ERS 輸出。</li>
+    <li><strong>2026 規則</strong>：通過控制線時落後另一台車 <strong>1.0 秒內</strong>，下一圈按住加力鍵可在目前模式上再多 50 個百分點（例如飛馳圈 70% → 120%，上限 150%）。練習、排位、計時賽隨時可用。</li>
+    <li>加力需要電量大於 0 且油門超過 10%。</li>
+  </ul>
+  <div class="callout tip"><div class="tag">TIP</div><p>防守時把電留給出彎後的長直線；攻擊時先用「中等」跟住，進入直線再切「超車」或按住加力鍵。</p></div>
+
+  <h3 id="drs">DRS（2025）／直線模式（2026）</h3>
+  <div class="grid2">
+    <div class="card">
+      <h4>DRS（2025 規則）</h4>
+      <ul>
+        <li>正賽在領先者開始<strong>第 3 圈</strong>後開放。</li>
+        <li>通過偵測點時落後前車 <strong>≤ 1.0 秒</strong>，才能在該 DRS 區使用。</li>
+        <li>踩煞車超過 10% 或離開區域就自動關閉。</li>
+        <li>練習、排位、計時賽可自由使用。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>直線模式（2026 規則）</h4>
+      <ul>
+        <li>熄燈後所有車都能在 DRS 區打開（前後翼同時打開）。</li>
+        <li>側向超過 1.0 g 會自動回到彎道模式，低於 0.6 g 才能再開。</li>
+        <li>極速增加比 DRS 更多，但前後下壓同時變小。</li>
+      </ul>
+    </div>
+  </div>
+  <p>共通限制：賽道積水超過 40% 時全面停用；虛擬安全車、安全車、紅旗期間停用，<strong>恢復綠旗後 2 圈內</strong>也不能用。</p>
+
+  <h3 id="wake">吸尾流與髒空氣</h3>
+  <ul>
+    <li><strong>吸尾流</strong>：在前車正後方 80 公尺內，空氣阻力最多減少 15%，直線上越近越有利。HUD 會顯示「吸尾流」。</li>
+    <li><strong>髒空氣</strong>：在前車後方 40 公尺內過彎，前輪下壓力最多少 15%，會轉向不足。HUD 會顯示「髒空氣」。</li>
+    <li>只有在前車正後方才有效（橫向偏開 3.6 公尺以上就沒有影響）；前車速度不到你一半時不計。</li>
+    <li>規則「空氣動力尾流」可選<strong>擬真</strong>或<strong>關閉</strong>，預設擬真；只影響正賽。</li>
+  </ul>
+  <div class="callout tip"><div class="tag">TIP</div><p>彎道裡不要貼太近（髒空氣讓你推頭），出彎拉開一點角度、在直線上再貼進尾流，最後用 DRS 或加力完成超車。</p></div>
+
+  <h3 id="rivals">AI 對手怎麼開</h3>
+  <ul>
+    <li><strong>車陣很接近</strong>：只有 AI 開的車隊，賽車性能差距只保留約四成，整個車陣排位約在 2% 以內；和你同隊的 AI 開的是跟你一樣的車。</li>
+    <li><strong>每場狀態不同</strong>：正賽中每台 AI 都有當天狀態（最多約 ±0.9% 圈速），所以正賽順序不一定等於排位順序，後段車也可能一路追上來。</li>
+    <li><strong>追擊</strong>：從第 2 圈起，AI 落後前車 1.5 秒內會更拚（更晚煞車、過彎更接近極限），但也比較容易失誤。</li>
+    <li><strong>超車</strong>：AI 會在直線上貼進尾流、用 DRS 和加力，近到一定距離才切出去並排；第 2 圈起，煞車區貼在後輪時也會從內側硬塞。</li>
+    <li><strong>卡位</strong>：有車貼到後方約 0.4 秒內時，AI 會提前封住下一個彎的內線，一次移動到位（不會左右蛇行）；對手已經快撞上來時不會再變線。被封內線時，改走外側或等出彎反擊。</li>
+    <li>第 1 圈 AI 會保守一點，多留跟車距離。</li>
+  </ul>
+
+  <h3 id="weather">天氣與雨戰</h3>
+  <ul>
+    <li>天氣：晴天、陰天、小雨、大雨、動態天氣。動態天氣會在比賽中變化 1–2 次，工程師會先用無線電預告。</li>
+    <li><strong>換胎時機</strong>：積水約 30–60% 時半雨胎最快，60% 以上換全雨胎；光頭胎在全溼賽道只剩約 55% 抓地。</li>
+    <li>雨胎在乾地會磨得非常快（半雨胎約 3.5 倍、全雨胎約 4.5 倍），賽道一乾就要換回光頭胎。</li>
+    <li>積水超過 40% 時 DRS／直線模式停用。</li>
+    <li>賽道膠層會在乾地慢慢累積（抓地最多 +3%），下雨會洗掉。</li>
+  </ul>
+
+  <h3 id="damage">車損</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>規則「車損」</th><th>效果</th></tr></thead>
+    <tbody>
+      <tr><td>關閉</td><td>不會有任何損傷。</td></tr>
+      <tr><td>減輕（預設）</td><td>損傷只算一半。</td></tr>
+      <tr><td>完整</td><td>損傷照算；另外會啟用「車損過重」的判定（見 <a href="#crash">玩家撞車會發生什麼</a>）。</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>輕微擦撞不會造成損傷，撞得夠重才會。</li>
+    <li><strong>前翼</strong>損傷最多少 60% 前軸下壓、多 8% 阻力（轉向不足）；<strong>尾翼</strong>最多少 55% 後軸下壓（出彎不穩）；<strong>底板</strong>最多少 30% 總下壓、多 5% 阻力。</li>
+    <li>前翼損傷超過 30% 時工程師會用無線電提醒。進站時所有受損部位都會修好（見 <a href="#pit">進站</a>）。</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 3. car setup ───────────────────────── -->
+<section class="chapter" id="setup">
+  <h2 class="ch"><span class="no">03</span>賽車設定</h2>
+  <p>每個節次開始前，在「節次簡報」畫面按「賽車設定」就能調整（分割畫面時 P1、P2 各自設定）。設定會依賽道佈局分別保存，下次在同一佈局出賽時自動套用，所以每張圖只要調一次。</p>
+  <div class="callout tip"><div class="tag">一句話結論</div><p><strong>前翼 50、懸吊硬度 11、車身高度 1、胎壓 1</strong> 在每張圖都是最佳值。真正要依賽道調的只有<strong>尾翼</strong>：高速賽道 25–27、中速賽道 36–45、低速／街道賽 40–50（多數是 50）。懶得調就直接用下面的綜合設定。</p></div>
+
+  <h3 id="setup-allround">綜合最佳設定（一組通吃）</h3>
+  <div class="tbl"><table>
+    <thead><tr><th></th><th>前翼角度</th><th>尾翼角度</th><th>差速器（油門）</th><th>煞車平衡（前 %）</th><th>懸吊硬度</th><th>車身高度</th><th>胎壓</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap"><strong>綜合設定</strong></td><td><strong>50</strong></td><td><strong>30</strong></td><td><strong>90%</strong></td><td><strong>63%</strong></td><td><strong>11</strong></td><td><strong>1</strong></td><td><strong>1</strong></td></tr>
+      <tr><td class="nowrap">遊戲預設</td><td>25</td><td>25</td><td>55%</td><td>57%</td><td>6</td><td>5</td><td>6</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li><strong>單圈</strong>：36 個佈局（18 條賽道 × 正反向）平均每圈比預設快 <strong>3.69 秒</strong>。各圖專用最佳設定平均快 3.77 秒，所以綜合設定平均只慢 0.08 秒。</li>
+    <li><strong>最吃虧的賽道</strong>：摩納哥（正向 +0.42、反向 +0.36 秒），其他賽道都在 0.26 秒以內。</li>
+    <li><strong>2026 規則也適用</strong>：平均每圈快 3.19 秒（各圖最佳是 3.20 秒），36 個佈局全都比預設快。</li>
+    <li><strong>極速</strong>：平均只少約 8 km/h（2–11 km/h），例如蒙札 342 → 333 km/h。</li>
+    <li><strong>長跑</strong>：中性胎、開磨耗跑 8 圈，在蒙札、銀石、摩納哥都比預設快 17–47 秒，而且輪胎磨耗少約 15–18%（例：銀石 35.1% → 29.0%）。</li>
+  </ul>
+  <div class="callout"><div class="tag">唯一值得改的地方</div><p>摩納哥只把尾翼改成 <strong>50</strong>，每圈再快約 0.3 秒；濱海灣與亞斯濱海（正向）約快 0.1–0.2 秒。亞斯濱海反向不要改，改了反而變慢。</p></div>
+
+  <h3 id="setup-tracks">各賽道最佳設定</h3>
+  <p>前翼 50、懸吊硬度 11、車身高度 1、胎壓 1 在全部 36 個佈局都是最佳值，下表只列會變的三項。每格是「正向／反向」；<strong>比預設快</strong>是單圈快幾秒；<strong>改用綜合設定</strong>是換成上面那組會慢多少，≈0 表示差距在 0.05 秒以內。</p>
+
+  <h4>高速賽道（尾翼 25–27）</h4>
+  <div class="tbl"><table>
+    <thead><tr><th>賽道</th><th>尾翼</th><th>差速器（%）</th><th>煞車平衡（%）</th><th>比預設快（秒）</th><th>改用綜合設定</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">蒙札賽道</td><td>27／25</td><td>55／90</td><td>66／57</td><td>2.69／2.49</td><td>+0.18／+0.10</td></tr>
+      <tr><td class="nowrap">斯帕-法蘭柯香賽道</td><td>26／26</td><td>60／55</td><td>65／64</td><td>4.24／4.74</td><td>+0.20／+0.20</td></tr>
+      <tr><td class="nowrap">銀石賽道</td><td>27／27</td><td>60／80</td><td>63／57</td><td>5.81／5.60</td><td>+0.07／≈0</td></tr>
+      <tr><td class="nowrap">鈴鹿賽道</td><td>27／27</td><td>60／55</td><td>63／57</td><td>4.41／4.58</td><td>+0.10／+0.06</td></tr>
+      <tr><td class="nowrap">拉斯維加斯大道賽道</td><td>26／26</td><td>90／85</td><td>64／64</td><td>2.82／2.74</td><td>+0.14／+0.11</td></tr>
+      <tr><td class="nowrap">蜃樓沙漠賽道（原創）</td><td>27／27</td><td>70／80</td><td>63／63</td><td>3.47／3.29</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">高原嶺賽道（原創）</td><td>25／26</td><td>80／70</td><td>57／64</td><td>2.18／2.09</td><td>+0.14／+0.15</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>中速賽道（尾翼 36–45）</h4>
+  <div class="tbl"><table>
+    <thead><tr><th>賽道</th><th>尾翼</th><th>差速器（%）</th><th>煞車平衡（%）</th><th>比預設快（秒）</th><th>改用綜合設定</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">上海國際賽車場</td><td>36／36</td><td>70／90</td><td>63／60</td><td>4.12／4.36</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">奧斯汀賽道</td><td>36／36</td><td>60／70</td><td>63／63</td><td>4.47／4.78</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">英特拉格斯賽道</td><td>36／40</td><td>90／90</td><td>57／60</td><td>2.99／3.03</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">巴林薩基爾賽道</td><td>45／36</td><td>90／90</td><td>60／60</td><td>3.09／3.03</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">雪邦國際賽車場</td><td>45／40</td><td>90／80</td><td>60／60</td><td>4.30／4.16</td><td>≈0／≈0</td></tr>
+      <tr><td class="nowrap">紅葉丘陵賽道（原創）</td><td>36／36</td><td>90／60</td><td>57／63</td><td>4.27／4.69</td><td>≈0／≈0</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>低速／街道賽（尾翼 40–50）</h4>
+  <div class="tbl"><table>
+    <thead><tr><th>賽道</th><th>尾翼</th><th>差速器（%）</th><th>煞車平衡（%）</th><th>比預設快（秒）</th><th>改用綜合設定</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">摩納哥市街賽道</td><td>50／50</td><td>90／90</td><td>57／57</td><td>3.53／3.53</td><td><strong>+0.42／+0.36</strong></td></tr>
+      <tr><td class="nowrap">濱海灣市街賽道</td><td>50／50</td><td>95／90</td><td>58／57</td><td>3.52／3.52</td><td>+0.26／+0.20</td></tr>
+      <tr><td class="nowrap">亞斯濱海賽道</td><td>50／40</td><td>80／90</td><td>57／60</td><td>4.06／3.50</td><td>+0.26／≈0</td></tr>
+      <tr><td class="nowrap">流明港街道賽（原創）</td><td>50／50</td><td>95／80</td><td>58／57</td><td>3.38／3.32</td><td>+0.12／+0.07</td></tr>
+      <tr><td class="nowrap">翠島海岸賽道（原創）</td><td>50／47</td><td>55／55</td><td>58／58</td><td>4.27／4.51</td><td>≈0／≈0</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">差速器與煞車平衡對單圈的影響很小（大多在 0.1–0.3 秒內），所以同一條賽道正反向的數字可能差很多。照表調或直接用綜合設定的 90%／63% 都可以；真正有差的是尾翼。</p>
+
+  <h3 id="setup-params">每項設定的實際效果</h3>
+  <p>從預設值開始、每次只動一項，在蒙札、斯帕、銀石、鈴鹿、摩納哥、濱海灣實測的結果。遊戲內的說明大方向沒錯，但每一項的影響大小差很多：</p>
+  <div class="tbl"><table>
+    <thead><tr><th>設定</th><th>預設</th><th>實測效果</th><th>建議</th></tr></thead>
+    <tbody>
+      <tr><td class="nowrap">前翼角度</td><td>25</td><td><strong>影響最大。</strong>調到 50 每圈快 1.0–3.5 秒，調到 0 慢 0.9–5.0 秒；高速彎多的賽道（銀石、鈴鹿、斯帕）差最多。</td><td>50</td></tr>
+      <tr><td class="nowrap">尾翼角度</td><td>25</td><td>看賽道：街道賽調到 50 快約 0.65 秒，蒙札調到 50 反而慢 1.5 秒。前翼加大後尾翼也要跟著補（見 <a href="#setup-why">為什麼這樣最快</a>）。</td><td>依賽道 25–50</td></tr>
+      <tr><td class="nowrap">差速器（油門）</td><td>55%</td><td>影響小：街道賽調到 100% 快約 0.3 秒、調到 10% 慢約 0.5 秒；高速賽道只差 ±0.2 秒。</td><td>55–95%</td></tr>
+      <tr><td class="nowrap">煞車平衡（前 %）</td><td>57%</td><td>影響最小，都在 0.3 秒以內；開 ABS 時偏前（63–66%）略快。</td><td>57–66%</td></tr>
+      <tr><td class="nowrap">懸吊硬度</td><td>6</td><td>調到 11 快 0.2–0.4 秒；代價是壓路緣石時抓地下降。</td><td>11</td></tr>
+      <tr><td class="nowrap">車身高度</td><td>5</td><td>調到 1 快 0.1–0.6 秒；代價同上。</td><td>1</td></tr>
+      <tr><td class="nowrap">胎壓</td><td>6</td><td>調到 1 快 0.6–1.2 秒，而且<strong>更耐磨</strong>（8 圈中性胎磨耗約少 15%）。說明寫的「直線較快」實際上很小，連蒙札都是低胎壓比較快。</td><td>1</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="setup-why">為什麼這樣最快</h3>
+  <ul>
+    <li><strong>前翼比尾翼划算得多。</strong>前翼每加 1 格，總下壓力 +0.53%，阻力只多 +0.16%；尾翼每加 1 格，下壓力 +0.67%，阻力卻多 +0.48%。用同樣的阻力，前翼換到的下壓力大約是尾翼的 2.4 倍，所以前翼直接開到 50。</li>
+    <li><strong>過彎極限看比較弱的那一軸。</strong>預設的 25／25 是前輪先到極限（推頭），所以加前翼能直接讓整台車過彎變快。前翼加到 50 後前後就接近平衡，這時尾翼只要補到「後輪剛好不會先滑」就好，再多就只是增加阻力。</li>
+    <li><strong>低速街道賽</strong>的彎多半在 100–200 km/h，下壓力比極速重要，尾翼開到 50 也不吃虧。</li>
+    <li><strong>機械設定幾乎沒有代價。</strong>車身高度 1：下壓力 +4.8%（阻力也多 1.6%）；懸吊硬度 11：下壓力 +2%，輪胎反應更直接；胎壓 1：抓地 +3%，升溫與磨耗速度都 −15%（滾動阻力略增，影響很小）。代價只在路緣石與輪胎溫度（見 <a href="#setup-tips">調校注意事項</a>）。</li>
+  </ul>
+  <p><strong>平衡值</strong>＝後軸抓地上限 ÷ 前軸抓地上限。大於 1 代表前輪先到極限，推過頭只會往外推（轉向不足，比較安全）；小於 1 代表後輪先到極限，容易甩尾。預設的 25／25 在 250 km/h 約 1.19，明顯推頭。下表是前翼 50、懸吊 11、車身高度 1、胎壓 1、差速器 90% 時的平衡值：</p>
+  <div class="tbl"><table>
+    <thead><tr><th>尾翼</th><th>100 km/h</th><th>200 km/h</th><th>250 km/h</th><th>300 km/h</th><th>330 km/h</th></tr></thead>
+    <tbody>
+      <tr><td>20</td><td>1.103</td><td>1.010</td><td style="color:var(--nv-danger)">0.979</td><td style="color:var(--nv-danger)">0.958</td><td style="color:var(--nv-danger)">0.948</td></tr>
+      <tr><td>25</td><td>1.116</td><td>1.042</td><td>1.017</td><td>1.000</td><td style="color:var(--nv-danger)">0.992</td></tr>
+      <tr><td>27</td><td>1.122</td><td>1.054</td><td>1.032</td><td>1.016</td><td>1.009</td></tr>
+      <tr><td><strong>30（綜合）</strong></td><td><strong>1.130</strong></td><td><strong>1.074</strong></td><td><strong>1.055</strong></td><td><strong>1.042</strong></td><td><strong>1.035</strong></td></tr>
+      <tr><td>36</td><td>1.147</td><td>1.112</td><td>1.100</td><td>1.092</td><td>1.088</td></tr>
+      <tr><td>50</td><td>1.185</td><td>1.201</td><td>1.206</td><td>1.209</td><td>1.211</td></tr>
+    </tbody>
+  </table></div>
+  <p>尾翼 25 的平均單圈其實再快約 0.03 秒，但在 300 km/h 以上平衡值會掉到 1.00 以下，高速彎變成後輪先滑。尾翼 30 在整個速度範圍都保持在 1.035 以上，推過頭也不會打轉，所以綜合設定選 30。</p>
+
+  <h3 id="setup-tips">調校注意事項</h3>
+  <ul>
+    <li><strong>前翼 50 時尾翼不要低於 20。</strong>尾翼 20 在 250 km/h 以上平衡值就低於 1；斯帕實測尾翼 5–10 會在高速彎打滑，單圈比尾翼 30 慢 1.5–3.7 秒。</li>
+    <li><strong>高速賽道的各圖最佳尾翼（25–27）剛好卡在平衡點</strong>（300 km/h 時約 1.00）。開起來覺得車尾飄，就改用綜合設定（尾翼 30），每圈只慢 0.2 秒以內。</li>
+    <li><strong>壓路緣石</strong>：車身高度 1 加懸吊 11 會讓路緣石上的抓地從 0.92 降到 0.84。如果你常壓高路緣石覺得不穩，可以放寬到車身高度 3、懸吊 9（路緣石抓地 0.87），平均每圈約慢 0.3 秒（0.1–0.5 秒）。</li>
+    <li><strong>胎溫</strong>：胎壓 1 會讓輪胎升溫變慢，8 圈長跑時中性胎平均約 83–87 °C，剛好在最佳區間（85–110 °C）的下緣。用硬胎（88–115 °C）或覺得抓地不夠時，可以把胎壓調回 3，平均每圈約慢 0.4 秒。</li>
+    <li><strong>關掉 ABS 時</strong>：煞車平衡 63% 是開著 ABS 測的。偏前的平衡在沒有 ABS 時容易鎖死前輪，建議調回 57–60%，單圈損失不到 0.1 秒。</li>
+    <li><strong>雨天沒有實測</strong>，上面的數字只適用於乾地。</li>
+    <li>數據來自 AI 自動駕駛，AI 會依賽車性能自動調整過彎速度。真人駕駛時，平衡值接近 1 的設定比較難開，不確定就選尾翼高一點的那組。</li>
+  </ul>
+
+  <h3 id="setup-method">測試方法</h3>
+  <ul class="small">
+    <li>用遊戲本身的物理與 AI 控制器做無頭模擬：AI 難度 110、乾地晴天、軟胎，關閉輪胎磨耗與賽道界線，單車跑 2 圈飛馳圈取最快一圈，2025 規則。</li>
+    <li>各圖最佳設定：7 項設定逐項搜尋（前翼 30–50、尾翼 0–50、差速器 10–100%、煞車平衡 50–70%、其他 1–11），重複到不再變動。相差 0.05 秒以內視為一樣快，優先選尾翼較高、差速器與煞車平衡較接近預設的穩定組合。</li>
+    <li>綜合設定：固定前翼 50、懸吊 11、車身高度 1、胎壓 1，尾翼 8 種 × 差速器 5 種 × 煞車平衡 3 種共 120 組，在 36 個佈局全部跑過，選平均損失小、而且全速域平衡值都大於 1 的組合。</li>
+    <li>另外用 2026 規則，以及 8 圈長跑（中性胎、開磨耗）複驗。數據對應 2026 年 10 月的遊戲版本，物理或 AI 更新後可能會變。</li>
+  </ul>
+</section>
+
+<!-- ───────────────────────── 3. race control ───────────────────────── -->
+<section class="chapter" id="racecontrol">
+  <h2 class="ch"><span class="no">04</span>賽事管制與罰則</h2>
+
+  <h3 id="flags">旗號總覽</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>旗號</th><th>什麼時候出現</th><th>你要做什麼</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip f-green">綠旗</span></td><td>正常比賽，或中性化／黃旗結束時顯示數秒</td><td>全力比賽</td></tr>
+      <tr><td><span class="chip f-yellow">黃旗</span></td><td>該計時段有事故，車在賽道邊或還在移動</td><td>該計時段禁止超車，小心</td></tr>
+      <tr><td><span class="chip f-dyellow">雙黃旗</span></td><td>危險物停在賽道路面上</td><td>同上，準備隨時停車或閃避</td></tr>
+      <tr><td><span class="chip f-vsc">VSC</span></td><td>虛擬安全車：事故需要全場減速</td><td>保持差值為正、不得超車</td></tr>
+      <tr><td><span class="chip f-sc">SC</span></td><td>安全車出場</td><td>排隊跟車、不得超車</td></tr>
+      <tr><td><span class="chip f-red">紅旗</span></td><td>比賽中止</td><td>減速，等待回到發車格</td></tr>
+      <tr><td><span class="chip f-blue">藍旗</span></td><td>你即將被領先一圈的車追上</td><td>讓車（不會因此被罰，但可以避免碰撞）</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="nopass">禁止超車與讓回</h3>
+  <p>以下狀況<strong>不得超車</strong>：暖胎圈、虛擬安全車（含「即將結束」）、安全車（含「本圈進站」）、紅旗，以及<strong>你所在計時段有黃旗</strong>時。</p>
+  <ul>
+    <li>違規超車後會收到「請讓回位置給 ○○○」，必須在 <strong>10 秒內</strong>退回對方後面，否則<strong>罰 5 秒</strong>。</li>
+    <li>以下情況<strong>可以合法超越</strong>：在維修道裡的車、已退賽或完賽的車、速度不到你一半的車（例如停下或慢慢開的車）、正在故障減速或打滑的 AI 車。</li>
+    <li>對方欠你的位置（他違規超你），你超回來是合法的。</li>
+  </ul>
+
+  <h3 id="vsc">虛擬安全車（VSC）</h3>
+  <ul>
+    <li>每台車都有一個<strong>差值</strong>（秒），以參考速度約 6 成（最高約 180 km/h）為基準。開得比基準慢，差值上升；開得快，差值下降。</li>
+    <li>VSC 開始時差值為 +1.2 秒，最多累積到 +2.5 秒。</li>
+    <li>差值<strong>小於 0</strong>會收到警告「超過虛擬安全車限速」；<strong>小於 −1 秒</strong>罰 <strong>5 秒</strong>（每次 VSC 最多罰一次）。</li>
+    <li>VSC 至少持續 20 秒；現場清理完畢後進入「即將結束」10 秒，再恢復綠旗。</li>
+  </ul>
+  <div class="callout tip"><div class="tag">TIP</div><p>VSC 期間差值是可以「存」的：先開慢一點把差值堆到 +2 秒左右，「即將結束」時再慢慢放開，綠旗一出就能全油門。</p></div>
+
+  <h3 id="sc">安全車（SC）</h3>
+  <ol>
+    <li>安全車從維修道出口出場，插到領先車前方；在它和領先車之間的車會被揮手放行，去排到隊伍後面。</li>
+    <li>全場排隊跟車、<strong>禁止超車</strong>。開著「安全車限速」輔助時會自動幫你維持隊伍速度。</li>
+    <li><strong>領先車也不能超越安全車</strong>：安全車接到領先車之後，領先車超到它前面會被警告，10 秒內沒退回就<strong>罰 5 秒</strong>。</li>
+    <li>現場清理完畢、隊伍成形後（未滿 10 圈的比賽至少 40 秒；10 圈以上至少讓領先車跑 2 圈），宣布「安全車本圈進站」並關燈。只有離維修道入口還有至少 4 成圈的距離時才會在本圈宣布，否則延到下一圈，所以你一定有準備時間。</li>
+    <li>安全車駛入維修道後，由領先車控制節奏，<strong>通過終點線才恢復綠旗</strong>。綠旗後 2 圈禁用 DRS／直線模式。</li>
+  </ol>
+
+  <h3 id="red">紅旗</h3>
+  <ul>
+    <li>比賽中止：全場先減速行駛 8 秒，接著依目前名次<strong>排回發車格</strong>。</li>
+    <li>重組時<strong>所有車的損傷全部修好</strong>，並<strong>換上新胎</strong>。</li>
+    <li>之後以 5 燈<strong>站立式重新起跑</strong>，已跑完的圈數保留。</li>
+    <li>隨機事故造成的紅旗只會在 AI 嚴重撞車、剩餘超過 3 圈時有機率發生（事故頻率「標準」約 5%、「增加」約 15%，「減少」不會），每場最多一次。玩家的「車損過重」單車事故另有規則（見 <a href="#crash">玩家撞車會發生什麼</a>）。</li>
+  </ul>
+
+  <h3 id="formation">暖胎圈</h3>
+  <ul>
+    <li>規則開啟時，正賽起跑前全場依發車順序繞一圈，最後自動停入自己的發車格，全車停妥後亮燈起跑。</li>
+    <li>暖胎圈不得超越前車：超過了要在 10 秒內退回，否則罰 5 秒。</li>
+    <li>如果你停著不動超過 8 秒，或落後前車太多，自動駕駛會接手幫你開回發車格。</li>
+  </ul>
+
+  <h3 id="blue">藍旗</h3>
+  <p>你被領先一圈以上的車追到 70 公尺內時會顯示藍旗，對方通過後 2 秒消失。AI 被套圈時會讓出行車線並減速；玩家目前不會因為忽略藍旗被罰，但讓車能避免碰撞與損傷。</p>
+
+  <h3 id="limits">賽道界線</h3>
+  <ul>
+    <li>在<strong>彎道</strong>內，四輪全部越過白線（路緣石不算賽道）超過 0.25 秒、而且車速超過約 43 km/h，就算一次違規。</li>
+    <li>每次違規都會<strong>作廢當圈成績</strong>。</li>
+    <li>前 3 次是警告（第 3 次是最後警告）；<strong>正賽第 4 次起每次罰 5 秒</strong>。</li>
+    <li>直線上出界不算；從維修道入口到出口的這一段，往維修道那一側出界也不算。規則「賽道界線」可以關閉。</li>
+  </ul>
+
+  <h3 id="stopped">停在賽道上的車</h3>
+  <ul>
+    <li>任何車（包括你）在正賽中停住超過 <strong>4 秒</strong>：出黃旗（停在賽道路面上則是雙黃旗）。</li>
+    <li>停在<strong>賽道路面上超過 12 秒</strong>，而且當時是綠旗：升級成<strong>虛擬安全車</strong>，直到這台車重新開走。</li>
+  </ul>
+  <p class="small">事故頻率設為「關閉」時，停車不會觸發任何旗號。</p>
+
+  <h3 id="crash">玩家撞車會發生什麼</h3>
+  <p>只在<strong>正賽</strong>、事故頻率不是「關閉」、而且你<strong>不在維修道內</strong>時才會判定。一般的擦撞、碰輪遠低於門檻，不會觸發。</p>
+  <div class="flow">
+    <div class="step">
+      <div class="n">1</div>
+      <div>
+        <h4>重撞瞬間：先出黃旗</h4>
+        <p>撞護欄或撞到別台車的力道夠大，撞擊處立刻出黃旗。</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">2</div>
+      <div>
+        <h4>6 秒內判定：你是繼續開，還是停下來？</h4>
+        <div class="branch">
+          <div>
+            <h4>繼續開走</h4>
+            <p>撞擊地點會留下<strong>碎片</strong>（雙黃旗），撞得越重越可能出 VSC 或安全車：</p>
+            <ul>
+              <li>最重的撞擊：約 <strong>60% 安全車</strong>、20% VSC、20% 只有黃旗。</li>
+              <li>剛過門檻的撞擊：大多只有黃旗，約 30% VSC。</li>
+            </ul>
+            <p class="small">就算你已經開走，碎片也要等工作人員清理完才解除。</p>
+          </div>
+          <div>
+            <h4>停了下來</h4>
+            <p>依 AI 撞車的規則判斷：在<strong>高速路段一定出安全車</strong>，其他地方多半是安全車、有時是 VSC。</p>
+            <p><strong>你不會被退賽</strong>，車還是你的，可以繼續開或自己進站。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="step">
+      <div class="n">3</div>
+      <div>
+        <h4>車損過重（只有車損設為「完整」）</h4>
+        <p>撞到<strong>停下來</strong>，而且<strong>前翼損傷達 90% 以上</strong>，就算車損過重：</p>
+        <div class="branch">
+          <div>
+            <h4><span class="chip f-red">紅旗</span> 單車事故</h4>
+            <p>這次重撞<strong>不是撞上別台車、撞擊前 3 秒內也沒有碰到別台車</strong>（撞擊後才被別台車撞到不算）、規則有開「紅旗」、而且不是最後一圈 → <strong>出紅旗</strong>。你的車會在紅旗期間修好，照樣參加站立式重新起跑（就像電影《F1》那樣）。</p>
+          </div>
+          <div>
+            <h4><span class="chip f-sc">SC</span> 其他情況</h4>
+            <p>撞上別台車或撞擊前 3 秒內碰過別台車，或紅旗規則關閉、或已經是最後一圈 → <strong>強制退賽「車損過重退賽」</strong>，不出紅旗，改出安全車或 VSC（最後一圈只出黃旗）。退賽後<strong>無法回溯</strong>。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="callout warn"><div class="tag">比賽尾聲</div><p>所有事故判定都一樣：領先者進入<strong>最後一圈</strong>後，任何事故<strong>只會出黃旗</strong>。</p></div>
+  <div class="callout"><div class="tag">其他情況都不會讓你退賽</div><p>機械故障只會發生在 AI 車上；損傷再重，只要不符合上面的「車損過重」，遊戲都不會替你退賽。想放棄比賽，可以從暫停選單選「退賽」。</p></div>
+
+  <h3 id="retire">退賽</h3>
+  <ul>
+    <li>暫停選單 →「退賽」，再按一次確認（分割畫面可以只讓其中一位退賽）。</li>
+    <li>退賽後比賽繼續，所有人類玩家都結束後，剩下的比賽會在背景快轉跑完。</li>
+    <li>退賽後就不能回溯。</li>
+  </ul>
+
+  <h3 id="rcsettings">事故頻率與紅旗開關</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>規則「安全車」（事故頻率）</th><th>每場預期隨機事故數</th></tr></thead>
+    <tbody>
+      <tr><td>關閉</td><td>0：不會有任何隨機事故、VSC 或安全車，你自己撞車也不會觸發</td></tr>
+      <tr><td>減少</td><td>約 0.6 次</td></tr>
+      <tr><td>標準（預設）</td><td>約 1.4 次</td></tr>
+      <tr><td>增加</td><td>約 3 次</td></tr>
+    </tbody>
+  </table></div>
+  <ul>
+    <li>隨機事故包含 AI 撞車、機械故障停車與賽道碎片，與比賽圈數無關。</li>
+    <li>規則「紅旗」（預設開啟）：關閉時嚴重事故只會出安全車；玩家車損過重時也不會出紅旗，而是直接退賽。</li>
+    <li>規則「暖胎圈」（預設關閉）：開啟後正賽起跑前先跑一圈。</li>
+  </ul>
+
+  <h3 id="penalties">罰則一覽</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>違規</th><th>處罰</th></tr></thead>
+    <tbody>
+      <tr><td>黃旗、VSC、安全車期間超車，10 秒內沒讓回</td><td>+5 秒</td></tr>
+      <tr><td>暖胎圈超車，10 秒內沒退回</td><td>+5 秒</td></tr>
+      <tr><td>VSC 差值低於 −1 秒</td><td>+5 秒（每次 VSC 一次）</td></tr>
+      <tr><td>安全車已接到你（你是領先者）時超越安全車，10 秒內沒退回</td><td>+5 秒</td></tr>
+      <tr><td>賽道界線第 4 次起（正賽）</td><td>每次 +5 秒；每次違規都作廢該圈</td></tr>
+      <tr><td>強制進站規則開啟，乾地正賽沒用過兩種乾胎</td><td>完賽時 +30 秒</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small">罰秒加在完賽總時間上。名次先比完成圈數，再比含罰秒的總時間。</p>
+
+  <h3 id="rctips">實戰技巧</h3>
+  <div class="grid2">
+    <div class="card"><h4>安全車時進站</h4><p>全場都慢下來時，進站損失的時間比綠旗少。安全車一出，如果輪胎已經磨了一半，馬上按 <kbd>B</kbd>。</p></div>
+    <div class="card"><h4>重新起跑抓時機</h4><p>「本圈進站」後跟緊前車，安全車進維修道後由領先車決定何時加速；終點線前就是起跑點。綠旗後 2 圈沒有 DRS，靠尾流與加力。</p></div>
+    <div class="card"><h4>黃旗只看自己的計時段</h4><p>禁止超車只限你目前所在、有黃旗的計時段。過了那一段就可以重新攻擊。</p></div>
+    <div class="card"><h4>超車被警告就馬上讓</h4><p>收到「請讓回位置」時，鬆油門讓對方過去就解除；拖到 10 秒就是 5 秒罰時。</p></div>
+    <div class="card"><h4>撞車後先別停</h4><p>如果車還能開，盡量把車開回賽道、離開事故現場；停在路面上 12 秒會變成 VSC。</p></div>
+    <div class="card"><h4>紅旗＝免費修車換胎</h4><p>紅旗重組時所有車都修好、換新胎，進站策略會整個重來，重新想好要跑哪種輪胎。</p></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── 4. secrets ───────────────────────── -->
+<section class="chapter" id="secrets">
+  <h2 class="ch"><span class="no">05</span>隱藏技巧與測試秘技</h2>
+  <div class="callout warn"><div class="tag">注意</div><p>這些是開發與測試用的功能，不會出現在選單裡。網址快速開賽時，你會駕駛 Nordlys Racing 的 Hsu（分割畫面 P2 為同隊的 Dahl），輔助為「進階」預設。</p></div>
+
+  <h3 id="url">網址快速開賽</h3>
+  <p>在遊戲網址後面加上參數，就能跳過選單直接開賽。無效的值會被忽略並改用預設值。</p>
+  <div class="tbl"><table>
+    <thead><tr><th>參數</th><th>可用值</th><th>預設</th></tr></thead>
+    <tbody>
+      <tr><td><code>quick</code></td><td><code>race</code> 正賽、<code>quali</code> 排位（接著正賽）、<code>practice</code> 練習、<code>tt</code> 計時賽、<code>split</code> 雙人分割畫面正賽（加 8 台 AI）</td><td>不帶就正常開機</td></tr>
+      <tr><td><code>layout</code></td><td>賽道代號，加上 <code>-rev</code> 為反向（見下表）</td><td><code>porto-lumen</code></td></tr>
+      <tr><td><code>laps</code></td><td>1–200</td><td>3</td></tr>
+      <tr><td><code>weather</code></td><td><code>clear</code>、<code>overcast</code>、<code>lightRain</code>、<code>heavyRain</code>、<code>dynamic</code></td><td><code>clear</code></td></tr>
+      <tr><td><code>reg</code></td><td><code>2025</code>、<code>2026</code></td><td><code>2025</code></td></tr>
+      <tr><td><code>ai</code></td><td>AI 難度 0–110</td><td>85</td></tr>
+      <tr><td><code>seed</code></td><td>任意整數</td><td>目前時間</td></tr>
+      <tr><td><code>sc</code></td><td>事故頻率：<code>off</code>、<code>reduced</code>、<code>standard</code>、<code>increased</code></td><td><code>standard</code></td></tr>
+      <tr><td><code>redflag</code></td><td><code>1</code> 可能出紅旗、<code>0</code> 不出紅旗</td><td><code>1</code></td></tr>
+      <tr><td><code>formation</code></td><td><code>1</code> 起跑前跑暖胎圈、<code>0</code> 直接起跑</td><td><code>0</code></td></tr>
+      <tr><td><code>sprint</code></td><td><code>1</code>：衝刺賽（只限 <code>race</code>、<code>split</code>；圈數為 <code>laps</code> 的三分之一、至少 2 圈，給衝刺賽積分）</td><td>一般正賽</td></tr>
+      <tr><td><code>wake</code></td><td><code>1</code> 空氣動力尾流擬真、<code>0</code> 關閉</td><td><code>1</code></td></tr>
+      <tr><td><code>autopilot</code></td><td><code>1</code>：你的車由 AI 駕駛</td><td>玩家操作</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>賽道代號</h4>
+  <div class="tbl"><table>
+    <thead><tr><th>代號</th><th>賽道</th><th>代號</th><th>賽道</th></tr></thead>
+    <tbody>
+      <tr><td><code>shanghai</code></td><td>上海國際賽車場</td><td><code>suzuka</code></td><td>鈴鹿賽道</td></tr>
+      <tr><td><code>bahrain</code></td><td>巴林薩基爾賽道</td><td><code>monaco</code></td><td>摩納哥市街賽道</td></tr>
+      <tr><td><code>silverstone</code></td><td>銀石賽道</td><td><code>spa</code></td><td>斯帕-法蘭柯香賽道</td></tr>
+      <tr><td><code>monza</code></td><td>蒙札賽道</td><td><code>singapore</code></td><td>濱海灣市街賽道</td></tr>
+      <tr><td><code>cota</code></td><td>奧斯汀賽道</td><td><code>interlagos</code></td><td>英特拉格斯賽道</td></tr>
+      <tr><td><code>las-vegas</code></td><td>拉斯維加斯大道賽道</td><td><code>yas-marina</code></td><td>亞斯濱海賽道</td></tr>
+      <tr><td><code>sepang</code></td><td>雪邦國際賽車場</td><td><code>porto-lumen</code></td><td>流明港街道賽（原創）</td></tr>
+      <tr><td><code>mirage-sands</code></td><td>蜃樓沙漠賽道（原創）</td><td><code>highland-ridge</code></td><td>高原嶺賽道（原創）</td></tr>
+      <tr><td><code>koyo-hills</code></td><td>紅葉丘陵賽道（原創）</td><td><code>isola-verde</code></td><td>翠島海岸賽道（原創）</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3 id="url-examples">範例網址</h3>
+  <p>開發伺服器（<code>bun run dev</code>）預設在 <code>http://127.0.0.1:5173/</code>：</p>
+<pre><code># 摩納哥 10 圈，事故頻率「增加」：練習安全車與重新起跑
+http://127.0.0.1:5173/?quick=race&amp;layout=monaco&amp;laps=10&amp;sc=increased
+
+# 斯帕動態天氣、2026 規則、AI 100：練習雨戰換胎時機
+http://127.0.0.1:5173/?quick=race&amp;layout=spa&amp;laps=10&amp;weather=dynamic&amp;reg=2026&amp;ai=100
+
+# 鈴鹿反向的衝刺賽，先跑暖胎圈
+http://127.0.0.1:5173/?quick=race&amp;layout=suzuka-rev&amp;laps=9&amp;sprint=1&amp;formation=1
+
+# 銀石計時賽（跟幽靈車比單圈）
+http://127.0.0.1:5173/?quick=tt&amp;layout=silverstone
+
+# 雙人分割畫面，紅葉丘陵 5 圈
+http://127.0.0.1:5173/?quick=split&amp;layout=koyo-hills&amp;laps=5</code></pre>
+
+  <h3 id="seed">固定種子重現比賽</h3>
+  <p>加上 <code>seed=整數</code>，同一個種子加上相同的操作就會得到相同的結果：AI 的失誤、隨機事故、動態天氣都會一樣。適合反覆練同一場比賽，或把一場有問題的比賽重現給別人看。</p>
+<pre><code>http://127.0.0.1:5173/?quick=race&amp;layout=highland-ridge&amp;laps=8&amp;seed=42</code></pre>
+
+  <h3 id="autopilot">自動駕駛觀戰</h3>
+  <p>加上 <code>autopilot=1</code>，你的車改由 AI 控制器駕駛（分割畫面時兩位玩家的車都會自動駕駛）。可以切換鏡頭（<kbd>C</kbd>）觀察 AI 的行車線與煞車點，或搭配固定種子觀看整場比賽。</p>
+<pre><code>http://127.0.0.1:5173/?quick=race&amp;layout=monza&amp;laps=5&amp;autopilot=1&amp;seed=7</code></pre>
+
+  <h3 id="console">主控台掛鉤</h3>
+  <p>在瀏覽器開發者工具的主控台（Console）可以呼叫：</p>
+  <div class="tbl"><table>
+    <thead><tr><th>指令</th><th>作用</th></tr></thead>
+    <tbody>
+      <tr><td><code>window.render_game_to_text()</code></td><td>以 JSON 文字描述目前畫面與節次狀態，包含賽事管制模式、各計時段旗號、安全車位置與你的 VSC 差值。</td></tr>
+      <tr><td><code>window.advanceTime(ms)</code></td><td>以固定步長推進模擬指定的毫秒數（決定性，適合自動化測試）。</td></tr>
+      <tr><td><code>window.debug_force_incident('sc')</code></td><td>立即觸發事故，可用 <code>'yellow'</code>、<code>'vsc'</code>、<code>'sc'</code>、<code>'red'</code>。只在正賽進行中、綠旗時有效，成功回傳 <code>true</code>。</td></tr>
+      <tr><td><code>window.render_debug_info()</code></td><td>回傳 FPS、draw call、三角形數等繪圖資訊。</td></tr>
+    </tbody>
+  </table></div>
+<pre><code>// 想練習安全車重新起跑？比賽開始後在主控台輸入：
+window.debug_force_incident('sc')
+
+// 看看現在的旗號與你的 VSC 差值
+JSON.parse(window.render_game_to_text()).raceControl</code></pre>
+
+  <h3 id="open">如何開啟這份秘笈</h3>
+  <ul>
+    <li>開發伺服器（<code>bun run dev</code>）：<code>http://127.0.0.1:5173/guide.html</code></li>
+    <li>正式建置（<code>bun run build</code>）後，它會跟遊戲一起輸出，放在遊戲同一層目錄的 <code>guide.html</code>。</li>
+    <li>這是單一 HTML 檔，也可以直接用瀏覽器開啟閱讀或列印。</li>
+  </ul>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <p>FORMULA NOVA 25｜新星方程式 25 攻略秘笈。本作是非商業的同人作品，車隊、車手與劇情皆為原創，與任何真實賽車系列、賽事主辦單位、賽道、車隊、車手或遊戲發行商都沒有關聯，也未取得授權或背書；不使用任何官方標誌或品牌名稱。DRS、ERS 等為一般賽車術語。</p>
+</footer>
+
+</body>
+</html>

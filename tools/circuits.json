@@ -1,0 +1,429 @@
+{
+  "monaco": {
+    "name": "Monaco",
+    "official": 3337,
+    "direction": "clockwise",
+    "bbox": [
+      43.727,
+      7.41,
+      43.745,
+      7.435
+    ],
+    "start": [
+      43.73539,
+      7.42136
+    ],
+    "dem": [
+      "eudem25m",
+      "srtm30m"
+    ],
+    "relation": 148194,
+    "elevation": [
+      {
+        "s0": 1050,
+        "s1": 1274,
+        "y0": 39,
+        "y1": 33.5
+      },
+      {
+        "s0": 1274,
+        "s1": 1475,
+        "y0": 33.5,
+        "y1": 10
+      },
+      {
+        "s0": 1475,
+        "s1": 2105,
+        "y0": 10,
+        "y1": 3
+      },
+      {
+        "s0": 2105,
+        "s1": 2905,
+        "y0": 3,
+        "y1": 3
+      },
+      {
+        "s0": 2905,
+        "s1": 3450,
+        "y0": 3,
+        "y1": 14
+      }
+    ],
+    "straights": [
+      [
+        -30,
+        50
+      ]
+    ],
+    "startOffset": 45
+  },
+  "silverstone": {
+    "name": "Silverstone",
+    "official": 5891,
+    "direction": "clockwise",
+    "bbox": [
+      52.06,
+      -1.035,
+      52.088,
+      -0.99
+    ],
+    "start": [
+      52.06941,
+      -1.02206
+    ],
+    "dem": [
+      "eudem25m",
+      "srtm30m"
+    ],
+    "relation": 51160,
+    "straights": [
+      [
+        -210,
+        210
+      ]
+    ]
+  },
+  "monza": {
+    "name": "Monza",
+    "official": 5793,
+    "direction": "clockwise",
+    "bbox": [
+      45.595,
+      9.26,
+      45.63,
+      9.3
+    ],
+    "start": [
+      45.61728,
+      9.28117
+    ],
+    "dem": [
+      "eudem25m",
+      "srtm30m"
+    ],
+    "relation": 284565,
+    "straights": [
+      [
+        -300,
+        600
+      ]
+    ],
+    "startOffset": 150
+  },
+  "spa": {
+    "name": "Spa",
+    "official": 7004,
+    "direction": "clockwise",
+    "bbox": [
+      50.42,
+      5.94,
+      50.455,
+      6.005
+    ],
+    "start": [
+      50.4439,
+      5.96554
+    ],
+    "dem": [
+      "eudem25m",
+      "srtm30m"
+    ],
+    "relation": 284560,
+    "straights": [
+      [
+        -200,
+        235
+      ]
+    ]
+  },
+  "suzuka": {
+    "name": "Suzuka",
+    "official": 5807,
+    "direction": "clockwise",
+    "bbox": [
+      34.83,
+      136.525,
+      34.857,
+      136.555
+    ],
+    "start": [
+      34.84545,
+      136.53815
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 284570,
+    "firstTurn": {
+      "within": 900,
+      "turn": "right"
+    },
+    "straights": [
+      [
+        -290,
+        330
+      ]
+    ],
+    "elevSigma": 70,
+    "startOffset": 340,
+    "bridgeMinSep": 8.5
+  },
+  "singapore": {
+    "name": "Singapore",
+    "official": 4940,
+    "direction": "anticlockwise",
+    "bbox": [
+      1.28,
+      103.85,
+      1.298,
+      103.87
+    ],
+    "start": [
+      1.29127,
+      103.86412
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 421263,
+    "elevScale": 0.15,
+    "straights": [
+      [
+        -215,
+        215
+      ]
+    ],
+    "startOffset": 70,
+    "sigma": 9
+  },
+  "las-vegas": {
+    "name": "Las Vegas",
+    "official": 6201,
+    "direction": "anticlockwise",
+    "bbox": [
+      36.09,
+      -115.185,
+      36.14,
+      -115.15
+    ],
+    "start": [
+      36.116,
+      -115.164
+    ],
+    "dem": [
+      "ned10m",
+      "srtm30m"
+    ],
+    "relation": 16696508,
+    "straights": [
+      [
+        -480,
+        300
+      ]
+    ],
+    "sigma": 8
+  },
+  "shanghai": {
+    "name": "Shanghai",
+    "official": 5451,
+    "direction": "clockwise",
+    "bbox": [
+      31.325,
+      121.2,
+      31.35,
+      121.235
+    ],
+    "start": [
+      31.33758,
+      121.22123
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 2094941,
+    "ways": {
+      "exclude": [
+        107371138,
+        107371147
+      ]
+    },
+    "straights": [
+      [
+        -330,
+        340
+      ]
+    ]
+  },
+  "bahrain": {
+    "name": "Bahrain",
+    "official": 5412,
+    "direction": "clockwise",
+    "bbox": [
+      26.02,
+      50.49,
+      26.05,
+      50.525
+    ],
+    "start": [
+      26.0325,
+      50.5106
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 284538,
+    "straights": [
+      [
+        -515,
+        470
+      ]
+    ],
+    "startOffset": -55
+  },
+  "yas-marina": {
+    "name": "Yas Marina",
+    "official": 5281,
+    "direction": "anticlockwise",
+    "bbox": [
+      24.455,
+      54.59,
+      24.48,
+      54.62
+    ],
+    "start": [
+      24.46975,
+      54.6049
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 11378665,
+    "ways": {
+      "exclude": [
+        176695254
+      ]
+    },
+    "straights": [
+      [
+        -165,
+        255
+      ]
+    ],
+    "elevSigma": 80,
+    "elevScale": 1.7
+  },
+  "interlagos": {
+    "name": "Interlagos",
+    "official": 4309,
+    "direction": "anticlockwise",
+    "bbox": [
+      -23.715,
+      -46.71,
+      -23.69,
+      -46.685
+    ],
+    "start": [
+      -23.7032239,
+      -46.7001274
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 6781071,
+    "ways": {
+      "exclude": [
+        33779109
+      ]
+    },
+    "startOffset": 60,
+    "straights": [
+      [
+        -185,
+        205
+      ]
+    ],
+    "elevSigma": 100.0,
+    "elevation": [
+      {
+        "s0": 1950,
+        "s1": 2450,
+        "y0": 760,
+        "y1": 764,
+        "bump": 15
+      }
+    ]
+  },
+  "cota": {
+    "name": "COTA",
+    "official": 5513,
+    "direction": "anticlockwise",
+    "bbox": [
+      30.12,
+      -97.655,
+      30.145,
+      -97.625
+    ],
+    "start": [
+      30.13277,
+      -97.6409
+    ],
+    "dem": [
+      "ned10m",
+      "srtm30m"
+    ],
+    "relation": 6537729,
+    "ways": {
+      "exclude": [
+        514836373
+      ]
+    },
+    "straights": [
+      [
+        -240,
+        385
+      ]
+    ]
+  },
+  "sepang": {
+    "name": "Sepang",
+    "official": 5543,
+    "direction": "clockwise",
+    "bbox": [
+      2.745,
+      101.725,
+      2.775,
+      101.752
+    ],
+    "start": [
+      2.7607601,
+      101.7383513
+    ],
+    "dem": [
+      "srtm30m",
+      "aster30m"
+    ],
+    "relation": 284496,
+    "ways": {
+      "exclude": [
+        1954693,
+        1956300,
+        1956393,
+        23410526,
+        144359483
+      ]
+    },
+    "straights": [
+      [
+        -250,
+        540
+      ]
+    ]
+  }
+}

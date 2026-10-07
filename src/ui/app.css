@@ -1,0 +1,223 @@
+/*
+ * FORMULA NOVA 25 — app shell (owner: integration). Full-viewport WebGL canvas at the back, #ui-root above it
+ * holding the HUD (z --nv-z-hud) and menus (z --nv-z-menu / --nv-z-overlay), the error panel on top
+ * (--nv-z-error). Transparent layers never take pointer events; only real UI does.
+ */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--nv-bg);
+  color: var(--nv-text);
+  font-family: var(--nv-font);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+  scrollbar-width: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* the renderer writes the pixel size inline; keep it pinned to the viewport and unscaled */
+#game {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 0;
+  display: block;
+  outline: none;
+  touch-action: none;
+  background: var(--nv-bg);
+}
+
+/* overlay host: never blocks the canvas itself; menu screens opt back in */
+#ui-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+#ui-root > .nvm-root {
+  pointer-events: auto;
+}
+
+/* while driving / replaying: no accidental text selection or callouts */
+body[data-app-state='session'],
+body[data-app-state='replay'],
+body[data-app-state='loading'] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+noscript {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--nv-text);
+  background: var(--nv-bg);
+  font-size: 18px;
+}
+
+/* ───────────── error overlay ───────────── */
+
+.nv-error {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: var(--nv-z-error);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(70vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  color: var(--nv-text);
+  font-family: var(--nv-font);
+  background: rgba(20, 8, 12, 0.96);
+  border: 1px solid var(--nv-danger);
+  border-radius: var(--nv-radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.nv-error[hidden] {
+  display: none;
+}
+
+.nv-error--fatal {
+  inset: 0;
+  right: auto;
+  bottom: auto;
+  width: 100vw;
+  height: 100vh;
+  max-height: none;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  border: none;
+  border-radius: 0;
+  background: var(--nv-bg);
+}
+
+.nv-error__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.nv-error--fatal .nv-error__head {
+  flex-direction: column;
+}
+
+.nv-error__title {
+  margin: 0;
+  font-family: var(--nv-font-display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--nv-danger);
+}
+
+.nv-error--fatal .nv-error__title {
+  font-size: 30px;
+}
+
+.nv-error__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.nv-error__btn {
+  appearance: none;
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--nv-text);
+  background: var(--nv-panel-hi);
+  border: 1px solid var(--nv-line-strong);
+  border-radius: var(--nv-radius);
+  cursor: pointer;
+}
+
+.nv-error__btn:hover,
+.nv-error__btn:focus-visible {
+  border-color: var(--nv-accent);
+  outline: none;
+}
+
+.nv-error__hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--nv-text-2);
+}
+
+.nv-error--fatal .nv-error__hint {
+  max-width: 560px;
+  font-size: 16px;
+}
+
+.nv-error__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.nv-error--fatal .nv-error__list:empty {
+  display: none;
+}
+
+.nv-error__item {
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-left: 3px solid var(--nv-danger);
+  border-radius: 4px;
+}
+
+.nv-error__msg {
+  margin: 0;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.nv-error__count {
+  color: var(--nv-warning);
+  font-family: var(--nv-font-mono);
+}
+
+.nv-error__stack {
+  margin: 6px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  font-family: var(--nv-font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--nv-text-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}

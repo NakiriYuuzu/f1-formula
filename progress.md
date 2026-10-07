@@ -1,0 +1,243 @@
+Original prompt: 請你將 https://store.steampowered.com/app/3059520/F1_25/?l=tchinese 進行完整克隆並在瀏覽器上能夠遊玩，連同遊戲場景，玩法，模型，建模的內容全部列出來並一次性完成，make no mistake
+
+# Progress — FORMULA NOVA 25（新星方程式 25）
+
+## Decisions
+- 原創 F1 風格遊戲（不複製 F1 25 受保護內容：商標、真實車隊/車手、授權賽道模型、音效、劇情）。功能架構對標 F1 25。
+- Stack: Vite 8 + TypeScript 7 + three.js r186, bun toolchain. All assets procedural.
+- Contracts: docs/SPEC.md, src/core/types.ts, src/core/math.ts, src/core/defaults.ts, module stubs.
+- Browser E2E (Playwright etc.) requires explicit user consent — not used by build agents.
+
+## Log
+- Phase 0 (architect): scaffold, contracts, fictional teams/drivers, design tokens, SPEC.
+- Phase 1–2 (module agents): track, physics, render, menus/meta, HUD, audio/input, race/AI — see their reports.
+- Phase 3 (integration, 2026-10-03):
+  - **App 已整合**（`src/app/**`、`src/main.ts`、`index.html`、`src/ui/app.css`）：
+    - 狀態機 boot → menu → loading → session（running / paused）→ results / replay → menu；單一 GameRenderer、MenuSystem（背景 ShowroomScene / 頒獎台）、AudioEngine、InputManager。
+    - 主迴圈：rAF、dt 夾限 ≤ 0.1 s、SIM_DT 固定步長累加器（每幀 ≤ 8 步）；one-shot 輸入只進第一個子步（無子步的幀會保留到下一步）；每幀 drain 一次事件 → HUD + audio；之後處理動作（暫停、鏡頭循環、後視、回溯、MFD、Box、全螢幕 F、HUD H）→ RenderFrame → 場景 → 音效 → HUD → 節次結束檢查。
+    - 暫停：模擬停止、音效淡出、HUD 暫停選單；從暫停選單開設定覆蓋層（期間暫停駕駛輸入擷取）；重新開始、離開、退賽（立即結束節次）、結束節次。
+    - 回溯：每 0.5 s 快照、保留 20 s、倒帶約 5 s，遵守 rules.flashbacks；重播錄影同步截斷。
+    - 重播：30 Hz 壓縮錄製（Float32，上限 15 分鐘），插值播放、預設電視鏡頭、拖曳 / 倍速 / 切鏡頭；離開後回到成績。
+    - 正賽中所有玩家都完賽 6 秒後，其餘車輛在載入卡後方快轉跑完，再顯示成績。
+    - 分割畫面：左右兩個視角與兩組 HUD。切到背景分頁自動暫停；文字輸入框有焦點時暫停駕駛輸入擷取；全域錯誤覆蓋層；不支援 WebGL 2 時顯示提示。
+    - 測試掛鉤：`window.render_game_to_text()`、`window.advanceTime(ms)`；URL 快速開始 `?quick=race|quali|practice|tt|split&layout=<id>&laps=N&weather=<kind>&reg=2025|2026&ai=0..110[&seed=N]`。
+  - **跨模組修正**：
+    - render 的起跑格標線改成和 race 一致（桿位在遠離維修道的一側、橫向 2.4 m）。
+    - race 的維修格間距 13 → 14 m，與畫出的車庫 / 維修格一致；render 的維修格畫在工作車道（車道中心往車庫側 4 m），也就是 race 停車的位置。
+    - race 的 createWorld / qualiSim 把 `teamUpgradeBonus(team)` 傳給 createCarSpec，接通「我的車隊」研發升級。
+  - **如何執行**：`bun install` → `bun run dev`（開發）或 `bun run build && bun run preview`；`bun run typecheck`、`bun test`。
+  - **驗證**：
+    - typecheck 乾淨；`bun test` 365 個全數通過（新增 tests/integration.test.ts、tests/integration.app.test.ts）；build 成功。
+    - 另在 /tmp 以 happy-dom 加假 WebGL renderer 做無頭冒煙測試（真實選單、HUD、RaceScene、ShowroomScene），跑完以下完整流程皆無錯誤：
+      - 快速正賽 → 燈號 → 完賽 → 快轉 → 成績 → 重播 → 離開
+      - 暫停 / 設定覆蓋層 / 回溯 / 鏡頭 / Box / 重新開始 / 離開
+      - 分割畫面退賽
+      - 計時賽結束與重播
+      - 從 main.ts 啟動 → 標題 → 計時賽選單 → 開賽
+      - 排位 → 下一節正賽
+  - **已知限制**：
+    - 沒有在真實瀏覽器上看過或聽過（禁止使用 E2E 工具）：畫面色調、版面與音色都還沒有實機驗證。
+    - 手把只能操作暫停選單（十字鍵／A／B），其他選單畫面仍需鍵盤 / 滑鼠。
+    - 線上 / LAN 多人、VR、雲端存檔不實作（SPEC §3）。
+- Phase 5（fixer，2026-10-03）：逐條核對審查結果（31 條，其中 23 與 7 重複），全部確認屬實並修正，沒有駁回。
+  - **正賽退賽**：只讓選擇退賽的那位玩家退賽（分割畫面每位玩家各一個「P1/P2 退賽」）。比賽繼續進行，人類都結束後先等 6 秒寬限，再在背景快轉。快轉超過 400 秒模擬時間時，新增的 `race.concludeRace` 會依各車目前平均配速推算完賽（還沒跑強制進站的車加 24 秒）。積分只發給完賽車。
+  - **2026 主動空力**：側向負載超過 1.0 g 時自動回到彎道模式，低於 0.6 g 才能重新開啟（physics/step.ts）。highland-ridge／koyo-hills／koyo-hills-rev 的失控次數從 51/60/55 降到 5/0/0。新增三個佈局的無頭測試。
+  - **完賽名次**：衝線名次、即時名次和最終成績改用同一套排序（先比圈數，再比含罰時的總時間；還在跑、會多跑一圈的車排在前面）。t3 重現腳本的不一致從 8/13/7 筆降到 0。
+  - **其他賽事規則**：練習賽依時間限制加油；短排位只計飛馳圈（進出站圈不計）；賽道界線改用車輪幾何判定（四輪都越過白線，路緣石不算在賽道內）；修好前翼後損傷事件重新從 0 回報；可靠度評分改為影響碰撞損傷（±約 10%）。
+  - **存檔與選單**：生涯同一站的排位隊友對比只算一次（重跑會覆蓋舊結果）；c6 的目標時間改成依規則年份調整，lapFactor 改為 1.1（目標 90.1 s）；分割畫面 P2 的賽車設定另外存檔；AI 車數上限改為 18；P2 可以綁定 MFD 鍵；暫停鍵至少保留一個按鍵；輔助預設切到「自訂」時會套回原本的自訂組合；換人後的舊隊友在積分榜上顯示名字和車隊；更正第 5 章結尾和反鋸齒說明文字。
+  - **App 與輸入**：設定覆蓋層開著時節次結束，不再讓鍵盤一直失效；`advanceTime` 每約 1/60 秒更新一次輸入平滑；手把可以操作暫停選單（新增 `consumeMenuInputs`）。
+  - **HUD 與 render**：油量估算一開始就用該車實際的油耗；分割畫面每個 view 各自計算陰影（兩台車相距 20 m 內時共用同一張）並顯示各自的行車線；頒獎台的車依該場規則年份建模；畫出的護欄改畫在物理碰撞牆的位置，只在急彎內側為了避免摺疊才往內收；護欄、輪胎牆、防護網和看板支腳往下延伸到 -1.2 m，緩衝區外緣補上側裙；地形在走廊旁多壓低一圈，最多 0.45 m，避免低畫質時穿出緩衝區。
+  - **core 契約（純新增）**：`DEFAULT_KEY_BINDINGS_P2` 新增 `ersCycle: Semicolon`、`pitRequest: BracketLeft`、`mfd: BracketRight`。
+  - **驗證**：typecheck 通過，`bun test` 375 個全數通過（新增 2026 佈局、完賽排序、concludeRace、未完賽不給分、直線模式、可靠度、排位對比、P2 設定、手把選單導覽等測試），build 成功，並重跑審查者的重現腳本確認。
+- Phase 6（fixer round 1，2026-10-03）：處理瀏覽器 QA 回報的 29 條結果（鼻錐車號、My Team 圖樣兩條和塗裝接縫同一個根因，去重後 27 條）。修正 23 條（涵蓋 25 條回報），駁回 4 條。**沒有使用 Playwright 或任何瀏覽器自動化**，因為使用者本人在對話中沒有同意（使用者的全域規則要求明確同意，SPEC §1 也禁止）。驗證改用 happy-dom 加假 WebGL 的無頭 App/選單測試、headless 模擬與軟體光柵器圖片，腳本都在 /tmp/nova-fix-1/。
+  - **選單**：
+    - 計時賽的賽道卡改成只有 Enter／點擊才會選定（TrackBrowser 新增 `selectOnFocus: false`），滑鼠滑過其他卡片不再換掉所選賽道，選定的卡片另有青色框標示。
+    - 頁籤上按 ←/→ 會直接切換分頁。
+    - 主選單底部不再顯示「Esc 返回」。
+    - 計時賽簡報的麵包屑原本顯示「計時賽・計時賽」，改為只顯示「計時賽」。
+    - 設定改在 pagehide／分頁隱藏時立即寫入，不必等 300 ms 防抖結束。
+    - 「暫停」欄位可以重新綁定 Esc；暫停選單的提示依實際綁定的按鍵顯示。
+  - **HUD**：
+    - 計時塔的名次數字改成固定在每一列，只有車列滑動，換位動畫中途也不會再出現「16 在 15 上面」。
+    - 單人排位用模擬 AI 的最佳圈與分段作為「全場最佳」門檻（`race.qualifyingBenchmark`，並新增 `WorldRaceInternal.benchLap`），HUD 的紫色和成績頁的名次因此一致。
+    - 回溯成功或失敗都會顯示提示並播放音效。
+    - 分割畫面的 MFD 改為 P1 用上排數字鍵、P2 用數字鍵盤，提示文字也跟著改。
+    - 窄螢幕（≤1024 px）分割畫面時，無線電／MFD 區塊會讓開遙測面板。
+  - **App**：
+    - 退賽後不能再回溯，暫停選單也不再顯示「回溯」。
+    - 視窗失焦（blur）時會自動暫停；載入期間切走分頁或視窗失焦，節次開始時就會是暫停狀態。
+    - 完賽後快轉時，玩家車改由 AI 控制器跑收車圈，不會再衝進緩衝區。
+    - `render_game_to_text` 在分割畫面會多輸出 `player2`。
+    - 分割畫面的音效：P2 的車改為共同聆聽者，引擎聲、換檔聲和限速器提示音不再隨著和 P1 鏡頭的距離淡出。
+  - **賽事規則**：2026 規則熄燈時不再預先開啟直線模式，改由 updateDrs 在同一步開啟，「直線模式已開放」的提示和無線電會正常出現。
+  - **render**：
+    - 塗裝包覆軸的高度改為沿車身截面中線變化，接縫一直保持在底部。鼻錐和車尾不再出現鋸齒狀色塊和碳纖黑條，車號會出現在鼻錐上，5 種圖樣在鼻錐上也都正確。端蓋改用單一顏色。拉伸三角形從 61 個降到 0。
+    - 鼻錐鏡頭架高到 0.74 m（離鼻錐表面約 11–12 cm），near 改為 0.03，最大幅度的震動也不會穿進車殼。
+    - 粒子池沒有存活粒子時，不再模擬也不再上傳。
+    - WebGL context 恢復後，會重建 PMREM 環境貼圖（新增 `GameRenderer.contextVersion`）。
+  - **track**：護欄的摺疊檢查也納入賽道曲率。isola-verde 的髮夾彎現在物理牆和畫出的護欄一致（10 個佈局的差異都是 0），護欄線也不再突然跳 3 m。
+  - **駁回**：
+    - 兩條 QA 流程說明：不是遊戲缺陷。
+    - 維修格離車庫 6–7.5 m：這符合 SPEC §6.1，`tests/track.test.ts` 也有斷言。要縮短距離就得改物理維修道契約，或把車庫畫在物理牆前面，這樣又會造成新的物理和畫面不一致。
+    - 車輛 LOD／整條賽道網格的視錐剔除：draw call 258，在預算 500 以內，也沒有量測到 FPS 問題。這屬於效能功能，不在修正範圍內，而且沒有真實 GPU 量測無法驗證。
+  - **驗證**：typecheck 通過，`bun test` 375 個全數通過，build 成功。
+  - **仍未做**：沒有在真實瀏覽器上目視驗證（版面、色彩、音效都還沒看過或聽過）。
+- Phase 6（fixer round 2，2026-10-03）：處理獨立驗證者回報的 4 個小缺陷。沒有使用任何瀏覽器自動化。
+  - **分割畫面版面（800x600 起）**：無線電／MFD 區塊（`.nvh-bc`）改放在「遙測面板」與「中央場次條＋小地圖」之間的固定區間，並置中於該區間；分割畫面的場次條寬度固定為 13em（0.85 倍字級 = 11.05 root em），所以中央區塊半寬 ≤ 5.53 root em，預留 6.2 root em（換算成 view em 為 6.2/0.88 = 7.05em）。區塊寬度 = min(23em, 100% − 16.85em − 7.05em)。
+    - 各尺寸（root 字級 = clamp(10px, min(1.5vh, 1.05vw), 17px)，view 字級 = 0.88 倍）：800x600 → 10px / 8.8px，半幅 45.5em，區塊 21.55em（16.85–38.4em，場次條從 39.2em 開始，間隙 0.8em）；1024x768 → 10.75px / 9.46px，半幅 54.1em，區塊 23em；1280x720 → 10.8px / 9.5px，半幅 67.4em，區塊 23em；1600x900 → 13.5px / 11.9px，半幅 67.2em，區塊 23em。遙測面板固定占 1.25–16.25em，區塊與它至少相隔 0.6em。這些是以算式推得，還沒有在真實瀏覽器量測。
+  - **計時塔名次數字**：數字欄仍固定在每個位置，但它的樣式（退賽變暗、玩家高亮）改成「顯示的是哪一台車」的狀態；某位置換成另一台車時，要等那一列滑動完成（`GLIDE_SEC` = 0.45 秒，每幀檢查）才換，因此數字永遠和旁邊看得到的那一列一致。新增 `.nvh-tw-pos[data-status='retired']`。
+  - **render_game_to_text**：MenuCallbacks 新增選用的 `resultsClosed()`，ResultsScreen 離開（繼續／返回／結束週末）時透過 Host 呼叫；App 在 `results` 狀態收到時清掉成績並切回 `menu`，因此回報 screen `menu`、session `null`。觀看重播與「下一節」不觸發。
+  - **分割畫面音效**：`mix.ts` 新增純函式 `ambienceLayers` / `mergeAmbienceLayers`，風聲、雨與噴水聲、路緣石／碎石／草地聲取兩位玩家各自的「較大值」（不相加，避免爆音），頻率跟隨主導的那台車。`AudioEngine.update` 新增選用的第 7 個參數 `extraListener { carId, camera }`，SessionRuntime 在分割畫面傳入 P2。P2 的鏡頭在車內時，P2 的引擎也用車內音色（置中、不隨距離淡出），限速器提示音在任一玩家車內時用車內音量。增益仍用 glide，沒有跳變。
+  - **文件**：README 的 URL 表和 docs/FEATURES.md 補上 `autopilot=1`。
+  - **驗證**：typecheck 通過，`bun test` 383 個全數通過（新增 tower 3 個、環境音混合 4 個、text-state 1 個），build 成功。
+
+## 2026-10-03 — Handling & field fixes (user report: 轉彎打滑嚴重、看不到其他賽車)
+- Root cause (handling): limit balance was knife-edge neutral (55 % rear weight, rearGrip only +3.5 %), so lift-off / braking load transfer flipped it to oversteer; post-peak Pacejka drop then spun the car — lifting at full lock spun at every speed, even on beginner assists.
+- Fixes (src/physics): REAR_GRIP_MARGIN 1.12 (understeer at the limit), tyre load sensitivity on longitudinal transfer (chassis.loadSensitivity, LOAD_SENSITIVITY 0.5 — steady cornering unchanged), front-slip steering cap (FRONT_SLIP_STEER_CAP 0.12 rad above 6 m/s), engine-brake torque 70 → 40, rear ABS floor 0.4 → 0.12 (keeps rear cornering grip). Handling matrix: spins 24/75 → 1/75 (only expert/TC-off power oversteer at 80 km/h). tests/physics.handling.test.ts added.
+- Root cause (no other cars): practice/qualifying ran the player alone with simulated AI times; GP & career default weekend starts with qualifying.
+- Fixes: sessionBuilder puts the whole field on track for practice/qualifying (time trial stays solo); race/world spreads AI over the lap ahead of the player's flying-lap slot; finished AI in practice/qualifying return to the garage (race/events.inGarage: parked + hidden); App fast-forwards the field after humans finish in practice/qualifying too; classifyQualifying falls back to simulated times only for AI without a valid lap. tests/session.field.test.ts added.
+
+## 2026-10-03 — Polish round: visuals, performance, controls, UX
+- Visuals: post chain (src/render/core/post.ts, postPipeline.ts): HDR + MSAA scene target, selective bloom (brightest-channel), grade + vignette per biome/time, OutputPass tone mapping; low = direct render; split-screen = direct render. Backdrop ring per biome (src/render/track/backdrop.ts), cloud layer (environment.ts), roofed grandstands with low-poly spectators (trackside.ts), ground detail + mowing (sceneryMaterials.ts). Main-session tuning after browser review: grass stripe tint green instead of white overlay; painted run-off band narrower/translucent (RUNOFF_PAINT_ALPHA/COVER) and blue for temperate (wide green bands read as grass zebra stripes); canvas 2D contexts willReadFrequently.
+- Performance: car LOD (THREE.LOD, 3 levels) + clearcoat paint on high/ultra; triangles on high 660–910k → 495–605k, ultra 1.13M → 664k; adaptive resolution (GameRenderer, AdaptiveResolution) with ADAPTIVE_FAST_MS raised 12 → 17.5 so a vsync-locked 60 Hz session can step back up.
+- Controls/feel: chase-cam spring + corner look-ahead + lateral-g roll, cockpit head motion; speed-aware keyboard steering ramp (InputManager.setVehicleSpeed); 操作說明 panel in the pause menu (current bindings, keyboard/gamepad pages); first-3-sessions key hint strip.
+- UX: first-run 選擇駕駛經驗 onboarding (sets default assists) + 操作方式 card, re-openable from 設定; gamepad navigation in menus (MenuSystem.navigate); loading-card tips.
+- Test hook added: window.render_debug_info() (fps, draw calls, triangles, geometries, textures, programs).
+- Checks: typecheck clean, 477 tests pass, build OK; browser-verified all 5 biomes, onboarding, pause/help panel, corner camera.
+
+## 2026-10-03 — Glow / bloom toned down (user: 光暈與泛光太嚴重)
+- post.ts: BLOOM_BY_TIME day {0.05,0.25,1.6} dusk {0.09,0.32,1.1} night {0.14,0.4,1.0} (≈ half strength, higher thresholds); BLOOM_OVERCAST_THRESHOLD 0.9 → 1.0 (cloud must never lower the night threshold); BLOOM_RAIN_BOOST 0.35 → 0.15; ultra multiplier 1.1 → 1.0; LAMP_HDR_GAIN 2.2 → 1.5; SHOWROOM_BLOOM {0.06,0.3,2.4} (car paint no longer halos on the title screen), SHOWROOM_RIM_HDR_GAIN 2.6 → 1.3.
+- backdrop.ts SKYLINE_GLOW night 2.4 → 1.4, dusk 0.9 → 0.5; sceneryMaterials.ts BACKDROP_GLOW_THROUGH_FOG 0.7 → 0.5.
+- carEffects.ts wet spray: rate 85 → 58/s, alpha 0.12+0.22·wet → 0.07+0.12·wet, growth 4.6 → 3.6, darker colour (the player's car was hidden in a bright white cloud).
+- Browser-verified: title showroom, night city, dusk desert, heavy rain.
+
+## 2026-10-04 — Menus/meta: race-control options & sprint weekends
+- Rules: `SessionRules.safetyCar/redFlags/formationLap` exposed via `raceControlRows` (components/editors.ts) in the rules editor (Grand Prix 規則 tab, career / My Team season settings) and a 賽事管制 panel in split-screen (new `profile.split.rules`). `sanitizeRules` (meta/guards.ts) merges missing fields from the fallback, then DEFAULT_RULES; briefing shows 賽事管制.
+- Sprint: `WeekendFormat 'sprint'` (衝刺賽週末: 排位 → 衝刺賽 → 正賽), `WeekendStep = SessionKind | 'sprint'` (SessionContext.weekendQueue), `SessionRequest.sprint`, `sprintLaps = max(2, round(raceLaps/3))`, sprint = race kind + `config.sprint`, no mandatory stop; `requestForKind(base, step, order)` gives both sprint and race the qualifying order. validateSessionConfig rejects sprint on non-race / with a mandatory stop. Labels/briefing/loading/results say 衝刺賽 (`kindLabel`, `STEP_LABEL`); results use SPRINT_POINTS fallback via `pointsForRow(row, true)`.
+- Career / My Team: `SeasonSettings.sprintWeekends` (default off; rounds 3/6/9, `isSprintRound`, `seasonWeekend`); season format never stores 'sprint'. A sprint result is kept as `save.pendingSprint` (round = results.length, no round advance, no stats/achievements/income) and attached as `RoundRecord.sprint` when the race is recorded; standings add sprint points only (no win/podium credit). Calendar shows a 「衝刺」 tag.
+- Tips: 5 new loading tips. Quick start: `sc`, `redflag`, `formation`, `sprint=1` (race kinds only).
+- Tests: tests/meta.sprint.test.ts (19). `bun test` 496 pass. `bun run build` blocked only by src/race/world.ts type errors from the in-progress race runtime (missing `flags` / `control`), not by owned paths.
+
+## 2026-10-04 — HUD / audio: race control (SC, VSC, red flag, formation lap, sprint)
+- New `src/ui/hud/raceControl.ts`: pure helpers (stripSpec, modeChip, deltaClass, formatVscDelta, countdownSeconds, giveBackText, queueGapText, sectorFlagLevels/Label, controlOf/flagsOf/redCount with fallbacks) + `RaceControlStrip` (root, top centre) + `FlagStack` (per view pills). Reads `session.control` (mode, reason, sectorFlags, counts.red, safetyCar) and `car.flags` (shown, delta, giveBack, queuing); absent fields behave as green / no flags.
+- Strip: SC/VSC yellow, red flag red, formation teal, 「綠旗」 for GREEN_FLAG_SECONDS (3 s) after a neutralisation ends (not after formation). While up it sets `data-rc` on the HUD root, which moves toasts below it (full 6em, split 9.6em; split strip sits at 3.4em under the P1/P2 tags).
+- timing.ts: sector bar `data-flag` yellow / double (striped, flashing) + chips 「黃旗 S2」/「雙黃旗 S2」. tower.ts: mode chip (SC/VSC/紅旗/暖胎圈) in the header. minimap.ts: yellow sector tint, orange SC dot (control.safetyCar.onTrack), warning triangle at 'incident' cars until they drive off (INCIDENT_CLEAR_SPEED 12 m/s after INCIDENT_GRACE 6 s).
+- index.ts events: sectorFlag / incident toasts for all views, blueFlag + controlWarning toasts for the player's view only; 'raceControl' is shown by the strip (radio lines stay on 'radio').
+- Sprint: `sessionLabel(kind, sprint)` (labels.ts) used by the session strip, pause subtitle, intro / start banners; start-lights caption 「衝刺賽」. startLights.ts: no gantry before the formation lap (rules.formationLap, phase 'pre' not yet preceded by 'formation'); counts.red > 0 -> 「重新起跑」 instead of 「熄燈出發！」.
+- Audio (sfx.ts, index.ts): raceControlCueFor + raceControlCue (sc/vsc two-tone alert, red triple urgent, green-after-neutral rising chime; only when a human player exists), blueFlagTick and controlBuzz for player cars. All go through sessionShots (sfx bus volume, OneShotPool cleanup).
+- Tests: tests/hud.racecontrol.test.ts (new, 9), tests/input-audio.test.ts (+cue mapping, new events in the full-run leak test). `bun test` 507 pass; typecheck clean in src/ui/hud + src/audio; `vite build` OK. `bun run build` currently stops at tsc errors in src/race/world.ts (other agent's in-progress `flags` / `control` population).
+- Not browser-verified (layout, colours, sounds unseen/unheard).
+
+## 2026-10-04 — Race control: SC / VSC / flags / red flag / formation lap / sprint
+- Contract (core/types): SafetyCarSetting, RaceControlMode, CarFlag, SessionRules.safetyCar/redFlags/formationLap (optional; undefined = off), SessionConfig.sprint, SessionPhase 'formation', SessionState.control (RaceControlState + SafetyCarState), CarEntry.flags, new GameEvents (raceControl, sectorFlag, incident, blueFlag, controlWarning), RenderFrame.safetyCar/raceControl, SessionResult.sprint; defaults SPRINT_POINTS, DEFAULT_RULES safetyCar 'standard' / redFlags true / formationLap false.
+- Race (main session; the race/AI subagent and the render subagent hit API rate limits): src/race/control.ts (incident budget, natural stops, severity → yellow/VSC/SC/red, VSC deltas, kinematic safety car incl. pit-lane exit, red-flag regroup, formation lap, blue flags, car flags, forceIncident), legality.ts (give-back / penalties), gridPark.ts (grid slots, formation parking, red regroup), neutralPace.ts; session.ts formation start + restart lights-out keeping laps; DRS locked while neutralised and 2 laps after; sprint points; hazards stay visible/collidable until recovered.
+- AI: src/ai/neutral.ts (queue behind car / SC, VSC delta target, yellow caution, blue-flag yield, give-back), failure pull-over, forced spin; strategy pits under SC/VSC.
+- Render (subagent, finished before its rate-limit failure): original safety car model + light bar, marshal LED panels. HUD/audio and menus/meta by subagents (strip, pills, toasts, sounds; rules UI, sprint weekend, quick-start params).
+- Main-session fixes after browser review: no sector/incident toasts while neutralised; yellow flag position fixed until the car stops (no flicker); strip sub-line keeps the incident reason; formation pace 0.62; textState raceControl block + lightsOut false during formation; App hook window.debug_force_incident.
+- Baseline tests set rules.safetyCar 'off' (random incidents would break "all cars finish" assertions); tests/racecontrol.test.ts covers SC, VSC, red flag, formation, give-back, blue flag, budget, sprint, determinism.
+- Checks: typecheck clean, 532 tests pass, build OK; browser-verified SC queue + model, SC in-lap, green, VSC delta, red-flag grid restart, formation parking, menus.
+
+## 2026-10-04 — Cars looked like they were floating
+- Cause (browser review): geometry was fine (floor 3.5 cm off the ground, tyres touching the road, showroom turntable top = car base) but nothing darkened the road under / around the cars — the sun shadow falls to the side, and on 'low' there are no shadows at all — so the bright road under the diffuser and around the tyres read as a gap. Secondary: the rendered pitch ignored the road grade, so on koyo-hills (2.25 %) one axle sat up to ~4 cm off the road.
+- Fix: src/render/fx/contactShadows.ts — soft footprint (floor ambient occlusion + darker tyre contact patches) per car and for the safety car, alpha DataTexture, 2 instanced draw calls, all quality levels (CONTACT_OPACITY 0.85, CONTACT_LIFT 0.03). A first canvas-gradient version was invisible because the footprint was smaller than the car (fully hidden under the body) — enlarged to extend ~0.5 m beyond the outline. race/frame.ts adds the road grade (±1.8 m) to the rendered pitch. environment.ts sun shadow normalBias 0.05 → 0.03 (shadow closer to the tyres).
+- Checks: typecheck clean, 536 tests (tests/render.contact.test.ts added), build OK; browser-verified grid, straight, koyo crest, low quality, night.
+
+## 2026-10-04 — Safety car: limiter assist, give-back fixes (user: 明明第一還被超、超回去反被罰)
+- Investigation (headless probes, player P1 under a forced SC, 8 driving styles): the AI never attacks the player under SC; passes come from the legal exemptions (passed car < 50 % of the passer's speed, pit lane). Confirmed: a slow player leader keeps the SC out for minutes (`formed` needs the leader within 250 m).
+- New assist `Assists.scLimiter`（安全車限速, default on in all presets, AI_ASSISTS off; guards/options/labels/editor row): race/step.ts `limitToSafetyCar` holds a human at `safetyCarCap` (ai/neutral.ts = the AI queue cap, sc/scEnding only) — throttle cut like the pit limiter plus light braking (as the 'low' braking assist, ≤ 0.6) above the cap; throttle-only still let a late-braking driver pass in braking zones. HUD queue pill reads 「安全車限速中 — 禁止超車」.
+- Bug: retaking a place from a car that owes it was flagged → legality.notePass returns early when `passed.flags.giveBack.carId === passer.id`.
+- Bug: AI never gave a place back under SC/VSC (0.85 scale on the racing target, far above the cap; the car owed it may not overtake; VSC delta catch-up undid any lift). Now: neutral.ts lowers the cap (no delta catch-up while giving back); carAhead skips a car that owes us; traffic.ts lets the owed car attack it (`owed` = advantage, no stalking, side by racing-line offset) and, under SC/VSC only, the car giving back moves off the line away from it (short of the edge — at the edge the passing car's lane keeping squeezed it to a crawl).
+- Bug: give-back completion used a 1 m progress margin while the classification swaps at 4 m → the pass back was flagged as a new illegal pass (ping-pong). stepGiveBack now uses the classification order.
+- Probes: AI give-back SC 6/6, VSC 5/6 (1 at the 10 s boundary); a flat-out human with the limiter: 0 passes / penalties / never ahead of the SC (without: passes and gets ahead). Yellow-flag (green) give-backs unchanged (still mostly penalised).
+- Tests: racecontrol.test.ts (+4: retake legal, AI give-back SC / VSC, limiter on/off; give-back test uses positions; VSC flat-out test counts only the speeding penalty — the AI-steered "human" now also passes illegally on the way), hud.racecontrol.test.ts (+1). typecheck clean, 1314 pass / 0 fail, build OK. Not browser-verified.
+
+## 2026-10-04 — Real F1 circuits, realistic scenes, realistic cars (user: 查詢真實的 F1 場景與賽車，加入更多地圖、更真實的場景與賽車；也加入馬來西亞雪蘭莪的地圖)
+- User decisions: real layouts named by place names (no logos/brands/sponsors/real people's names in UI); all three circuit packs; rebuild the car model while liveries stay fictional; browser verification via Codex (codex exec + its in-app browser, JS evaluation denied → keyboard/wait only). SPEC §0 rewritten accordingly (§4.1b lists the real circuits).
+- Research (scouts): 2025 FIA event notes / circuit facts / OSM relations / scenery for 12 circuits + Sepang; FIA 2025/2026 technical regulations for car proportions. Notes kept in /tmp/nova-real/research (not in the repo).
+- Import: tools/import-circuit.ts + tools/circuits.json — Overpass relation → chained closed loop (DFS closest to the official length, pit lanes/old layouts excluded) → local metres (x east, z south) → smoothing → adaptive control points; DEM via OpenTopoData (EU-DEM / NED / SRTM) with overrides (Monaco tunnel & hairpin hotel, Suzuka bridge, Singapore buildings). All 13 within ±1 % of the official length.
+- Engine (src/track): `TrackDef.real` (length, turns, direction, firstGrandPrix, source, features), real-circuit rules in `validate.ts` (shared with tests/track.real.test.ts), grade separation (`BuiltTrack.deck` only when roads really overlap with ≥ 6 m clearance; barriers/terrain/contact/projection honour it; race step/gridPark pass hint + y), close sections (barrier on the midline, ≥ 3 m edge gap), compact street pit lanes (Monaco's pit is on the real harbour side), grades up to 20 %, radius ≥ 9 m, width 10–16. Original circuits unchanged.
+- Data: 13 real circuits in src/data/tracks/real (packs eu/asia/meam; Sepang in asia) — DRS/sectors/pit from 2025 (Sepang 2017) data; deviations documented in each header (e.g. Monaco hairpin radius 10 → 14 m, Spa keeps its 105 m relief / 17.6 % Raidillon). Headless AI: 20 cars × 3 laps both directions, 2026 run and pit stops pass on every layout.
+- Menus/meta: track-type filter (全部／真實賽道／原創賽道), real facts in cards/details, `SeasonSettings.calendar` 'real' (12 rounds in 2025 order, sprints at Shanghai/Spa/COTA/Interlagos) | 'original' (old saves), credits list `real.source` attributions.
+- Car (src/render/car): 2025/2026 proportions per FIA regs (per-axle 720/705/710 mm tyres, 18" rims, 2.00/1.90 m front wings, 4-element front wing, Venturi fences, floor edge wings, diffuser strakes, beam wing 2025 only, rounded rear-wing tips, undercut sidepods, aero wishbones, brake drums, T-cam, 2026 lights and in-wash boards); wheels seated on the road grade (`CarRenderState.groundPitch`), contact footprint tilts with the grade, sun shadow depth bias 0.36 → 0.08 m, lighter launch smoke.
+- Scenery (src/render): TrackFeature landmarks (tunnel, hotel-bridge, wing-grandstand, banking-bridge, marina, ferris-wheel, observation/control tower, skyline, sky-park-hotel, led-sphere, fountain-lake, lake, swimming-pool, casino-square, hillside-houses, forest, grandstand, pit-building-wing, palm-plantation, leaf-grandstand), Suzuka bridge deck, townscape per circuit (Monaco pastel/terracotta, Singapore glass, Las Vegas neon resorts), new `tropical` biome (Sepang), floodlit night races, TecPro blocks, sausage kerbs, terrain never buries roads/barriers (min over all corridors), tunnel unlit interior, black-tree bug (HSL in linear space) fixed.
+- Reviews: two fresh-context reviewers (engine/meta/data, render) — all provable findings fixed (Suzuka reset dropping to the lower road, Monaco false deck, tunnel portals sealed, terrain burial, landmark overlaps/drops, tunnel lighting, deck vs fence, LOD normals, quality pass-through).
+- Browser (Codex, 4 rounds of screenshots under /tmp/nova-shots/r1–r4): issues found and fixed across rounds (dim night races, start smoke, floating look, black trees, lamp heads, kerb seams, Monaco townscape, Yas hotel composition, Interlagos houses). Not done: distant road-line/fence aliasing (needs distance-aware line shading).
+- Coordination: another session (f1-formula-37) is editing src/race/{control,types,legality,step}.ts, src/ai/{neutral,traffic,index}.ts and racecontrol tests concurrently; a transient safety-car test failure during one full run came from their in-progress edits (the test passes alone).
+
+## 2026-10-04 — Safety car procedure (pit exit, pick-up, notice, passing rules, stranded car)
+- Coordination: another session (f1-formula-0a) works on real circuits / render / track; this work stayed in src/race/{control,types,world}.ts, src/ai/{neutral,traffic}.ts, tests/racecontrol.test.ts.
+- SC no longer appears out of nowhere: deploySafetyCar holds it in the pit lane (`race.scHeld`, off the scene; cars run at catch-up pace) and `releaseSafetyCar` sends it out when the leader is 1–6 s (beyond the ~9 s the SC needs) from pit.exit, or after 1.2 reference laps; it drives the last SC_EXIT_RUN (200 m) of the lane (`scExitDist`, pitLaneOffsetAt) at the pit limit. One that came in a moment ago finishes its pit run first.
+- Pick-up (`race.scPickedUp`): until the leader is the first car within 250 m behind it, only the leader queues behind the SC (neutral.queuePlan `scLeads`); other cars are waved past while the SC keeps aside on its own side of the racing line (crossing it cut them off at the pit exit).
+- `safetyCarLane`: slower cars / hazards ahead within 80 m are passed on the other side (3.2 m clearance); one without room is followed.
+- "In this lap" only with ≥ 40 % of a lap to the pit entry (else from the next lap); a leader that does not close up or has passed the SC delays it by at most one reference lap (`scDueSince`), so it can no longer stay out for minutes. Final-lap force while held: restart at the line.
+- Leader ahead of the picked-up SC: controlWarning, +5 s (「超越安全車」) after GIVE_BACK_SEC (`car.race.scAheadTime`).
+- A car stopped on the racing surface ≥ 12 s (STRANDED_SEC) turns its yellow into a VSC, which ends normally once it drives on (alive 'vsc' incidents resolve on moving). AI may pass a stopped car under any flag (traffic `mayPass` includes `stopped`; legal per legality.ts). Pre-existing, not changed: an AI that stops < 1.2 m behind a stationary car cannot pull out and is moved by the stuck watchdog after ~6 s.
+- Probes (12-lap races, 3 layouts, deploy at 4 different times): SC out at the pit exit 9–97 s after the call, picks up the leader immediately in 11/12, notice 93–95 % of a lap, no warnings/penalties, closest car–SC ≥ 7.6 m. Flat-out human: limiter on → 0 passes/penalties; off → leading it passes the SC and is penalised, SC still ends.
+- Tests: lifecycle test (pit-lane start, pick-up, notice, no car within 3 m of the SC), limiter test (mode restore fix, SC-pass penalty, green reached), stranded-car VSC test. typecheck clean, 1386 pass / 0 fail (incl. the other session's new tests), build OK. Not browser-verified.
+
+## 2026-10-05 — Aerodynamic wake (tow + dirty air), phase 1 + tuning
+- Replaces the old tow approximation (race/env.ts performanceScale +8 % on straights within 45 m, which also raised tyre grip) with a physical wake: `src/race/wake.ts` `aeroWake()` → `PhysicsEnv.wake` (new optional `AeroWake` in core/types) → physics/step.ts scales dragArea and front / rear downforce. Races only; the strongest wake of the cars ahead counts; fades with the gap and the lateral offset (full within 1.4 m, none beyond 3.6 m); a car ahead slower than half our speed leaves none.
+- AI: ai/profile.ts `capability(..., wake)` plans corners / braking with the spec as the air sees it (wakeSpec); ai/controller.ts passes the current wake. The human braking assist (race/env.ts) does the same.
+- Tuning (headless 20-car races, /tmp probes: overtakes after lap 1, offs, contacts, per-car tow gain at the speed trap, gap growth of followers through fast corners, plus the 2026 "loss of control" metric of tests/headless.races over 3 layouts × 6 seeds): drag −30 % / 80 m with front −15 % & rear −8 % gave +12 km/h tow but many more spins and contact pile-ups (2-lap races: 0.94–1.6 episodes vs 0.1–0.3); the tow strength was the main driver (tow only: 1.3–1.9). Chosen: TOW_DRAG 0.15 / 80 m, DIRTY_FRONT 0.15 / 40 m, DIRTY_REAR 0 (a rear loss made followers snap-oversteer). Result vs the old approximation (8-lap races): 2025 overtakes after lap 1 10.2 vs 11.6, offs 2.3 vs 1.9, contacts 4.0 vs 4.75, tow +8.1 vs +3.9 km/h, followers lose 2.05 m vs 0.67 m per fast corner; 2026 8.9 vs 12.3, 0.5 vs 0.75, 2.2 vs 3.3, +4.0 vs +0.5 km/h, 1.47 vs 1.15 m. Loss-of-control episodes back to the baseline level (2025 0.5 vs 0.33, 2026 0.06 vs 0.11).
+- Tests: tests/race.wake.test.ts (wake geometry / clean-air cases, tow raises straight-line speed, dirty air lowers the planned corner speed). typecheck clean, 1389 pass / 0 fail, build OK. Not browser-verified. Next (not done): rule toggle + HUD indicator; stronger tow would need better AI racecraft in braking-zone battles.
+
+## 2026-10-05 — Aerodynamic wake, phase 3: rule toggle + HUD
+- Rule `SessionRules.aeroWake` (optional, undefined = on; DEFAULT_RULES true; sanitizeRules merges it for old saves): 「空氣動力尾流」 擬真／關閉 in the rules editor (Grand Prix, career / My Team season settings), briefing line for races. race/wake.ts returns clean air when it is false (physics, AI planning and the braking assist all follow). Split-screen setup (race-control panel only) and the URL quick start do not expose it.
+- HUD: `car.race.wake` (CarRaceInternal) records the wake of each car's last physics step (race/step.ts); telemetry.ts `wakeIndicator()` → pill 「吸尾流」 (drag < 0.97) or 「髒空氣」 (front downforce < 0.97 while |gLat| > 1.2 g), above 30 m/s, running and not in the pit lane; hud.css blue / amber styles.
+- Tests: tests/race.wake.test.ts (+3: rule off → clean air and no recorded wake while on records one, old saves default to on, pill logic). typecheck clean, 1392 pass / 0 fail, build OK. Not browser-verified.
+- Follow-up: the rule is also in split-screen setup (`aeroWakeRow` shared with the rules editor; that panel is now titled 「規則」 instead of 「賽事管制」) and in the URL quick start (`wake=0|1` → QuickStartParams.aeroWake → quickRules; README table row). Tests +1 (parse / build). 1393 pass / 0 fail, build OK.
+
+## 2026-10-06 — Human crashes trigger race control (user: 發生很嚴重的車禍，但沒有出現安全車)
+- Cause: a human crash was only seen by the stopped-car detection (< 2 m/s for 4 s) and then always got a yellow (`decideResponse`: car not retired → yellow; at most a stranded VSC). A human who hit hard and drove on created no incident at all; the contact impulse was only used for damage / fx / audio.
+- race/contact.ts `reportContact` records `car.race.impactPeak` (reset every race-control step). control.ts `detectHeavyImpacts` (races, rules.safetyCar ≠ off, running, human, not in the pit lane): impulse ≥ `HEAVY_IMPACT` 8000 N·s → 'crash' incident with `Incident.impact`. Probes: racing contact ≤ ~3.5k (pile-ups 7–27k); wall hits 10–53k.
+- Came to rest within `IMPACT_JUDGE_SEC` 6 s → judged as an AI crash (sc / vsc, red chance), the human is never auto-retired (also not at a red-flag regroup). Otherwise drove on → debris at the impact point (carId -1, racing line), severity = (impact − 8k) / (30k − 8k): sc 60 % × severity, vsc 30 % + 50 % × severity, else yellow. Impact incidents always clear on the marshal timer and stop following the car once judged. 4 s judged most brake-to-a-halt crashes as driven on (then a second 'stopped' incident).
+- Tests: racecontrol.test.ts (+3: drove on → debris at the impact point incl. a safety car; stopped → never just yellow, keeps racing, back to green; light contact / setting off → no incident). typecheck clean, 1396 pass / 0 fail. Build not run. Not browser-verified.
+
+## 2026-10-06 — Human wreck: red flag (single-car) or retirement (user: 撞擊停車、車損嚴重但沒有犯規 → 紅旗，就像 F1 電影；紅旗期間修好車、重新起跑)
+- Only with rules.damage 'full' (user choice; the default 'reduced' is unchanged). A human impact incident whose car came to rest with front-wing damage ≥ `WRECK_DAMAGE` 0.9 is a wreck. "No foul" = single-car crash: `Incident.otherCar` is set when the incident starts if `car.race.carContactAt` (car-vs-car contact > COLLISION_EVENT_IMPULSE, contact.ts) is within `CONTACT_LOOKBACK_SEC` 3 s before (or is) the hit; contacts after the hit (cars running into the sliding wreck) do not count.
+- Single-car wreck + red flags on + not the final lap → red flag; the human is not retired, `regroupOnGrid` repairs it (damage 0, fresh tyres) and it takes the standing restart. Otherwise (another car involved, red flags off, final lap) → `retireAsHazard('車損過重退賽')`, response by the AI crash rule without the red flag. Humans no longer get the random AI red-flag roll (their red flag is only the wreck rule). A wreck that drives on within 6 s is debris as before (not retired). Flashback stays blocked after any human retirement (SessionRuntime.flashbackBlock).
+- Tests: racecontrol.test.ts (+2: single-car wreck → red, repaired, restarts; wreck into a stationary AI car → retired, no red; the stopped-crash test now expects sc / vsc only; `race()` takes `damage`). typecheck clean, 1398 pass / 0 fail. Build not run. Not browser-verified.
+- public/guide.html「攻略秘笈」: offline single-file player guide (controls & assists, strategy, race control & penalties incl. the crash rules, URL quick start / seeds / autopilot / console hooks), served at /guide.html.
+
+## 2026-10-07 — Stronger, more aggressive AI field; pit stops repair every damaged part (user: 所有敵人都增強、行駛更激進，排行榜要不停切換；會互相超車、卡位不讓超；進站時任何有損傷的部分都維修)
+- Pit stops (race/pitlane.ts): every damaged part is repaired (was: front wing only, > 30 %). Extra stationary time per part in full from 30 % damage, less for lighter damage: front wing 6 s, rear wing 8 s, floor 10 s. `fitTyres(…, repair)` repairs wings and floor; reportedDamage reset for all parts; HUD damage toast advises 「建議進站維修」 for rear wing / floor. Test: race.rules.test.ts (+1).
+- Diagnosis (headless 5-lap probes, 20 cars, 5 layouts × 4 seeds, difficulty 80, /tmp/nova-ai): AI pace spread 4.4 % (car 2.7 %, driver 1.7 %); attacks almost never succeeded (≈ 1 % win rate). Root causes: (1) the closing speed was a plain speed difference, so in every braking zone (car ahead brakes first) far-away "attacks" started and died at the hairpin; (2) attacks pulled off line 40–50 m back and lost time; (3) a committed attack lost its target once alongside (not in the path any more); (4) following used 75 % braking from the current speed of the car ahead, so a follower braked in time with it — 10–20 m early — losing 0.2–0.35 s per heavy braking zone (a car 1 s/lap faster could never pass); (5) a car "squeezed" by a car behind claiming a lane braked continuously (vMe − 2 every step) and got hit.
+- Field (ai/pace.ts, race/world.ts, race/qualiSim.ts): `aiCarTeam` — AI-only teams keep `AI_CAR_GAP` 40 % of their aero / power / chassis gap to a rating of 1 (a human's team and its AI team-mate keep the real car; qualifying simulation uses the same car); driver pace weight halved (lat 0.755 + 0.26d + 0.15p, brake 0.67 + 0.27d + 0.1p). Qualifying spread ≈ 1.9 % (P10 ≈ 0.9 %). Race-day form `applyRaceForm` (races, AI only): ± `RACE_FORM` 2 % on the corner / braking factors (≈ ± 0.9 % lap time), paceTime adjusted.
+- Racecraft (ai/traffic.ts, ai/controller.ts, ai/types.ts): closing rate from the time gap at the 50 m timing checkpoints (`updateClosing`, AIState gapTime / gapAt / gapCar); no new attack with a tight corner within the braking distance (except a lunge: right behind and closing); attack range 60 m, but pull out only within 8 m + 0.08 s·v (before that: own line / slipstream + overtake button); committed attack keeps its rival when alongside, follow limit only for the car actually in the path; attack timer 3 + 3·aggression, kept while gaining; aggression base 0.55 (was 0.35); held-up / frustration attacks; chasing within 1.5 s of the car ahead (from lap 2, green): up to +1.5 % corner / braking factors, mistakes × 1.5; following from lap 2 with 90 % braking and 2 m + 0.07 s·v (opening lap, SC / VSC, or a car ahead slower than 80 % of the reference speed there: the old 75 % / 2 m + 0.1 s·v); defending: with a car within ≈ 0.4 s behind, one move to cover the inside of the next corner (≤ 3 m; 1.3 m toward the attacker on a straight), held 2.5 s, cooldown 6 s, never when the attacker would reach us within 1 s; squeezed only by a car behind → hold the line, no braking.
+- Tried and dropped: planning corners with half the dirty-air loss while chasing (+3 overtakes but 6× heavy contacts / 3× spins); late-brake 1.1 in attack (spins).
+- Opening lap stays as cautious as before (attack closing threshold 2.2 − 0.4·aggression, no lunge, 75 % following): a 2-lap 2026 highland-ridge race had 25 contact events (limit 20) with lap-1 attacks at the new thresholds, 10 now (old AI 16).
+- Probe results (5 laps, 20 races, old → new; run-to-run noise is large, e.g. heavy contacts 0.1–0.6 across near-identical configs): overtakes 6.5 → 25.9 (after lap 1: 0.7 → 12.4), top-5 order changes 0 → 1.75, leader changes 0 → 0.3, cars within 1 s of the car ahead 7.0 → 11.7, gaps after 4 laps P2 4.9 → 3.2 s, P5 9.4 → 8.2 s, P10 16.6 → 13.0 s; heavy contacts (> 5000 N·s) 0 → 0.5 events, spins 0 → 0.4, light contacts 0.4 → 5.5 events (mostly below the 2500 N·s damage threshold). Difficulty 110 / 30 and 2026 rules: all cars finish; 2026 20 overtakes after lap 1, no spins. Porto Lumen stays processional-ish (0–3).
+- Tests: tests/ai.racecraft.test.ts (new, 6: aiCarTeam, human team keeps the real car, quali spread < 2.5 %, race form bounds / determinism, monza ≥ 14 and koyo-hills ≥ 8 overtakes after lap 1 — the old AI 6 / 0); racecontrol.test.ts crash scenarios now start at a fixed spot (`WALL_S` 2050 m, first pass after 45 s) instead of at 45 s (the field's positions changed); the drive-away crash runs to 61 s and counts human incidents only until another car runs into the human (a stricken human car rejoining into an AI is a separate incident — the old AI hit it too, just below the 8000 N·s threshold). Docs: guide.html 「AI 對手怎麼開」 + pit repair; FEATURES.md 3.7 / pit row / tests table; SPEC pit row.
+- Not browser-verified (feel against a human driver unseen).
+
+## 2026-10-07 — Local roster pack + background music (user: 評估導入現實中的車隊 → 自己玩、B 方案（本機名單包）、2026 名單；加入 Max 的 BGM：原創合成 + 自選檔案都做)
+- Policy (SPEC §0): the built-in roster stays fictional; a roster pack and a music file are the player's own local files, never bundled (no real names in src/ public/ dist/ tests). The personal pack lives in `rosters/f1-2026.json` (`.gitignore`d). The referenced song is not downloaded or transcribed — the player loads their own file.
+- Roster pack (src/meta/rosterPack.ts): `parseRosterPack` (format `formula-nova-roster`; 1–11 teams so My Team still gets a pit box; 2 drivers per team via `driverIds`, driver `teamId` must agree; 1–12 reserves; unique ids / codes / numbers; hex colours; team ratings clamped 0.8–1; optional `powerUnits` 1–8 for My Team), zh-TW reasons, whole pack rejected on any problem. Stored as record `rosterPack`; `activeRosterPack()` lazy-loads it.
+- Active roster (src/meta/roster.ts): `rosterTeams()` / `rosterDrivers()` (pack else built-in) feed `standardRoster` / `reserveDrivers`; `builtinRoster()`; `rosterWithReplacement(…, base)`. Career, My Team (incl. `powerUnitOptions()`, short-name check, sanitizer), session builder fallback, showroom, season tables and the career wizard default team read the active roster; story mode (`storyRoster`) always uses the built-in one. Career / My Team saves are per roster (`career@custom`, `myTeam@custom`, save.ts `seasonRecord`).
+- 12 teams / 24 cars: pit boxes 11 × 14 m → 12 × 12.8 m (race/world.ts BOX_SLOTS / BOX_SPACING, render trackFrame PIT_BOX_COUNT / SPACING; same 154 m row, so PIT_BOX_ROW_HALF 77 and track validation are unchanged). Garage doors, box paint and fan blocks take the session's team colours in pit-box order (`RaceSceneOptions.teamColors` ← app/sceneCars `sceneTeamColors`, `SceneryContext.teamColors`); render no longer imports data/teams.
+- UI: settings tab 「名單」 (src/ui/menus/screens/rosterSettings.ts; not shown above a paused session): current roster, import .json (≤ 1 MB), restore built-in. Main menu / My Team wizard texts no longer say "第 11 支". NATIONALITIES + CHN, MCO.
+- BGM (implementer agent): src/audio/musicScore.ts (original 「Pole Position Anthem」, D minor, 132 BPM, 40 bars, 6 sections, pure + sequencer), music.ts (WebAudio voices, look-ahead 180 ms, ≤ 40 voices, custom-file loop), musicStore.ts (IndexedDB, ≤ 50 MB); music bus → master outside the session gate; App state → `setMusicScene` (menu / loading / results play; session / replay only with `musicInRace`, 35 %); hidden tab fades out. Settings `musicVolume` 0.6, `musicSource` original | custom | off, `musicInRace` false; audio tab panel 「背景音樂」; credits line. tests/fakeAudio.ts shared fake WebAudio.
+- 2026 pack data (scout, sources formula1.com etc.): grid after round 16 (2026-10-04), 11 teams / 22 drivers + 6 reserves, 5 power units; team ratings from the constructors' order (Mercedes … Cadillac), driver skills subjective, liveries approximate.
+- Tests: tests/meta.rosterPack.test.ts (11: validation / rejections / clamping, active switch + story on built-in, persistence + corrupt fallback, per-roster career slots, quick start fallback, 11-team pack + My Team → 12 teams / 24 cars / 12 distinct pit boxes, the personal 2026 file when present); tests/audio.music.test.ts (23). renderHarness passes `teamColors`.
+- Browser (agent-browser, own dev server on :5174): import of rosters/f1-2026.json → 11 teams / 22 + 6; GP team select lists the 2026 teams with liveries; audio tab; menu music running (oscillators created continuously, AudioContext running); Suzuka quick race 22 cars, autopilot 43 s green; My Team wizard 「第 12 支車隊」, MCL short name rejected, pack power units and reserves. Music not judged by ear.
+- typecheck clean, full bun test 1439 pass / 88 skip / 0 fail (1527 tests, after the AI session finished), build OK.
+
+## 2026-10-07 — Bundled music track (user: 幫我將 downloads 中的一個 mp3 放到預設音樂中其中一個)
+- The player's own `~/Downloads/Max Verstappen Song.mp3` (2:51, 128 kbps) copied to `public/music/` with `public/music/bundled.json` (title + file); `public/music/` is `.gitignore`d. SPEC §0 exception: personal use only; the title lives in the manifest, not in source; a `dist/` built with it (dist/music/) must not be published.
+- `musicSource` gains `'bundled'` (types, save.ts sanitizer). src/audio/bundledMusic.ts reads the manifest once (same origin; a dev-server index.html fallback or a bad file name → no track) and fetches the bytes. MusicPlayer: the file path serves both file sources (`fileSource` remembers which file the decoded buffer belongs to; switching custom ↔ bundled reloads; a stored-file change only resets the custom one); a vanished bundled track → Chinese error + original track. Settings 「音樂來源」: 原創／<manifest title>／自選檔案／關閉 (option only when installed, or while selected; redrawn when the manifest arrives).
+- Tests: audio.music.test.ts +3 (bundled loop + switching both ways, missing track fallback, manifest parsing / fetch once) and the sanitizer case. Dev server serves the manifest and the mp3 (audio/mpeg); build copies them to dist/music/. Not browser-verified this time (no consent asked for this change).
+
+## 2026-10-07 — Livery parts + finish; 2026 pack liveries closer to the real cars (user: 繼續車型外觀 → 塗裝更像真車 + 現實中的車隊)
+- `Livery.parts` (optional, `#rrggbb`): body zones nose (z > cockpitZ1), engineCover (top V 0.36–0.64 behind cockpitZ0, also the fin panel background), sidepods (V 0.12–0.38 / 0.62–0.88, rearAxleZ + 0.3 … cockpitZ1), lower (V 0.04–0.2 / 0.8–0.96, full length) painted over the pattern before the carbon underside; part swatches halo / frontWing (endplates + upper flaps, 2026 flaps) / rearWing (endplates, incl. the LOD2 box) / rearFlap. Atlas swatch row split in two (base 9 above, part swatches below, v 0.1875 boundary; FIN_U0 unchanged); unset parts default to primary / primary / primary / secondary, so built-in and My Team cars look as before. Nose number / team code / fin number labels use the zone colour as background.
+- `Livery.finish` gloss | satin | matte: CAR_FINISH multiplies the livery material's roughness (map G, clamped at 1) and clear coat; applied at creation and in setLivery; ghost unchanged.
+- Copies keep the extras (roster.cloneLivery, app/sceneCars copyLivery; world.ts already spreads). rosterPack: `parts` keys / colours and `finish` validated (zh-TW errors), gloss / empty parts omitted.
+- rosters/f1-2026.json: per-part liveries of the standard 2026 race liveries (scout from launch galleries; colours are visual estimates, no logos): e.g. Red Bull gloss white upper + deep blue, Aston Martin matte green with lime pinstripes, Cadillac the mid-season white-over-black scheme, Audi satin silver with black rear and red split line. Re-import the file in 設定 → 名單 to apply.
+- Tests: tests/car.livery.test.ts (9: part swatch defaults / overrides, zones via a recording 2D context, finish on create + setLivery, pack validation / cloneLivery); car.shape.test.ts swatch-cell test now checks (u, v) pairs and the part row. Not browser-verified yet.
+
+## 2026-10-07 — Defaults: the bundled track and the 2026 roster (user: 最後將加入的 bgm 預設加入到選單中，然後車隊的部分也是！)
+- Browser check of the per-part liveries (showroom, all 11 teams, /tmp/f1-livery-shots/sheet.png): recognisable — Alpine blue / pink wings, Aston Martin matte green + lime pinstripes, Red Bull white / deep blue, Williams blue + white sidepods, Ferrari red / black wings; Mercedes reads silver-sided with a black top (kept).
+- Default roster pack: rosters/f1-2026.json moved to `public/rosters/default.json` (git-ignored); src/app/defaultRoster.ts fetches it in main.ts before the App starts (2 s timeout; dev-server index.html fallback / invalid pack → built-in, warning in the console). rosterPack: `setDefaultRosterPack` (not persisted), `rosterSource()` imported | default | builtin, record `rosterChoice` = 'builtin' when the player restores the built-in roster (wins over the default), `useDefaultRosterPack()`. Settings 名單 tab: 來源 line, 「改用預設名單」. The default pack shares the `@custom` save slot.
+- Music: `DEFAULT_SETTINGS.musicSource` 'bundled'; a missing bundled track now falls back to the original track quietly (the settings option reads 「內建曲目（找不到檔案）」 when selected). Saved settings keep their choice. bundledMusic `resetBundledTrackCache` (tests).
+- SPEC §0 exception: public/rosters/ + public/music/ player files, real names only in those files, dist/ built with them must not be published. FEATURES 7.1 / BGM row, README updated.
+- Tests: meta.rosterPack +1 (default pack lifecycle incl. reload + save slot), audio.music defaults / fallback updated.
+- Verified: fresh browser storage → GP lists the 2026 teams without an import, the bundled track loops (171 s buffer), settings show 音樂來源 Max Verstappen Song and 來源 預設名單; 還原內建名單 is remembered, 改用預設名單 switches back. Full bun test 1452 pass / 88 skip / 0 fail (an earlier run under load average ~22 had 9 time-outs only; those 5 files then passed 154 / 154), typecheck clean, build OK (dist/ contains music/ and rosters/).

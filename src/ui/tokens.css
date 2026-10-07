@@ -1,0 +1,58 @@
+/* Shared design tokens (owned by the architect). Menus, HUD and App styles must use these variables. */
+:root {
+  /* surfaces */
+  --nv-bg: #07090d;
+  --nv-bg-2: #0d1118;
+  --nv-panel: rgba(14, 18, 26, 0.86);
+  --nv-panel-solid: #121722;
+  --nv-panel-hi: #1a2130;
+  --nv-line: rgba(255, 255, 255, 0.09);
+  --nv-line-strong: rgba(255, 255, 255, 0.22);
+
+  /* text */
+  --nv-text: #eef2f7;
+  --nv-text-2: #a7b0c0;
+  --nv-text-3: #6c7689;
+
+  /* brand */
+  --nv-accent: #ff5a1f; /* vermilion — primary actions, focus */
+  --nv-accent-2: #19d3c5; /* teal — secondary highlights */
+  --nv-accent-ink: #1a0a04;
+
+  /* timing conventions */
+  --nv-time-overall: #b04dff; /* overall best (purple) */
+  --nv-time-personal: #2fd27a; /* personal best (green) */
+  --nv-time-slower: #ffcf33; /* slower (yellow) */
+  --nv-danger: #ff3b4e;
+  --nv-warning: #ffb020;
+  --nv-ok: #2fd27a;
+  --nv-drs: #2fd27a;
+  --nv-ers: #ffd23f;
+
+  /* tyre compounds (mirror core/defaults COMPOUND_INFO) */
+  --nv-tyre-soft: #e8322f;
+  --nv-tyre-medium: #f2c230;
+  --nv-tyre-hard: #f2f2f2;
+  --nv-tyre-inter: #3bb54a;
+  --nv-tyre-wet: #2f7fe8;
+
+  /* type */
+  --nv-font: 'Inter', 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --nv-font-display: 'Barlow Condensed', 'Oswald', 'Noto Sans TC', 'PingFang TC', 'Arial Narrow', system-ui, sans-serif;
+  --nv-font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* shape & motion */
+  --nv-radius: 6px;
+  --nv-radius-lg: 12px;
+  --nv-skew: -8deg;
+  --nv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --nv-fast: 120ms;
+  --nv-med: 240ms;
+
+  /* layering */
+  --nv-z-hud: 10;
+  --nv-z-menu: 20;
+  --nv-z-overlay: 30;
+  --nv-z-toast: 40;
+  --nv-z-error: 100;
+}

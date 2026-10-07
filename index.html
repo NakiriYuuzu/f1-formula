@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#07090d" />
+    <title>FORMULA NOVA 25｜新星方程式</title>
+    <meta name="description" content="原創 F1 風格瀏覽器賽車遊戲" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 2h24l-4 28H2z' fill='%23ff5a1f'/%3E%3Cpath d='M10 24l3-16h3l3 9 2-9h3l-3 16h-3l-3-9-2 9z' fill='%231a0a04'/%3E%3C/svg%3E" />
+    <style>
+      /* paint the page dark before the stylesheet loads (no white flash) */
+      html,
+      body {
+        margin: 0;
+        background: #07090d;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game" tabindex="-1" aria-label="新星方程式 25 遊戲畫面"></canvas>
+    <div id="ui-root"></div>
+    <noscript>新星方程式 25 需要啟用 JavaScript 才能遊玩。</noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
