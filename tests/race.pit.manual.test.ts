@@ -51,6 +51,8 @@ interface DriverOpts {
   laneSpeed: number;
   /** ignore the pit lane (stay on the racing line) */
   missEntry?: boolean;
+  /** the AI controller drives the whole visit itself (autopilot / AI takeover of a human car) */
+  controller?: boolean;
 }
 
 /** Scripted human: the AI controller on track; in a manual pit visit it follows the lane centre at opts.laneSpeed. */
@@ -60,8 +62,9 @@ function pitDriver(track: BuiltTrack, opts: DriverOpts): (w: WorldState) => (Con
   return (w) => {
     const car = w.cars[getPlayerCarId(w, 0)];
     const ai = computeAIInput(w, car, track, SIM_DT);
-    if (car.pit.phase === 'none' || car.race.pitAuto || opts.missEntry) return [ai];
+    if (car.pit.phase === 'none' || car.race.pitAuto || opts.controller) return [ai];
     const p = car.phys;
+    if (opts.missEntry) return [{ ...ai, steer: steerToward(car, track, 0, 30), throttle: 0.5, brake: 0, limiterToggle: false }];
     const d = forwardDistance(track, track.pit.entry, p.s);
     const look = 14;
     const lat = pitLaneOffsetAt(track, p.s + look) ?? p.lateral;
@@ -145,6 +148,24 @@ describe('manual pit lane (pit assist off)', () => {
         expect(car.race.pitManual).toBe(false);
         expect(car.phys.limiter).toBe(false);
       }
+    },
+    60_000,
+  );
+
+  test(
+    'the AI controller drives a manual visit itself (autopilot test aid, AI takeover mid-visit)',
+    () => {
+      const v = visit('porto-lumen', { driver: { limiter: true, laneSpeed: 0, controller: true } });
+      const car = v.world.cars[0];
+      expect(v.manualSeen).toBe(true);
+      expect(v.cancelled).toBe(false);
+      expect(car.pit.stops).toBe(1);
+      expect(car.phys.tire.compound).toBe('soft');
+      expect(car.penalties.timeSec).toBe(0);
+      expect(v.phases).toEqual(['none', 'entry', 'lane', 'stopped', 'lane', 'exit', 'none']);
+      expect(v.maxEntrySpeed).toBeGreaterThan(LIMIT * 1.5);
+      expect(v.maxLaneSpeed).toBeLessThanOrEqual(LIMIT + 0.6);
+      expect(car.status).toBe('finished');
     },
     60_000,
   );

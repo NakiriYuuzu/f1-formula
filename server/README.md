@@ -37,7 +37,9 @@ bunx wrangler deploy     # 部署；完成後會顯示網址，例如 https://fo
 
 1. **建置時設定**：在專案根目錄建置前設定環境變數 `VITE_SIGNAL_URL`，例如
    `VITE_SIGNAL_URL=https://formula-nova-signal.<帳號>.workers.dev bun run build`。GitHub Pages 的部署流程可以在
-   workflow 的 build 步驟加上這個環境變數。
+   workflow 的 build 步驟加上這個環境變數。目前的正式網址已寫在專案根目錄的 `.env.production`
+   （`https://formula-nova-signal.wendyfang99.workers.dev`，2026-10-10 部署），`bun run build` 會自動帶入；
+   開發伺服器（`bun run dev`）不讀這個檔，預設仍是本機測試。
 2. **遊戲內設定**：主選單 → 線上多人 → 配對方式選「配對伺服器」，把網址貼到「配對伺服器網址」。
 
 不部署也能測試：配對方式選「本機測試（同一台電腦的分頁）」，在同一個瀏覽器開兩個分頁，一個建立房間、另一個輸入代碼加入。

@@ -2,9 +2,9 @@
  * Online session end to end on the loopback transport (80 ms ± 30 ms, 5 % loss and duplicates on the state channel):
  * one HostSession (the host runs the world; its own car on the AI controller) and two ClientSessions (each drives its
  * car with the AI controller on its mirror world, as a player would with keys). Checks that client inputs drive the
- * host's cars, the interpolated cars match the host's history, events arrive complete and in order, a pit command
- * works, a guest dropping out hands its car to the AI and the race still finishes, everyone gets the same result and
- * the own-car prediction stays close.
+ * host's cars, the other cars are drawn on the own car's timeline (both match the host's history at the frame's
+ * time), events arrive complete and in order, a pit command works, a guest dropping out hands its car to the AI and
+ * the race still finishes, everyone gets the same result and the own-car prediction stays close.
  */
 import { describe, expect, test } from 'bun:test';
 import type { ControlInput, GameEvent, PlayerIndex, SessionConfig } from '../src/core/types';
@@ -67,10 +67,22 @@ describe('online session (loopback)', () => {
 
       const forwarded: GameEvent[] = [];
       const received: GameEvent[] = [];
-      // host positions by time (for checking the clients' interpolated cars)
+      // host positions by time (for checking the clients' drawn cars)
       const history: { t: number; pos: { x: number; z: number }[] }[] = [];
-      let maxInterpErr = 0;
-      let interpChecks = 0;
+      const hostAt = (t: number, id: number): { x: number; z: number } | null => {
+        const i = history.findIndex((hh) => hh.t >= t);
+        if (i <= 0) return null;
+        const a = history[i - 1]!;
+        const b = history[i]!;
+        const f = (t - a.t) / (b.t - a.t);
+        const pa = a.pos[id]!;
+        const pb = b.pos[id]!;
+        return { x: pa.x + (pb.x - pa.x) * f, z: pa.z + (pb.z - pa.z) * f };
+      };
+      // client A's frames waiting for the host to reach their time
+      const drawn: { t: number; cars: { id: number; x: number; z: number }[] }[] = [];
+      const othersErr: number[] = [];
+      const ownErr: number[] = [];
       let pitAsked = false;
       let dropped = false;
       let steps = 0;
@@ -86,6 +98,15 @@ describe('online session (loopback)', () => {
         host.afterStep();
         history.push({ t: world.time, pos: world.cars.map((c) => ({ x: c.phys.x, z: c.phys.z })) });
         if (history.length > 400) history.shift();
+        while (drawn.length > 0 && drawn[0]!.t <= world.time) {
+          const d = drawn.shift()!;
+          for (const rc of d.cars) {
+            const p = hostAt(d.t, rc.id);
+            if (!p) continue;
+            const e = Math.hypot(rc.x - p.x, rc.z - p.z);
+            (rc.id === a.carId ? ownErr : othersErr).push(e);
+          }
+        }
 
         for (const c of [a, b]) {
           const car = c.car;
@@ -106,18 +127,11 @@ describe('online session (loopback)', () => {
           c2.close();
           dropped = true;
         }
-        // every second: the interpolated other cars of client A against the host's history at that time
-        if (steps % 120 === 0 && world.session.phase === 'running') {
-          const frame = a.renderFrame(0);
-          const past = history.find((hh) => Math.abs(hh.t - frame.time) < SIM_DT / 2);
-          if (past) {
-            for (const rc of frame.cars) {
-              if (rc.carId === a.carId) continue;
-              const p = past.pos[rc.carId]!;
-              maxInterpErr = Math.max(maxInterpErr, Math.hypot(rc.x - p.x, rc.z - p.z));
-              interpChecks++;
-            }
-          }
+        // client A draws every step; every half second its cars are checked against the host once it reaches the
+        // frame's time
+        const frame = a.hostLeft ? null : a.renderFrame(SIM_DT);
+        if (frame && steps % 60 === 0 && world.session.phase === 'running' && world.time > 10) {
+          drawn.push({ t: frame.time, cars: frame.cars.map((c) => ({ id: c.carId, x: c.x, z: c.z })) });
         }
       }
       expect(isSessionOver(world)).toBe(true);
@@ -151,9 +165,18 @@ describe('online session (loopback)', () => {
       // the mirror: positions, timing and the session state follow the host
       expect(a.world.session.phase).toBe(world.session.phase);
       for (const c of world.cars) expect(a.world.cars[c.id]!.timing.position).toBe(c.timing.position);
-      // interpolation within a metre of the host's history; own-car prediction close to the host
-      expect(interpChecks).toBeGreaterThan(100);
-      expect(maxInterpErr).toBeLessThan(1);
+      // one timeline: the own car (predicted) and the other cars (extrapolated) both where the host had them at the
+      // frame's time; own-car prediction close to the host
+      const mean = (xs: number[]): number => xs.reduce((x, y) => x + y, 0) / xs.length;
+      const p95 = (xs: number[]): number => [...xs].sort((x, y) => x - y)[Math.floor(xs.length * 0.95)]!;
+      // (measured 0.45 / 0.85 m own, 0.38 / 1.38 m others; drawing the others interpolated 0.1 s behind the clock
+      // left the own car 18 m ahead of them on average)
+      expect(ownErr.length).toBeGreaterThan(100);
+      expect(othersErr.length).toBeGreaterThan(500);
+      expect(mean(ownErr)).toBeLessThan(1);
+      expect(p95(ownErr)).toBeLessThan(2);
+      expect(mean(othersErr)).toBeLessThan(1);
+      expect(p95(othersErr)).toBeLessThan(3);
       expect(a.corrections).toBeGreaterThan(1000);
       expect(a.maxCorrection).toBeLessThan(2);
     },

@@ -17,7 +17,7 @@ export class Room {
 
   constructor(
     private readonly ctx: DurableObjectState,
-    private readonly env: Env,
+    _env: Env,
   ) {}
 
   async fetch(request: Request): Promise<Response> {

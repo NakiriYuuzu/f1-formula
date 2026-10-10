@@ -41,16 +41,20 @@ export class BriefingScreen extends Screen {
     super(host, { layout: 'panel', className: 'nvm-briefing' });
     this.request = structuredClone(request);
     // time trial: mode and session share one label (avoid '計時賽・計時賽')
-    this.title = MODE_LABEL[request.mode] === KIND_LABEL[request.kind] ? MODE_LABEL[request.mode] : `${MODE_LABEL[request.mode]}・${kindLabel(request.kind, request.sprint)}`;
+    const modeLabel = ctx.returnTo === 'online' ? '線上多人' : MODE_LABEL[request.mode];
+    this.title = modeLabel === KIND_LABEL[request.kind] ? modeLabel : `${modeLabel}・${kindLabel(request.kind, request.sprint)}`;
     const layout = findLayout(request.layoutId);
     this.infoEl = h('div', { class: 'nvm-briefing__info' });
     this.startBtn = button({ label: `開始${kindLabel(request.kind, request.sprint)}`, variant: 'primary', onClick: () => this.start() });
-    const setupButtons = this.request.players.map((p) =>
+    // online: the host sets up its own car only (the guests' setups come from their own computers)
+    const online = ctx.returnTo === 'online';
+    const editable = online ? this.request.players.filter((p) => p.playerIndex === 0) : this.request.players;
+    const setupButtons = editable.map((p) =>
       button({
-        label: this.request.players.length > 1 ? `賽車設定（P${p.playerIndex + 1}）` : '賽車設定',
+        label: editable.length > 1 ? `賽車設定（P${p.playerIndex + 1}）` : '賽車設定',
         onClick: () => {
           const weather = this.preview()?.weather ?? 'clear';
-          this.host.push(new CarSetupScreen(this.host, p, this.request.layoutId, this.request.kind, weather, this.request.players.length > 1 ? `P${p.playerIndex + 1}` : ''));
+          this.host.push(new CarSetupScreen(this.host, p, this.request.layoutId, this.request.kind, weather, editable.length > 1 ? `P${p.playerIndex + 1}` : ''));
         },
       }),
     );

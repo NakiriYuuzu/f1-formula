@@ -9,7 +9,7 @@ import type { AIState, BuiltTrack, CarEntry, ControlInput, WorldState } from '..
 import type { AIMistake } from './types';
 import { AIR_DENSITY, angleDiff, clamp, clamp01, moveToward, nextRandom, worldToLocal } from '../core/math';
 import { isCarHeld, steerInputForAngle, tyreGrip } from '../physics/index';
-import { forwardDistance, inRangeS, poseAt, sampleAt } from '../track/track';
+import { forwardDistance, inRangeS, pitLaneOffsetAt, pitRampLength, pitZoneLength, poseAt, sampleAt } from '../track/track';
 import { PACE_MODE_FACTOR, difficulty01, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
 import { brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
@@ -309,6 +309,27 @@ function recoveryInput(car: CarEntry, track: BuiltTrack, dt: number, input: Cont
 }
 
 /** Compute this step's controls for an AI car. */
+/** Pit visit driven by the controller itself (no pit assist): the entry road down to the limit at the line, the lane
+ * at just under the limit with the limiter on, the exit road back up to speed. */
+const MANUAL_PIT_MARGIN = 1;
+const MANUAL_PIT_DECEL = 14;
+const MANUAL_PIT_LOOK = 14;
+function manualPitInput(car: CarEntry, track: BuiltTrack, input: ControlInput): void {
+  const p = car.phys;
+  const ramp = pitRampLength(track);
+  const zone = pitZoneLength(track);
+  const d = forwardDistance(track, track.pit.entry, p.s);
+  const lane = Math.max(5, track.pit.speedLimit - MANUAL_PIT_MARGIN);
+  const target =
+    d < ramp ? Math.max(lane, Math.sqrt(lane * lane + 2 * MANUAL_PIT_DECEL * Math.max(0, ramp - d - 8))) : d < zone - ramp ? lane : 60;
+  const lat = pitLaneOffsetAt(track, p.s + MANUAL_PIT_LOOK) ?? p.lateral;
+  const err = target - p.speed;
+  input.steer = clamp(steerToward(car, track, lat, MANUAL_PIT_LOOK), -1, 1);
+  input.throttle = err > 0 ? Math.min(1, err * 0.6 + 0.1) : 0;
+  input.brake = err < -0.3 ? Math.min(1, -err * 0.4) : 0;
+  input.limiterToggle = !p.limiter && d > ramp * 0.5 && d < zone - ramp;
+}
+
 export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt: number): ControlInput {
   const input = neutralInput();
   const ai = car.ai;
@@ -339,6 +360,11 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   }
   if (ai.mode === 'recover') {
     recoveryInput(car, track, h, input);
+    return input;
+  }
+  // a driver-driven pit visit (a human car on the AI controller: autopilot): the lane at the limit, limiter on
+  if (car.pit.phase !== 'none' && car.race.pitManual && !car.race.pitAuto) {
+    manualPitInput(car, track, input);
     return input;
   }
 
