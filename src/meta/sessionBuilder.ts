@@ -6,6 +6,7 @@
  */
 import type {
   Assists,
+  CarPartGains,
   CarSetup,
   DriverDef,
   GameMode,
@@ -22,11 +23,13 @@ import type {
   TeamDef,
   TireCompound,
   WeatherKind,
+  PlayerIndex,
 } from '../core/types';
 import { COMPOUNDS, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../core/defaults';
 import { clamp, nextRandom, type RngState } from '../core/math';
 import type { MenuHome, SessionContext } from './context';
 import { SAFETY_CAR_SETTINGS, sanitizeAssists, sanitizeRules, sanitizeSetup } from './guards';
+import { developmentStrength } from './development';
 import {
   AI_DIFFICULTY_MAX,
   AI_DIFFICULTY_MIN,
@@ -46,7 +49,7 @@ import { cloneDriver, cloneTeam, ensureUniqueNumbers, rosterDrivers, standardRos
 
 /** One human player's choices. */
 export interface PlayerChoice {
-  playerIndex: 0 | 1;
+  playerIndex: PlayerIndex;
   driverId: string;
   teamId: string;
   setup: CarSetup;
@@ -82,6 +85,8 @@ export interface SessionRequest {
   objective: StoryObjective | null;
   /** race kind only: this race is a sprint (raceLaps is the full race distance; the sprint runs a third of it) */
   sprint?: boolean;
+  /** season modes: achieved part development per team id (meta/development.ts developmentGains) */
+  development?: Record<string, CarPartGains>;
 }
 
 /** Rules forced in time trial: no wear / fuel / damage / collisions. */
@@ -106,6 +111,10 @@ function isCompound(v: unknown): v is TireCompound {
 
 function normalizeSeed(seed: number): number {
   return Number.isFinite(seed) ? Math.floor(Math.abs(seed)) >>> 0 : 1;
+}
+
+function cloneDevelopment(dev: Record<string, CarPartGains>): Record<string, CarPartGains> {
+  return Object.fromEntries(Object.entries(dev).map(([id, gains]) => [id, { ...gains }]));
 }
 
 /** Deterministic Fisher–Yates-free jitter: one random number per item from a seeded stream. */
@@ -192,20 +201,25 @@ function resolvePlayers(choices: readonly PlayerChoice[], roster: Roster): Playe
   return out.sort((a, b) => a.playerIndex - b.playerIndex);
 }
 
-/** Strength of a driver in its car (for ordering). */
-function entryStrength(driver: DriverDef, roster: Roster): number {
+/** Strength of a driver in its car (for ordering); `devStrength` = part development as team strength, by team id. */
+function entryStrength(driver: DriverDef, roster: Roster, devStrength?: ReadonlyMap<string, number>): number {
   const team = roster.teams.find((t) => t.id === driver.teamId);
   const pace = Number.isFinite(driver.skill.pace) ? driver.skill.pace : 0.85;
-  return (team ? teamStrength(team) : 0.85) + pace * 0.35;
+  return (team ? teamStrength(team) : 0.85) + (devStrength?.get(driver.teamId) ?? 0) + pace * 0.35;
 }
 
-/** Rating order with a seeded shuffle (race without qualifying). */
-export function ratingGridOrder(driverIds: readonly string[], roster: Roster, seed: number): string[] {
+/** Rating order with a seeded shuffle (race without qualifying); `devStrength` adds the season's part development. */
+export function ratingGridOrder(
+  driverIds: readonly string[],
+  roster: Roster,
+  seed: number,
+  devStrength?: ReadonlyMap<string, number>,
+): string[] {
   const jitter = seededJitter(driverIds, seed);
   const score = new Map<string, number>();
   for (const id of driverIds) {
     const d = roster.drivers.find((x) => x.id === id);
-    score.set(id, (d ? entryStrength(d, roster) : 0) + ((jitter.get(id) ?? 0.5) - 0.5) * 0.04);
+    score.set(id, (d ? entryStrength(d, roster, devStrength) : 0) + ((jitter.get(id) ?? 0.5) - 0.5) * 0.04);
   }
   return [...driverIds].sort((a, b) => (score.get(b) ?? 0) - (score.get(a) ?? 0));
 }
@@ -273,7 +287,10 @@ export function buildSessionConfig(req: SessionRequest, layout: LayoutMeta = lay
   // ── grid order
   let order: string[];
   if (kind === 'race') {
-    const rated = ratingGridOrder(fieldIds, roster, seed);
+    // season modes: part development counts like rating (developmentStrength)
+    const dev = req.development;
+    const devStrength = dev ? new Map(roster.teams.map((t) => [t.id, developmentStrength(dev[t.id])])) : undefined;
+    const rated = ratingGridOrder(fieldIds, roster, seed, devStrength);
     if (req.gridOrder && req.gridOrder.length > 0) {
       const fromQuali = req.gridOrder.filter((id, i, arr) => fieldIds.includes(id) && arr.indexOf(id) === i);
       order = [...fromQuali, ...rated.filter((id) => !fromQuali.includes(id))];
@@ -351,6 +368,7 @@ export function buildSessionConfig(req: SessionRequest, layout: LayoutMeta = lay
     ghost: kind === 'timeTrial' && req.ghost && req.ghost.layoutId === layout.id ? req.ghost : null,
     objective: req.objective ? { ...req.objective } : null,
     ...(sprint ? { sprint: true } : {}),
+    ...(req.development ? { development: cloneDevelopment(req.development) } : {}),
   };
 }
 
@@ -446,6 +464,7 @@ export function requestFromConfig(config: SessionConfig): SessionRequest {
     ghost: null,
     objective: config.objective ? { ...config.objective } : null,
     ...(config.sprint ? { sprint: true } : {}),
+    ...(config.development ? { development: cloneDevelopment(config.development) } : {}),
   };
 }
 
@@ -456,7 +475,7 @@ export interface QualifyingEntry {
   time: number | null;
   /** world car id, -1 for simulated entries */
   carId: number;
-  playerIndex: -1 | 0 | 1;
+  playerIndex: -1 | PlayerIndex;
   simulated: boolean;
 }
 

@@ -2,7 +2,7 @@
  * Car specification: builds CarSpec from team ratings + setup + regulation, plus static capability helpers
  * (steering map, power curve, lateral/braking limits) shared by the physics step and the AI.
  */
-import type { CarSetup, CarSpec, Regulation, TeamDef } from '../core/types';
+import type { CarPartGains, CarPartId, CarSetup, CarSpec, Regulation, TeamDef } from '../core/types';
 import { AIR_DENSITY, G, clamp, clamp01 } from '../core/math';
 import { DEFAULT_SETUP } from '../core/defaults';
 
@@ -96,16 +96,19 @@ const REGULATIONS: Record<Regulation, RegulationBase> = {
 
 const finiteOr = (v: number, fallback: number): number => (Number.isFinite(v) ? v : fallback);
 
-/** Build static car parameters from team ratings, setup and regulation. `upgrade` (0..0.1) = My Team R&D bonus. */
-export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regulation, upgrade = 0): CarSpec {
+/**
+ * Build static car parameters from team ratings, setup and regulation. `parts` = season-mode part development
+ * (meta/development.ts, each gain 0..5); no / zero gains leave the spec exactly as the ratings + setup produce it.
+ */
+export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regulation, parts: CarPartGains = {}): CarSpec {
   const base = REGULATIONS[regulation] ?? REGULATIONS['2025'];
-  const up = clamp(finiteOr(upgrade, 0), 0, 0.1) * 0.5;
-  const rate = (r: number): number => clamp(finiteOr(r, 0.9) + up, 0.5, 1.05);
+  const rate = (r: number): number => clamp(finiteOr(r, 0.9), 0.5, 1.05);
   const aero = rate(team.rating.aero);
   const power = rate(team.rating.power);
   const chassis = rate(team.rating.chassis);
-  // reliability already contains My Team R&D (department rating): ±~10 % impact damage around the field average
+  // ±~10 % impact damage around the field average (the reliability part scales it further below)
   const reliability = clamp(finiteOr(team.rating.reliability, 0.93), 0.5, 1.05);
+  const g = (part: CarPartId): number => clamp(finiteOr(parts?.[part] ?? 0, 0), 0, 5);
 
   const s = (key: keyof CarSetup, lo: number, hi: number): number => clamp(finiteOr(setup[key], DEFAULT_SETUP[key]), lo, hi);
   const fw = s('frontWing', 0, 50);
@@ -121,19 +124,23 @@ export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regula
   const diffN = (diff - DEFAULT_SETUP.diffOnThrottle) / 45; // ≈ -1..1
 
   // Aero: wings scale their axle's downforce; rear wing dominates drag. Neutral (25/25) = regulation base.
+  // Part development: front wing adds front-axle load (balance moves forward), rear wing trades a little rear load
+  // for less drag, the floor scales both axles.
   const neutralBalance = 0.44;
-  const frontDf = neutralBalance * (0.7 + 0.012 * fw);
-  const rearDf = (1 - neutralBalance) * (0.7 + 0.012 * rw);
+  const frontDf = neutralBalance * (0.7 + 0.012 * fw) * (1 + 0.016 * g('frontWing'));
+  const rearDf = (1 - neutralBalance) * (0.7 + 0.012 * rw) * (1 + 0.005 * g('rearWing'));
   const wingDf = frontDf + rearDf;
   const platform = (1 - 0.012 * dRide) * (1 + 0.004 * dSusp);
   const aeroEff = 1 - 0.6 * (1 - aero);
-  const downforceArea = base.downforceArea * wingDf * platform * aeroEff;
-  const dragArea = base.dragArea * (0.84 + 0.0016 * fw + 0.0048 * rw) * (1 - 0.004 * dRide) * (1 + 0.3 * (1 - aero));
+  const downforceArea = base.downforceArea * wingDf * platform * aeroEff * (1 + 0.01 * g('floor'));
+  const dragArea =
+    base.dragArea * (0.84 + 0.0016 * fw + 0.0048 * rw) * (1 - 0.004 * dRide) * (1 + 0.3 * (1 - aero)) * (1 - 0.008 * g('rearWing'));
 
   const wheelbase = base.wheelbase;
   const cgToRear = 0.45 * wheelbase; // 45 % static weight on the front axle
   const cgToFront = wheelbase - cgToRear;
-  const nominalMass = base.mass + NOMINAL_FUEL_KG;
+  const mass = base.mass - 2 * g('weight');
+  const nominalMass = mass + NOMINAL_FUEL_KG;
 
   const powerScale = 1 - 0.5 * (1 - power);
   const wheelRadius = 0.36;
@@ -144,7 +151,7 @@ export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regula
 
   return {
     regulation,
-    mass: base.mass,
+    mass,
     length: base.length,
     width: base.width,
     wheelbase,
@@ -157,8 +164,8 @@ export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regula
     idleRpm: 4000,
     maxRpm,
     shiftRpm: 11_800,
-    icePower: base.icePower * powerScale,
-    ersPower: base.ersPower * (0.97 + 0.03 * power),
+    icePower: base.icePower * powerScale * (1 + 0.012 * g('powerUnit')),
+    ersPower: base.ersPower * (0.97 + 0.03 * power) * (1 + 0.03 * g('ers')),
     batteryCapacity: base.batteryCapacity,
     dragArea,
     downforceArea,
@@ -168,30 +175,31 @@ export function createCarSpec(team: TeamDef, setup: CarSetup, regulation: Regula
     cgHeight: 0.3,
     yawInertia: nominalMass * cgToFront * cgToRear * 0.9,
     // 1.82 (vs REFERENCE_CAR mu 1.75) compensates the friction-circle / slip-angle losses of the full tyre model
-    baseMu: 1.82 * (1 - 0.15 * (1 - chassis)),
+    baseMu: 1.82 * (1 - 0.15 * (1 - chassis)) * (1 + 0.004 * g('suspension')),
     frontGrip: 1 - 0.006 * Math.max(0, diffN),
     rearGrip: (1.035 + 0.01 * diffN) * REAR_GRIP_MARGIN,
     tractionGrip: 0.96 + 0.04 * diffN,
     diffLock: clamp01((diff - 10) / 90),
     brakeBias: bias / 100,
-    maxBrakeForce: 62_000,
+    maxBrakeForce: 62_000 * (1 + 0.03 * g('brakes')),
+    brakeGrip: 1 + 0.006 * g('brakes'),
     rollingResistance: 0.011 * (1 - 0.03 * dPress),
-    drivetrainEfficiency: 0.88,
+    drivetrainEfficiency: 0.88 + 0.004 * g('gearbox'),
     tyreB: 20 * (1 + 0.02 * dSusp),
     tyreC: 1.45,
-    kerbGrip: clamp(0.92 - 0.012 * dSusp + 0.006 * dRide, 0.8, 0.98),
+    kerbGrip: clamp(clamp(0.92 - 0.012 * dSusp + 0.006 * dRide, 0.8, 0.98) + 0.01 * g('suspension'), 0.8, 0.98),
     tyreHeatScale: 1 + 0.03 * dPress,
-    tyreWearScale: 1 + 0.03 * dPress,
+    tyreWearScale: (1 + 0.03 * dPress) * (1 - 0.02 * g('suspension')),
     tyreGripScale: 1 - 0.006 * dPress,
     drsDragScale: base.drsDragScale,
     drsFrontDownforceScale: base.drsFrontDownforceScale,
     drsRearDownforceScale: base.drsRearDownforceScale,
-    ersHarvestBrake: base.ersHarvestBrake,
-    ersHarvestThrottle: base.ersHarvestThrottle,
+    ersHarvestBrake: base.ersHarvestBrake * (1 + 0.03 * g('ers')) * (1 + 0.02 * g('brakes')),
+    ersHarvestThrottle: base.ersHarvestThrottle * (1 + 0.03 * g('ers')),
     overtakeBoost: base.overtakeBoost,
     launchRpm: 8500,
     reverseRatio: gearRatios[0] ?? 6,
-    damageScale: clamp(1 + (0.93 - reliability) * 3, 0.75, 1.3),
+    damageScale: clamp(clamp(1 + (0.93 - reliability) * 3, 0.75, 1.3) * (1 - 0.04 * g('reliability')), 0.6, 1.3),
   };
 }
 
@@ -282,8 +290,8 @@ export function maxLateralAccel(spec: CarSpec, speed: number, gripScale = 1, fue
 }
 
 /**
- * Max straight-line braking deceleration (m/s², positive) at `speed` with ABS-style per-axle limiting, brake bias,
- * load transfer, brake-force cap and aero drag. `gripScale` as in maxLateralAccel.
+ * Max straight-line braking deceleration (m/s², positive) at `speed` with ABS-style per-axle limiting (tyre limit ×
+ * brakeGrip), brake bias, load transfer, brake-force cap and aero drag. `gripScale` as in maxLateralAccel.
  */
 export function maxBrakeDecel(spec: CarSpec, speed: number, gripScale = 1, fuelKg = NOMINAL_FUEL_KG): number {
   const m = spec.mass + Math.max(0, finiteOr(fuelKg, NOMINAL_FUEL_KG));
@@ -297,8 +305,8 @@ export function maxBrakeDecel(spec: CarSpec, speed: number, gripScale = 1, fuelK
     const transfer = (m * decel * spec.cgHeight) / L;
     const fzF = Math.max(0, (m * G * spec.cgToRear) / L + df * spec.aeroBalance + transfer);
     const fzR = Math.max(0, (m * G * spec.cgToFront) / L + df * (1 - spec.aeroBalance) - transfer);
-    const front = Math.min(spec.maxBrakeForce * spec.brakeBias, mu * spec.frontGrip * fzF);
-    const rear = Math.min(spec.maxBrakeForce * (1 - spec.brakeBias), mu * spec.rearGrip * fzR);
+    const front = Math.min(spec.maxBrakeForce * spec.brakeBias, mu * spec.frontGrip * fzF * spec.brakeGrip);
+    const rear = Math.min(spec.maxBrakeForce * (1 - spec.brakeBias), mu * spec.rearGrip * fzR * spec.brakeGrip);
     decel = (front + rear + drag) / m;
   }
   return Number.isFinite(decel) ? Math.max(0, decel) : 0;

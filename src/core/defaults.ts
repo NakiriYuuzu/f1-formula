@@ -95,6 +95,7 @@ export const ASSIST_PRESETS: Record<'beginner' | 'intermediate' | 'expert', Assi
     ersAssist: true,
     drsAssist: true,
     scLimiter: true,
+    pitAssist: true,
   },
   intermediate: {
     steering: false,
@@ -106,6 +107,7 @@ export const ASSIST_PRESETS: Record<'beginner' | 'intermediate' | 'expert', Assi
     ersAssist: true,
     drsAssist: false,
     scLimiter: true,
+    pitAssist: false,
   },
   expert: {
     steering: false,
@@ -117,6 +119,7 @@ export const ASSIST_PRESETS: Record<'beginner' | 'intermediate' | 'expert', Assi
     ersAssist: false,
     drsAssist: false,
     scLimiter: true,
+    pitAssist: false,
   },
 };
 
@@ -133,6 +136,7 @@ export const AI_ASSISTS: Assists = {
   ersAssist: true,
   drsAssist: true,
   scLimiter: false,
+  pitAssist: true,
 };
 
 export const DEFAULT_RULES: SessionRules = {

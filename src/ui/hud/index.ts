@@ -41,7 +41,7 @@ import {
   sessionLabel,
 } from './labels';
 import { Minimap } from './minimap';
-import { estimatePitLoss } from './mfd';
+import { estimatePitLoss } from '../../race/index';
 import { PauseMenu } from './pauseMenu';
 import type { MenuDirection, PauseItem } from './pauseMenu';
 import { RaceControlStrip, sectorFlagLabel } from './raceControl';
@@ -155,6 +155,8 @@ export class HudLayer {
     views: HudView[],
     settings: Settings,
     private readonly cb: HudCallbacks,
+    /** online session role: no restart; a client cannot end the session for everyone */
+    private readonly online: 'host' | 'client' | null = null,
   ) {
     this.settings = settings;
     this.split = views.length > 1;
@@ -466,6 +468,11 @@ export class HudLayer {
     this.lastTimeRemaining = tr != null && Number.isFinite(tr) ? tr : null;
   }
 
+  /** A notice on every view (online: players leaving, the host pausing). */
+  notify(title: string, sub: string, tone: Tone = 'info', duration?: number): void {
+    if (!this.destroyed) this.toastAll(title, sub, tone, duration);
+  }
+
   /** Flashback feedback: rewound (sub = how far / how many left) or refused (sub = reason). */
   notifyFlashback(ok: boolean, sub: string): void {
     if (this.destroyed) return;
@@ -553,7 +560,8 @@ export class HudLayer {
       }
       case 'pitEntry': {
         const v = this.viewByCar.get(ev.carId);
-        if (v) v.toast('進入維修道', '限速器已啟動', 'info', 2.6);
+        const manual = world.cars[ev.carId]?.assists.pitAssist === false;
+        if (v) v.toast('進入維修道', manual ? '限速線前開啟限速器' : '限速器將於限速線啟動', 'info', 2.6);
         break;
       }
       case 'pitStop': {
@@ -623,13 +631,15 @@ export class HudLayer {
   private buildPauseItems(world: WorldState): PauseItem[] {
     const s = world.session;
     const items: PauseItem[] = [{ kind: 'action', id: 'resume', label: '繼續', run: () => this.cb.resume() }];
-    items.push({
-      kind: 'action',
-      id: 'restart',
-      label: '重新開始',
-      confirm: '確定重新開始？再按一次確認',
-      run: () => this.cb.restart(),
-    });
+    if (!this.online) {
+      items.push({
+        kind: 'action',
+        id: 'restart',
+        label: '重新開始',
+        confirm: '確定重新開始？再按一次確認',
+        run: () => this.cb.restart(),
+      });
+    }
     const flashbacksLeft = (): number => fin(this.lastInfo?.flashbacksLeft ?? world.config.rules.flashbacks, 0);
     if (flashbacksLeft() !== 0 && s.phase !== 'finished') {
       items.push({
@@ -699,7 +709,7 @@ export class HudLayer {
           run: () => this.cb.retire(pi),
         });
       }
-    } else {
+    } else if (this.online !== 'client') {
       items.push({
         kind: 'action',
         id: 'endSession',
@@ -711,8 +721,8 @@ export class HudLayer {
     items.push({
       kind: 'action',
       id: 'quit',
-      label: '離開至選單',
-      confirm: '確定離開？本節進度不會保留',
+      label: this.online ? '離開房間' : '離開至選單',
+      confirm: this.online === 'host' ? '確定離開？房間會關閉，所有玩家回到選單' : this.online ? '確定離開房間？' : '確定離開？本節進度不會保留',
       run: () => this.cb.quit(),
     });
     return items;

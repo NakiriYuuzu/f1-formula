@@ -1,9 +1,12 @@
 /**
  * My Team (pure logic): the player's own extra team 'myteam' — name, livery, power-unit supplier, signed reserve
- * teammate, budget, and R&D departments whose levels raise the team rating and the createCarSpec `upgrade` bonus.
+ * teammate, budget, and part-level R&D (meta/development.ts) for every team of the season, paid in money by My Team;
+ * the achieved part gains reach createCarSpec through SessionConfig.development and also raise My Team's rating
+ * (myTeamRating: the base car grows towards a front-runner).
  */
 import type {
   Assists,
+  CarPartId,
   CarSetup,
   DriverDef,
   Livery,
@@ -15,6 +18,23 @@ import type {
 import { clamp } from '../core/math';
 import { asRecord, int, isRecord, num, sanitizeDriver, sanitizeLivery, str } from './guards';
 import {
+  advanceDevelopment,
+  canStartProject,
+  createSeasonDevelopment,
+  developmentFromRd,
+  emptyTeamDevelopment,
+  nextProject,
+  PART_MAX_LEVEL,
+  projectCost,
+  rolloverDevelopment,
+  rolloverRefund,
+  sanitizeDevelopment,
+  startProject,
+  teamsByStrength,
+  type SeasonDevelopment,
+  type TeamDevelopment,
+} from './development';
+import {
   cloneDriver,
   cloneLivery,
   createPlayerDriver,
@@ -24,7 +44,6 @@ import {
   rosterDrivers,
   rosterTeams,
   rosterWithExtraTeam,
-  teamStrength,
   type PlayerIdentity,
   type Roster,
 } from './roster';
@@ -58,19 +77,20 @@ import {
 } from './career';
 import type { SessionRequest } from './sessionBuilder';
 
-export type RdDepartment = 'aero' | 'power' | 'chassis' | 'reliability';
-export const RD_DEPARTMENTS: readonly RdDepartment[] = ['aero', 'power', 'chassis', 'reliability'];
-export const RD_MAX_LEVEL = 5;
-/** Cost (M) of upgrading FROM level i to i + 1. */
-export const RD_COSTS: readonly number[] = [3, 4.5, 6, 8, 10];
-/** Rating a fully developed department reaches (each level closes 1/5 of the gap from the base). */
-export const RD_CAP = 0.99;
-/** createCarSpec `upgrade` range is 0..0.1. */
-export const MAX_UPGRADE_BONUS = 0.1;
-
 export const START_BUDGET = 40;
 const BASE_AERO = 0.86;
 const BASE_CHASSIS = 0.86;
+/** Rating a fully developed department reaches (each 1.0 of average part gain closes 1/5 of the gap from the base). */
+export const RD_CAP = 0.99;
+
+/** My Team rating departments; each grows with the average gain of its parts (myTeamRating). */
+export type RdDepartment = 'aero' | 'power' | 'chassis' | 'reliability';
+export const RD_DEPARTMENT_PARTS: Readonly<Record<RdDepartment, readonly CarPartId[]>> = {
+  aero: ['frontWing', 'rearWing', 'floor'],
+  power: ['powerUnit', 'ers', 'gearbox'],
+  chassis: ['suspension', 'brakes', 'weight'],
+  reliability: ['reliability'],
+};
 
 export interface PowerUnitOption {
   /** supplier name written to TeamDef.powerUnit */
@@ -91,8 +111,6 @@ export const POWER_UNITS: readonly PowerUnitOption[] = [
   { id: 'Volta', power: 0.89, reliability: 0.95, cost: 4.5, blurb: '最便宜、最可靠，但極速吃虧' },
 ];
 
-export type RdLevels = Record<RdDepartment, number>;
-
 export interface IncomeLine {
   label: string;
   amount: number;
@@ -108,7 +126,8 @@ export interface MyTeamSave {
   teammateId: string;
   /** M (millions) */
   budget: number;
-  rd: RdLevels;
+  /** part development of every team of the season (roster teams + 'myteam') */
+  development: SeasonDevelopment;
   season: number;
   seed: number;
   calendar: CalendarRound[];
@@ -162,6 +181,11 @@ export function teamNameProblems(name: string, shortName: string): string[] {
   return problems;
 }
 
+/** Teams whose development a My Team season tracks: the active roster's teams plus My Team. */
+function seasonTeamIds(): string[] {
+  return [...rosterTeams().map((t) => t.id).filter((id) => id !== MY_TEAM_ID), MY_TEAM_ID];
+}
+
 /** Starting budget after the power-unit contract and the teammate's salary. */
 export function startingBudget(powerUnit: string, teammateId: string): number {
   const mate = reserveById(teammateId);
@@ -183,7 +207,7 @@ export function createMyTeam(
     driver: createPlayerDriver(draft.identity, MY_TEAM_ID, ratingToSkill(INITIAL_RATING)),
     teammateId: mate ? mate.id : '',
     budget: startingBudget(draft.powerUnit, mate ? mate.id : ''),
-    rd: { aero: 0, power: 0, chassis: 0, reliability: 0 },
+    development: createSeasonDevelopment(seasonTeamIds()),
     season: 1,
     seed: Math.floor(Math.abs(seed)) >>> 0,
     calendar: createCalendar(seed, layouts, sanitizeSeasonSettings(draft.settings).calendar),
@@ -209,56 +233,29 @@ function departmentBase(powerUnit: string, dept: RdDepartment): number {
   }
 }
 
-/** Rating of a department at an R&D level (0..RD_MAX_LEVEL), always ≤ RD_CAP. */
+/** Rating of a department at an average part gain 0..PART_MAX_LEVEL (fractions allowed), always ≤ max(base, RD_CAP). */
 export function departmentRating(powerUnit: string, dept: RdDepartment, level: number): number {
   const base = departmentBase(powerUnit, dept);
-  const l = clamp(Number.isFinite(level) ? Math.round(level) : 0, 0, RD_MAX_LEVEL);
-  return Math.round((base + (Math.max(base, RD_CAP) - base) * (l / RD_MAX_LEVEL)) * 10000) / 10000;
-}
-
-/** Team rating from the base car, power unit and R&D levels. */
-export function myTeamRating(save: Pick<MyTeamSave, 'powerUnit' | 'rd'>): TeamDef['rating'] {
-  return {
-    aero: departmentRating(save.powerUnit, 'aero', save.rd.aero),
-    power: departmentRating(save.powerUnit, 'power', save.rd.power),
-    chassis: departmentRating(save.powerUnit, 'chassis', save.rd.chassis),
-    reliability: departmentRating(save.powerUnit, 'reliability', save.rd.reliability),
-  };
-}
-
-function bonusFromTotal(totalLevels: number): number {
-  const t = clamp(totalLevels, 0, RD_DEPARTMENTS.length * RD_MAX_LEVEL) / (RD_DEPARTMENTS.length * RD_MAX_LEVEL);
-  return Math.round(t * MAX_UPGRADE_BONUS * 1000) / 1000;
-}
-
-/** createCarSpec `upgrade` argument (0..0.1) from the total R&D progress. */
-export function upgradeBonus(save: Pick<MyTeamSave, 'rd'>): number {
-  return bonusFromTotal(RD_DEPARTMENTS.reduce((acc, k) => acc + clamp(save.rd[k], 0, RD_MAX_LEVEL), 0));
+  const l = clamp(Number.isFinite(level) ? level : 0, 0, PART_MAX_LEVEL);
+  return Math.round((base + (Math.max(base, RD_CAP) - base) * (l / PART_MAX_LEVEL)) * 10000) / 10000;
 }
 
 /**
- * createCarSpec `upgrade` (0..0.1) for any team of a SessionConfig: 0 for every team except 'myteam', whose R&D
- * levels are recovered from its ratings. Lets the race runtime call
- * `createCarSpec(team, setup, regulation, teamUpgradeBonus(team))` without access to the save.
+ * Team rating from the base car, the power unit and My Team's part development: each department at the average gain
+ * of its parts (RD_DEPARTMENT_PARTS). The part gains also act on the car spec like every team's.
  */
-export function teamUpgradeBonus(team: TeamDef): number {
-  if (team.id !== MY_TEAM_ID) return 0;
-  let total = 0;
-  for (const dept of RD_DEPARTMENTS) {
-    const actual = team.rating[dept];
-    if (!Number.isFinite(actual)) continue;
-    let best = 0;
-    let bestErr = Infinity;
-    for (let level = 0; level <= RD_MAX_LEVEL; level++) {
-      const err = Math.abs(departmentRating(team.powerUnit, dept, level) - actual);
-      if (err < bestErr) {
-        bestErr = err;
-        best = level;
-      }
-    }
-    total += best;
-  }
-  return bonusFromTotal(total);
+export function myTeamRating(save: Pick<MyTeamSave, 'powerUnit' | 'development'>): TeamDef['rating'] {
+  const team = myTeamDevelopment(save);
+  const at = (dept: RdDepartment): number => {
+    const parts = RD_DEPARTMENT_PARTS[dept];
+    return departmentRating(save.powerUnit, dept, parts.reduce((acc, p) => acc + team.parts[p].gain, 0) / parts.length);
+  };
+  return { aero: at('aero'), power: at('power'), chassis: at('chassis'), reliability: at('reliability') };
+}
+
+/** My Team's own part development. */
+export function myTeamDevelopment(save: Pick<MyTeamSave, 'development'>): TeamDevelopment {
+  return save.development.teams[MY_TEAM_ID] ?? emptyTeamDevelopment();
 }
 
 export function myTeamDef(save: MyTeamSave): TeamDef {
@@ -281,25 +278,16 @@ export function myTeamRoster(save: MyTeamSave): Roster {
   return rosterWithExtraTeam(myTeamDef(save), drivers);
 }
 
-/** Cost (M) of the next level of a department, or null when maxed. */
-export function rdUpgradeCost(level: number): number | null {
-  if (!Number.isFinite(level) || level < 0 || level >= RD_MAX_LEVEL) return null;
-  return RD_COSTS[Math.floor(level)] ?? null;
-}
-
-/** Buy one R&D level; null when maxed or unaffordable. */
-export function purchaseUpgrade(save: MyTeamSave, dept: RdDepartment): MyTeamSave | null {
-  const cost = rdUpgradeCost(save.rd[dept]);
-  if (cost === null || save.budget + 1e-9 < cost) return null;
-  return {
-    ...save,
-    budget: Math.round((save.budget - cost) * 10) / 10,
-    rd: { ...save.rd, [dept]: save.rd[dept] + 1 },
-  };
-}
-
-export function isAnyDepartmentMaxed(save: Pick<MyTeamSave, 'rd'>): boolean {
-  return RD_DEPARTMENTS.some((k) => save.rd[k] >= RD_MAX_LEVEL);
+/** Start the next level's project of a part, paid from the budget (PART_COST_MONEY); null when unaffordable / not startable. */
+export function startMyTeamProject(save: MyTeamSave, part: CarPartId): MyTeamSave | null {
+  const team = myTeamDevelopment(save);
+  const project = canStartProject(team, part) ? nextProject(team, part) : null;
+  if (!project) return null;
+  const cost = projectCost(project.level, 'money');
+  if (save.budget + 1e-9 < cost) return null;
+  const development = startProject(save.development, MY_TEAM_ID, part);
+  if (!development) return null;
+  return { ...save, budget: Math.round((save.budget - cost) * 10) / 10, development };
 }
 
 /** Sign a different reserve as teammate (pays the salary as signing fee); null when unaffordable / invalid. */
@@ -312,10 +300,9 @@ export function signTeammate(save: MyTeamSave, reserveId: string): MyTeamSave | 
   return { ...save, teammateId: mate.id, budget: Math.round((save.budget - fee) * 10) / 10 };
 }
 
-/** Sponsor target: best car should finish at or above this position. */
+/** Sponsor target: best car should finish at or above this position (team rank by rating and part development). */
 export function sponsorTarget(save: MyTeamSave): number {
-  const roster = myTeamRoster(save);
-  const ranked = [...roster.teams].sort((a, b) => teamStrength(b) - teamStrength(a));
+  const ranked = teamsByStrength(myTeamRoster(save).teams, save.development);
   const rank = Math.max(0, ranked.findIndex((t) => t.id === MY_TEAM_ID));
   return clamp(rank * 2 + 1, 1, 20);
 }
@@ -344,17 +331,24 @@ export function applyMyTeamSprint(save: MyTeamSave, result: SessionResult): MyTe
   return { ...save, pendingSprint: withPendingSprint(save.results.length, result) };
 }
 
+/**
+ * Apply a race result: round record, income, then one round of development for every team (seeded by the round,
+ * AI budgets by the constructor standings after this race), season completion.
+ */
 export function applyMyTeamRace(save: MyTeamSave, result: SessionResult): MyTeamRaceUpdate {
   const record = attachSprint(recordRace(result), save.pendingSprint, save.results.length);
   const income = raceIncome(save, record);
   const total = income.reduce((acc, l) => acc + l.amount, 0);
   const results = [...save.results, record].slice(0, save.calendar.length);
+  const standings = teamStandings(results, myTeamRoster(save).teams.map((t) => t.id)).map((s) => s.id);
   const { pendingSprint: _spent, ...rest } = save;
   const next: MyTeamSave = {
     ...rest,
     results,
     budget: Math.round((save.budget + total) * 10) / 10,
     lastIncome: income,
+    // roundSeed(save) = this round (results not yet extended): save seed, season and round index
+    development: advanceDevelopment(save.development, { seed: roundSeed(save), playerTeamIds: [MY_TEAM_ID], standings }),
   };
   let summary: SeasonSummary | null = null;
   if (isSeasonComplete(next)) {
@@ -369,7 +363,10 @@ export function seasonPrize(teamPosition: number): number {
   return teamPosition >= 1 ? Math.max(1, 12 - teamPosition) : 0;
 }
 
-/** Next season: prize money in, power-unit and teammate contracts paid, new calendar. */
+/**
+ * Next season: prize money in, power-unit and teammate contracts paid, new calendar; every part drops a level
+ * (rolloverDevelopment) and a running project re-targeted at a cheaper level refunds the difference (rolloverRefund).
+ */
 export function startNextMyTeamSeason(
   save: MyTeamSave,
   seed: number,
@@ -379,6 +376,7 @@ export function startNextMyTeamSeason(
   const prize = seasonPrize(standingPosition(teams, MY_TEAM_ID));
   const mate = reserveById(save.teammateId);
   const costs = powerUnitOption(save.powerUnit).cost + (mate ? reserveSalary(mate) : 0);
+  const refund = rolloverRefund(myTeamDevelopment(save), 'money');
   const { pendingSprint: _spent, ...rest } = save;
   return {
     ...rest,
@@ -386,10 +384,12 @@ export function startNextMyTeamSeason(
     seed: Math.floor(Math.abs(seed)) >>> 0,
     calendar: createCalendar(seed, layouts, save.settings.calendar),
     results: [],
-    budget: Math.round((save.budget + prize - costs) * 10) / 10,
+    budget: Math.round((save.budget + prize - costs + refund) * 10) / 10,
+    development: rolloverDevelopment(save.development, [MY_TEAM_ID]),
     lastIncome: [
       { label: '車隊錦標獎金', amount: prize },
       { label: '動力單元與車手合約', amount: -costs },
+      ...(refund > 0 ? [{ label: '研發專案降級退費', amount: refund }] : []),
     ],
   };
 }
@@ -415,6 +415,7 @@ export function myTeamRequest(
     setup: player.setup,
     startCompound: player.startCompound,
     gridOrder,
+    development: save.development,
   });
 }
 
@@ -426,6 +427,24 @@ function sanitizeIncome(v: unknown): IncomeLine[] {
     const r = asRecord(item);
     return { label: str(r.label, '收入', 40), amount: num(r.amount, -100, 100, 0) };
   });
+}
+
+/**
+ * Stored development for the active roster + My Team; a save from before part-level R&D (no `development`) migrates
+ * its old department levels (`rd`) onto My Team's parts and starts every other team from zero.
+ */
+function sanitizeMyTeamDevelopment(v: Record<string, unknown>): SeasonDevelopment {
+  const ids = seasonTeamIds();
+  if (isRecord(v.development)) return sanitizeDevelopment(v.development, ids);
+  const rd = asRecord(v.rd);
+  const dev = createSeasonDevelopment(ids);
+  dev.teams[MY_TEAM_ID] = developmentFromRd({
+    aero: int(rd.aero, 0, PART_MAX_LEVEL, 0),
+    power: int(rd.power, 0, PART_MAX_LEVEL, 0),
+    chassis: int(rd.chassis, 0, PART_MAX_LEVEL, 0),
+    reliability: int(rd.reliability, 0, PART_MAX_LEVEL, 0),
+  });
+  return dev;
 }
 
 export function sanitizeMyTeam(
@@ -441,7 +460,6 @@ export function sanitizeMyTeam(
   let calendar = sanitizeCalendar(v.calendar);
   const settings = sanitizeSeasonSettings(v.settings);
   if (calendar.length === 0) calendar = createCalendar(seed, layouts, settings.calendar);
-  const rdRaw = asRecord(v.rd);
   const fallbackDriver = createPlayerDriver(
     { firstName: '新星', lastName: '車手', abbr: 'NOV', number: 2, nationality: 'TWN', helmet: { primary: '#ff5a1f', secondary: '#ffffff', accent: '#111111' } },
     MY_TEAM_ID,
@@ -458,12 +476,7 @@ export function sanitizeMyTeam(
     driver: { ...driver, id: PLAYER_DRIVER_ID, teamId: MY_TEAM_ID },
     teammateId,
     budget: num(v.budget, -999, 9999, START_BUDGET),
-    rd: {
-      aero: int(rdRaw.aero, 0, RD_MAX_LEVEL, 0),
-      power: int(rdRaw.power, 0, RD_MAX_LEVEL, 0),
-      chassis: int(rdRaw.chassis, 0, RD_MAX_LEVEL, 0),
-      reliability: int(rdRaw.reliability, 0, RD_MAX_LEVEL, 0),
-    },
+    development: sanitizeMyTeamDevelopment(v),
     season: int(v.season, 1, 999, 1),
     seed,
     calendar,

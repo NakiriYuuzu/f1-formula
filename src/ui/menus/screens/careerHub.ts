@@ -1,6 +1,6 @@
 /**
- * Driver Career hub over the player's car: next round, calendar, standings, driver rating & teammate
- * comparison, season settings, season-end summary / next season, new career.
+ * Driver Career hub over the player's car: next round, latest development report, car R&D (points), calendar,
+ * standings, driver rating & teammate comparison, season settings, season-end summary / next season, new career.
  */
 import {
   careerRequest,
@@ -20,12 +20,14 @@ import { focusElement } from '../nav';
 import { launchWeekend } from '../flow';
 import { FORMAT_LABEL, weatherLabel } from '../labels';
 import { minimapCanvas } from '../minimap';
+import { developmentNote, idleSlotsNote, seasonRuleNote, teamDevelopmentOf } from '../components/rndRows';
 import { seasonSummaryCard } from '../components/seasonTables';
 import { Screen, type Host, type StageRequest } from '../screen';
 import { showroomCarFor } from '../showroom';
 import { button, heading, panel, teamChip } from '../widgets';
 import { CareerWizardScreen } from './careerWizard';
 import { CalendarScreen } from './calendar';
+import { CareerRndScreen } from './careerRnd';
 import { DriverProfileScreen } from './driverProfile';
 import { SeasonSettingsScreen } from './seasonSettings';
 import { StandingsScreen } from './standings';
@@ -114,17 +116,26 @@ export class CareerHubScreen extends Screen {
       roundCard = panel(null, h('p', { class: 'nvm-empty', text: '賽道資料尚未載入，無法開始比賽。' }));
       this.primary = null;
     }
+    const devNote = developmentNote(save.development, save.teamId, save.results.length);
+    const ruleNote = seasonRuleNote(save.season, save.results.length);
 
     setChildren(
       this.col,
       heading('車手生涯', '生涯樞紐'),
       header,
       stats,
+      devNote ? h('p', { class: 'nvm-note', text: devNote }) : null,
+      ruleNote ? h('p', { class: 'nvm-note', text: ruleNote }) : null,
       roundCard,
       h(
         'nav',
         { class: 'nvm-menu-list' },
         this.primary,
+        button({
+          label: `車輛研發（點數 ${save.rdPoints}）`,
+          badge: idleSlotsNote(teamDevelopmentOf(save.development, save.teamId), save.rdPoints, 'points') ?? undefined,
+          onClick: () => this.host.push(new CareerRndScreen(this.host)),
+        }),
         button({ label: '賽季賽程', onClick: () => this.host.push(new CalendarScreen(this.host, `第 ${save.season} 季`, save.calendar, save.results, PLAYER_DRIVER_ID, save.settings)) }),
         button({ label: '積分榜', onClick: () => this.host.push(new StandingsScreen(this.host, `第 ${save.season} 季`, save.results, roster, [PLAYER_DRIVER_ID], save.teamId)) }),
         button({ label: '車手資料與隊友對比', onClick: () => this.host.push(new DriverProfileScreen(this.host, save)) }),

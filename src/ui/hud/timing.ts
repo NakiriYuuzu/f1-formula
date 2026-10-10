@@ -272,7 +272,7 @@ export class TimingPanel {
     let state: string | null = null;
     switch (pit.phase) {
       case 'entry':
-        text = '進入維修道';
+        text = car.assists.pitAssist === false && !car.phys.limiter ? '限速線前開啟限速器' : '進入維修道';
         state = 'lane';
         break;
       case 'lane':

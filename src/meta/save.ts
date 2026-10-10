@@ -2,7 +2,7 @@
  * Persistence (owner: menus agent). localStorage, every key prefixed with STORAGE_PREFIX, JSON, versioned,
  * corrupt/missing data falls back to defaults (never throws). In-memory fallback when localStorage is unavailable.
  */
-import type { CameraMode, CarSetup, GhostData, KeyAction, Regulation, Settings } from '../core/types';
+import type { CameraMode, CarSetup, GhostData, KeyAction, PlayerIndex, Regulation, Settings } from '../core/types';
 import { DEFAULT_KEY_BINDINGS, DEFAULT_SETTINGS, DEFAULT_SETUP } from '../core/defaults';
 import { sanitizeAchievements, type AchievementSave } from './achievements';
 import { sanitizeCareer, type CareerSave } from './career';
@@ -110,19 +110,19 @@ export function saveProfile(profile: ProfileSave): void {
   writeRecord('profile', sanitizeProfile(profile));
 }
 
-/** Setup-book key: player 1 per layout; split-screen player 2 keeps a separate entry. */
-function setupKey(layoutId: string, playerIndex: 0 | 1): string {
+/** Setup-book key: player 1 per layout; split-screen player 2 keeps a separate entry (online seats use player 1's). */
+function setupKey(layoutId: string, playerIndex: PlayerIndex): string {
   return playerIndex === 1 ? `${layoutId}--p2` : layoutId;
 }
 
 /** Last car setup used on a layout (player 2 falls back to player 1's; default setup if none). */
-export function loadSetup(layoutId: string, playerIndex: 0 | 1 = 0): CarSetup {
+export function loadSetup(layoutId: string, playerIndex: PlayerIndex = 0): CarSetup {
   const book = sanitizeSetupBook(readRecord('setups'));
   const found = book[setupKey(layoutId, playerIndex)] ?? book[layoutId];
   return found ? { ...found } : { ...DEFAULT_SETUP };
 }
 
-export function saveSetup(layoutId: string, setup: CarSetup, playerIndex: 0 | 1 = 0): void {
+export function saveSetup(layoutId: string, setup: CarSetup, playerIndex: PlayerIndex = 0): void {
   const book = sanitizeSetupBook(readRecord('setups'));
   book[setupKey(layoutId, playerIndex)] = sanitizeSetup(setup);
   writeRecord('setups', book);

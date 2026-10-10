@@ -129,6 +129,9 @@ export function regroupOnGrid(world: WorldState, track: BuiltTrack): void {
     parkOnSlot(track, car);
     const t = car.timing;
     t.progress = t.lapsCompleted * L + (slot.s - L);
+    // a fresh set: its wear rate is measured from here (as after a pit stop)
+    car.ai.stintWear = p.tire.wear;
+    car.ai.stintStartProgress = t.progress;
     r.lastS = slot.s;
     r.ctlS = slot.s;
     r.cpTimes.fill(-1e9);

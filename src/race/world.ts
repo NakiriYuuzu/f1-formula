@@ -15,6 +15,7 @@ import type {
   TeamDef,
   TireCompound,
   WorldState,
+  PlayerIndex,
 } from '../core/types';
 import { AI_ASSISTS, COMPOUNDS, DEFAULT_ASSISTS, DEFAULT_SETUP } from '../core/defaults';
 import { clamp, forwardX, forwardZ, randRange } from '../core/math';
@@ -22,12 +23,11 @@ import { DRIVERS, TEAMS } from '../data/teams';
 import { COMPOUND_PARAMS, createCarPhysics, createCarSpec, fuelPerKm } from '../physics/index';
 import { poseAt, sampleAt, wrapS } from '../track/track';
 import { aiCarTeam, applyRaceForm, createAIState, isDry } from '../ai/index';
-import { teamUpgradeBonus } from '../meta/myTeam';
 import { emit, mod } from './events';
 import type { CarRaceInternal } from './types';
 import { gearForSpeed } from './pitlane';
 import { PRE_LIGHTS } from './session';
-import { predictLapTime, qualifyingBenchmark } from './qualiSim';
+import { predictLapTime, qualiCalibration, qualifyingBenchmark } from './qualiSim';
 import { createWeather } from './weather';
 import { createCarFlags, createControlState } from './control';
 import { gridSlot } from './gridPark';
@@ -143,6 +143,9 @@ function newRaceInternal(
     pitStopS: boxS,
     pitStopTotal: 0,
     pitRepair: false,
+    pitManual: false,
+    pitAuto: false,
+    pitSpeeding: false,
     usedCompounds: isDry(compound) ? [compound] : [],
     usedWetTyre: !isDry(compound),
     mandatoryPenaltyApplied: false,
@@ -165,6 +168,8 @@ function newRaceInternal(
     retiredAt: null,
     pitLap: false,
     timedLaps: 0,
+    neutralLap: true,
+    lastCleanLap: 0,
     gridS: s,
     gridLat: 0,
     formationDist: 0,
@@ -188,7 +193,11 @@ function newRaceInternal(
   };
 }
 
-/** Expected flying-lap time of a driver in a team car (cached per team / skill within one world build). */
+/**
+ * Expected flying-lap time of a driver in a team car (cached per team / skill within one world build): the calibrated
+ * point-mass prediction (simulated qualifying without its noise), on the same scale as real laps — paceOf compares it
+ * with a human's lap times.
+ */
 function paceEstimate(
   cache: Record<string, number>,
   track: BuiltTrack,
@@ -197,16 +206,18 @@ function paceEstimate(
   config: SessionConfig,
   wetness: number,
 ): number {
-  const key = `${team.id}|${driver.skill.pace}|${driver.skill.wet}`;
+  const key = `${team.id}|${driver.skill.pace}|${driver.skill.wet}|${driver.skill.consistency}`;
   const hit = cache[key];
   if (hit !== undefined) return hit;
-  const t = predictLapTime(track, team, driver, config.aiDifficulty, config.regulation, wetness);
+  const t =
+    predictLapTime(track, team, driver, config.aiDifficulty, config.regulation, wetness, config.development?.[team.id] ?? {}) *
+    qualiCalibration(config.aiDifficulty, config.regulation);
   cache[key] = Number.isFinite(t) && t > 0 ? t : 0;
   return cache[key];
 }
 
-function validEntries(config: SessionConfig): { g: GridEntry; driver: DriverDef; team: TeamDef; playerIndex: -1 | 0 | 1 }[] {
-  const out: { g: GridEntry; driver: DriverDef; team: TeamDef; playerIndex: -1 | 0 | 1 }[] = [];
+function validEntries(config: SessionConfig): { g: GridEntry; driver: DriverDef; team: TeamDef; playerIndex: -1 | PlayerIndex }[] {
+  const out: { g: GridEntry; driver: DriverDef; team: TeamDef; playerIndex: -1 | PlayerIndex }[] = [];
   const seen: string[] = [];
   const usedPlayers: number[] = [];
   for (const g of config.grid) {
@@ -216,7 +227,7 @@ function validEntries(config: SessionConfig): { g: GridEntry; driver: DriverDef;
     const team = findTeam(config, g.teamId) ?? findTeam(config, driver.teamId);
     if (!team) continue;
     seen.push(g.driverId);
-    let playerIndex: -1 | 0 | 1 = g.playerIndex === 0 || g.playerIndex === 1 ? g.playerIndex : -1;
+    let playerIndex: -1 | PlayerIndex = g.playerIndex === 0 || g.playerIndex === 1 || g.playerIndex === 2 || g.playerIndex === 3 ? g.playerIndex : -1;
     if (playerIndex !== -1 && usedPlayers.includes(playerIndex)) playerIndex = -1;
     if (playerIndex !== -1) usedPlayers.push(playerIndex);
     out.push({ g, driver, team, playerIndex });
@@ -254,7 +265,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     const slot = playerIndex !== -1 ? config.players.find((p) => p.playerIndex === playerIndex) : undefined;
     const setup = slot ? { ...DEFAULT_SETUP, ...slot.setup } : { ...DEFAULT_SETUP };
     const assists = playerIndex !== -1 ? { ...DEFAULT_ASSISTS, ...(slot?.assists ?? {}) } : { ...AI_ASSISTS };
-    const spec = createCarSpec(carTeam, setup, config.regulation, teamUpgradeBonus(team));
+    const spec = createCarSpec(carTeam, setup, config.regulation, config.development?.[team.id] ?? {});
     const compound: TireCompound = (COMPOUNDS as readonly string[]).includes(g.startCompound) ? g.startCompound : 'medium';
     const fuel = fuelLoad(config, track, fuelPerKm(spec));
 
@@ -293,6 +304,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     const progress = s - L;
     const ai = createAIState(driver, config.aiDifficulty, (seed * 31 + (i + 1) * 7919) >>> 0);
     ai.plannedCompound = defaultNextCompound(compound);
+    ai.stintStartProgress = progress;
     ai.paceTime = paceEstimate(paceCache, track, carTeam, driver, config, weather.wetness);
     if (race && playerIndex === -1) applyRaceForm(ai);
     const zones = track.drsZones.length;

@@ -15,24 +15,41 @@ import {
   createCareer,
   isSeasonComplete,
   sanitizeCareer,
+  startCareerProject,
   startNextCareerSeason,
   updateRating,
   INITIAL_RATING,
 } from '../src/meta/career';
 import {
+  aiDevelopmentBudget,
+  CAR_PARTS,
+  careerRoundPoints,
+  developmentFromRd,
+  developmentGains,
+  PART_COST_MONEY,
+  PART_COST_POINTS,
+  PART_MAX_LEVEL,
+  rolloverDevelopment,
+  totalLevel,
+} from '../src/meta/development';
+import {
   applyMyTeamRace,
   createMyTeam,
+  departmentRating,
   myTeamDef,
+  myTeamDevelopment,
   myTeamRequest,
+  myTeamRating,
   myTeamRoster,
-  purchaseUpgrade,
-  RD_MAX_LEVEL,
+  POWER_UNITS,
   sanitizeMyTeam,
-  teamUpgradeBonus,
-  upgradeBonus,
+  startMyTeamProject,
+  startNextMyTeamSeason,
   type MyTeamDraft,
+  type MyTeamSave,
 } from '../src/meta/myTeam';
-import { listLayouts, resolveLaps, weekendSessions, type LayoutMeta } from '../src/meta/options';
+import { detectAssistPreset, listLayouts, resolveLaps, weekendSessions, type LayoutMeta } from '../src/meta/options';
+import { sanitizeAssists } from '../src/meta/guards';
 import { applyProgress, withQualifyingPositions } from '../src/meta/progression';
 import { MY_TEAM_ID, PLAYER_DRIVER_ID, standardRoster, type PlayerIdentity } from '../src/meta/roster';
 import {
@@ -40,6 +57,7 @@ import {
   loadAchievements,
   loadCareer,
   loadGhost,
+  loadMyTeam,
   loadProfile,
   loadSettings,
   loadSetup,
@@ -47,6 +65,7 @@ import {
   loadTimeTrialRecords,
   saveCareer,
   saveGhost,
+  saveMyTeam,
   saveSettings,
   saveSetup,
 } from '../src/meta/save';
@@ -510,6 +529,116 @@ describe('career', () => {
     expect(Math.min(r.pace, r.racecraft, r.wet, r.awareness, r.consistency)).toBeGreaterThanOrEqual(40);
   });
 
+  test('rating growth measures the result against the developed field (expected position with part development)', () => {
+    const career = createCareer(IDENTITY, 'corvid', DEFAULT_SEASON_SETTINGS, 42, SYNTH_LAYOUTS);
+    const config = buildSessionConfig(careerRequest(career, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    const others = config.grid.map((g) => g.driverId).filter((id) => id !== PLAYER_DRIVER_ID);
+    const p10 = fakeRaceResult(config, { order: [...others.slice(0, 9), PLAYER_DRIVER_ID, ...others.slice(9)] });
+    const full = developmentFromRd({ aero: 5, power: 5, chassis: 5, reliability: 5 });
+    const developed = { ...career, development: { ...career.development, teams: { ...career.development.teams, corvid: full } } };
+    // P10 beats the slowest car's expectation (P19.5) but trails a fully developed corvid's (P1.5)
+    expect(applyCareerRace(career, p10, 0).save.rating.pace).toBeGreaterThan(INITIAL_RATING.pace);
+    expect(applyCareerRace(developed, p10, 0).save.rating.pace).toBeLessThan(INITIAL_RATING.pace);
+  });
+
+  test('R&D points per round pay for the team projects; every team develops; saved and carried into the next season', () => {
+    let career = createCareer(IDENTITY, 'kestrel', DEFAULT_SEASON_SETTINGS, 42, SYNTH_LAYOUTS);
+    expect(career.rdPoints).toBe(0);
+    expect(Object.keys(career.development.teams)).toEqual(TEAMS.map((t) => t.id));
+    expect(Object.values(career.development.teams).every((t) => totalLevel(t) === 0)).toBe(true);
+    expect(startCareerProject(career, 'floor')).toBeNull();
+    const config = buildSessionConfig(careerRequest(career, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    expect(config.development).toEqual(developmentGains(career.development));
+    const others = config.grid.map((g) => g.driverId).filter((id) => id !== PLAYER_DRIVER_ID && id !== 'bellandi');
+    // P1 ahead of the team-mate: kestrel leads the constructors (leader budget 35.7) × (0.85 + 0.25 + 0.05)
+    const win = applyCareerRace(career, fakeRaceResult(config, { order: [PLAYER_DRIVER_ID, 'bellandi', ...others] }), 0);
+    expect(win.save.rdPoints).toBe(careerRoundPoints({ teamRank0: 0, teamCount: TEAMS.length, position: 1, fieldSize: 20, aheadOfTeammate: true }));
+    expect(win.save.rdPoints).toBe(41);
+    // retired behind the team-mate: 0.85 × the budget of kestrel's constructor place after the race
+    const rank0 = (save: typeof career): number => teamStandings(save.results, TEAMS.map((t) => t.id)).findIndex((t) => t.id === 'kestrel');
+    const dnf = applyCareerRace(career, fakeRaceResult(config, { order: ['bellandi', ...others, PLAYER_DRIVER_ID], retired: [PLAYER_DRIVER_ID] }), 0);
+    expect(dnf.save.rdPoints).toBe(Math.round(aiDevelopmentBudget(rank0(dnf.save), TEAMS.length) * 0.85));
+    // the same last place in a team at the back of the constructors earns more (like the AI budgets)
+    const tail = applyCareerRace(career, fakeRaceResult(config, { order: [...others, 'bellandi', PLAYER_DRIVER_ID] }), 0);
+    expect(rank0(tail.save)).toBe(TEAMS.length - 1);
+    expect(tail.save.rdPoints).toBe(Math.round(aiDevelopmentBudget(TEAMS.length - 1, TEAMS.length) * 0.85));
+    expect(tail.save.rdPoints).toBeGreaterThan(dnf.save.rdPoints);
+    // AI teams banked their budget and started projects; the player's team waits for the player
+    career = win.save;
+    expect(career.development.teams.kestrel!.projects).toEqual([]);
+    expect(career.development.teams.kestrel!.bank).toBe(0);
+    for (const t of TEAMS.filter((x) => x.id !== 'kestrel')) expect(career.development.teams[t.id]!.projects).toHaveLength(1);
+    expect(career.development.report).toEqual([]);
+    // the player's projects cost R&D points
+    career = startCareerProject(career, 'frontWing')!;
+    expect(career.rdPoints).toBe(41 - PART_COST_POINTS[0]!);
+    expect(career.development.teams.kestrel!.projects.map((q) => q.part)).toEqual(['frontWing']);
+    expect(startCareerProject(career, 'frontWing')).toBeNull();
+    expect(startCareerProject({ ...career, rdPoints: PART_COST_POINTS[0]! - 1 }, 'floor')).toBeNull();
+    career = { ...career, rdPoints: 100 };
+    career = startCareerProject(career, 'floor')!;
+    expect(career.rdPoints).toBe(70);
+    expect(startCareerProject(career, 'ers')).toBeNull();
+    // saved and loaded unchanged
+    saveCareer(career);
+    expect(loadCareer()?.development).toEqual(career.development);
+    expect(loadCareer()?.rdPoints).toBe(70);
+    // the next race completes both level-1 projects (and the AI teams' ones)
+    const next = applyCareerRace(career, fakeRaceResult(config, { order: [PLAYER_DRIVER_ID, 'bellandi', ...others] }), 0).save;
+    const kestrel = next.development.teams.kestrel!;
+    expect(kestrel.projects).toEqual([]);
+    expect(kestrel.parts.frontWing.level).toBe(1);
+    expect(kestrel.parts.floor.level).toBe(1);
+    expect(next.development.report.filter((l) => l.teamId === 'kestrel').map((l) => l.part).sort()).toEqual(['floor', 'frontWing']);
+    expect(next.development.report.length).toBe(TEAMS.length + 1);
+    const nextConfig = buildSessionConfig(careerRequest(next, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    expect(nextConfig.development).toEqual(developmentGains(next.development));
+    expect(nextConfig.development?.kestrel?.frontWing).toBeGreaterThan(0);
+    // next season: points carry over; every part of every team drops a level (rule changes), the report starts empty
+    const season2 = startNextCareerSeason(next, 9, SYNTH_LAYOUTS);
+    expect(season2.development).toEqual(rolloverDevelopment(next.development, ['kestrel']));
+    expect(season2.development.teams.kestrel!.parts.frontWing).toEqual({ level: 0, gain: 0 });
+    expect(season2.development.report).toEqual([]);
+    expect(season2.rdPoints).toBe(next.rdPoints);
+    // a project still running at the rollover (here started after the last race) aims at the cheaper new level and
+    // refunds the difference: the same as starting it in the new season
+    const floor4 = { ...next, rdPoints: PART_COST_POINTS[4]! };
+    floor4.development = { ...next.development, teams: { ...next.development.teams, kestrel: { ...next.development.teams.kestrel!, parts: { ...next.development.teams.kestrel!.parts, floor: { level: 4, gain: 4 } } } } };
+    const late = startNextCareerSeason(startCareerProject(floor4, 'floor')!, 9, SYNTH_LAYOUTS);
+    const waited = startCareerProject(startNextCareerSeason(floor4, 9, SYNTH_LAYOUTS), 'floor')!;
+    expect(late.rdPoints).toBe(PART_COST_POINTS[4]! - PART_COST_POINTS[3]!);
+    expect(late.rdPoints).toBe(waited.rdPoints);
+    expect(late.development.teams.kestrel).toEqual(waited.development.teams.kestrel);
+  });
+
+  test('sprint position adds R&D points; old saves start with zero development and points', () => {
+    const settings = { ...DEFAULT_SEASON_SETTINGS, sprintWeekends: true };
+    const career = createCareer(IDENTITY, 'kestrel', settings, 42, SYNTH_LAYOUTS);
+    const config = buildSessionConfig(careerRequest(career, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    const others = config.grid.map((g) => g.driverId).filter((id) => id !== PLAYER_DRIVER_ID && id !== 'bellandi');
+    const sprintOrder = ['bellandi', ...others.slice(0, 2), PLAYER_DRIVER_ID, ...others.slice(2)];
+    const withSprint = { ...career, pendingSprint: { round: 0, entries: recordRace(fakeRaceResult(config, { order: sprintOrder })).classification } };
+    const order = [...others.slice(0, 9), PLAYER_DRIVER_ID, 'bellandi', ...others.slice(9)];
+    const upd = applyCareerRace(withSprint, fakeRaceResult(config, { order }), 0);
+    const rank0 = teamStandings(upd.save.results, TEAMS.map((t) => t.id)).findIndex((t) => t.id === 'kestrel');
+    expect(upd.save.rdPoints).toBe(
+      careerRoundPoints({ teamRank0: rank0, teamCount: TEAMS.length, position: 10, fieldSize: 20, aheadOfTeammate: true, sprintPosition: 4 }),
+    );
+    expect(upd.save.rdPoints).toBe(Math.round(aiDevelopmentBudget(rank0, TEAMS.length) * (0.85 + 0.25 * (10 / 19) + 0.05 + 0.05 * (16 / 19))));
+    // the sprint P4 adds 0.05 · 16 / 19 of the team budget (at the same constructor place)
+    expect(upd.save.rdPoints).toBeGreaterThan(
+      careerRoundPoints({ teamRank0: rank0, teamCount: TEAMS.length, position: 10, fieldSize: 20, aheadOfTeammate: true }),
+    );
+
+    const { development: _d, rdPoints: _p, ...old } = career;
+    const back = sanitizeCareer(JSON.parse(JSON.stringify(old)), SYNTH_LAYOUTS)!;
+    expect(back.rdPoints).toBe(0);
+    expect(back.development).toEqual(career.development);
+    const broken = sanitizeCareer({ ...JSON.parse(JSON.stringify(career)), rdPoints: -5, development: { teams: { ghost: {} } } }, SYNTH_LAYOUTS)!;
+    expect(broken.rdPoints).toBe(0);
+    expect(Object.keys(broken.development.teams)).toEqual(TEAMS.map((t) => t.id));
+  });
+
   test('points fallback uses POINTS_TABLE for invalid runtime points', () => {
     const config = buildSessionConfig(gpRequest('race'), LAYOUT);
     const result = fakeRaceResult(config, { retired: [config.grid[19]!.driverId] });
@@ -548,35 +677,149 @@ describe('my team', () => {
     expect(quali.teams.some((t) => t.id === MY_TEAM_ID)).toBe(true);
   });
 
-  test('R&D upgrades cost budget, raise rating and the upgrade bonus up to the cap', () => {
-    let team = { ...createMyTeam(draft, 3, SYNTH_LAYOUTS), budget: 1000 };
-    const before = myTeamDef(team).rating.aero;
-    expect(upgradeBonus(team)).toBe(0);
-    for (let i = 0; i < RD_MAX_LEVEL; i++) team = purchaseUpgrade(team, 'aero')!;
-    expect(purchaseUpgrade(team, 'aero')).toBeNull();
-    expect(myTeamDef(team).rating.aero).toBeGreaterThan(before);
-    expect(myTeamDef(team).rating.aero).toBeLessThanOrEqual(1);
-    for (const dept of ['power', 'chassis', 'reliability'] as const) for (let i = 0; i < RD_MAX_LEVEL; i++) team = purchaseUpgrade(team, dept)!;
-    expect(upgradeBonus(team)).toBeCloseTo(0.1, 6);
-    expect(Object.values(myTeamDef(team).rating).every((r) => r <= 1)).toBe(true);
-    expect(purchaseUpgrade({ ...team, budget: 0, rd: { aero: 0, power: 0, chassis: 0, reliability: 0 } }, 'power')).toBeNull();
+  test('R&D projects cost money and project slots; the team rating grows with the average part gain', () => {
+    let team = { ...createMyTeam(draft, 3, SYNTH_LAYOUTS), budget: 10 };
+    const rating = myTeamDef(team).rating;
+    expect(rating).toEqual({ aero: 0.86, power: 0.94, chassis: 0.86, reliability: 0.94 });
+    expect(Object.keys(team.development.teams)).toEqual([...TEAMS.map((t) => t.id), MY_TEAM_ID]);
+    expect(Object.values(team.development.teams).every((t) => totalLevel(t) === 0)).toBe(true);
+    team = startMyTeamProject(team, 'frontWing')!;
+    expect(team.budget).toBe(10 - PART_COST_MONEY[0]!);
+    expect(myTeamDevelopment(team).projects).toEqual([{ part: 'frontWing', level: 1, roundsLeft: 1, rounds: 1, chance: 0.95 }]);
+    expect(startMyTeamProject(team, 'frontWing')).toBeNull();
+    team = startMyTeamProject(team, 'powerUnit')!;
+    expect(team.budget).toBe(8);
+    // both project slots are taken
+    expect(startMyTeamProject(team, 'floor')).toBeNull();
+    // unaffordable
+    expect(startMyTeamProject({ ...createMyTeam(draft, 3, SYNTH_LAYOUTS), budget: 0.9 }, 'floor')).toBeNull();
+    // later levels cost more; a maxed part cannot be developed
+    const developed = createMyTeam(draft, 3, SYNTH_LAYOUTS);
+    developed.development.teams[MY_TEAM_ID]!.parts.floor = { level: 3, gain: 2.5 };
+    developed.development.teams[MY_TEAM_ID]!.parts.weight = { level: PART_MAX_LEVEL, gain: PART_MAX_LEVEL };
+    expect(startMyTeamProject({ ...developed, budget: 10 }, 'floor')?.budget).toBe(10 - PART_COST_MONEY[3]!);
+    expect(startMyTeamProject({ ...developed, budget: 10 }, 'weight')).toBeNull();
+    // projects only running: the rating is unchanged; achieved gains raise it by department average
+    // (aero = front wing / rear wing / floor, power = power unit / ERS / gearbox, chassis = suspension / brakes / weight)
+    expect(myTeamDef(team).rating).toEqual(rating);
+    expect(myTeamDef(developed).rating).toEqual({
+      aero: departmentRating('Helion', 'aero', 2.5 / 3),
+      power: 0.94,
+      chassis: departmentRating('Helion', 'chassis', 5 / 3),
+      reliability: 0.94,
+    });
+    expect(myTeamDef(developed).rating.aero).toBeCloseTo(0.86 + 0.13 * (2.5 / 15), 4);
+    expect(myTeamDef(developed).rating.chassis).toBeCloseTo(0.86 + 0.13 * (5 / 15), 4);
+    // fully developed: every department at the 0.99 cap
+    const full = createMyTeam(draft, 3, SYNTH_LAYOUTS);
+    for (const p of CAR_PARTS) full.development.teams[MY_TEAM_ID]!.parts[p] = { level: 5, gain: 5 };
+    expect(myTeamDef(full).rating).toEqual({ aero: 0.99, power: 0.99, chassis: 0.99, reliability: 0.99 });
+    // AI development never touches My Team's rating
+    const rivals = createMyTeam(draft, 3, SYNTH_LAYOUTS);
+    rivals.development.teams.vanta = full.development.teams[MY_TEAM_ID]!;
+    expect(myTeamDef(rivals).rating).toEqual(rating);
   });
 
-  test('createCarSpec upgrade is recoverable from the myteam TeamDef alone', () => {
-    for (const powerUnit of ['Kairos', 'Helion', 'Orion', 'Volta']) {
-      let team = { ...createMyTeam({ ...draft, powerUnit }, 3, SYNTH_LAYOUTS), budget: 1000 };
-      expect(teamUpgradeBonus(myTeamDef(team))).toBe(0);
-      const plan: ('aero' | 'power' | 'chassis' | 'reliability')[] = ['power', 'power', 'reliability', 'aero', 'power', 'chassis', 'power', 'power'];
-      for (const dept of plan) {
-        team = purchaseUpgrade(team, dept) ?? team;
-        expect(teamUpgradeBonus(myTeamDef(team))).toBe(upgradeBonus(team));
-      }
-      // survives the SessionConfig round trip
-      const config = buildSessionConfig(myTeamRequest(team, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
-      const inConfig = config.teams.find((t) => t.id === MY_TEAM_ID)!;
-      expect(teamUpgradeBonus(structuredClone(inConfig))).toBe(upgradeBonus(team));
+  test('development reaches the session config of My Team and every AI team', () => {
+    let team = { ...createMyTeam(draft, 3, SYNTH_LAYOUTS), budget: 100 };
+    team = startMyTeamProject(team, 'frontWing')!;
+    const config = buildSessionConfig(myTeamRequest(team, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    expectValid(config);
+    expect(Object.keys(config.development ?? {}).sort()).toEqual(config.teams.map((t) => t.id).sort());
+    expect(Object.values(config.development ?? {}).every((g) => Object.keys(g).length === 0)).toBe(true);
+    const order = [PLAYER_DRIVER_ID, ...config.grid.map((g) => g.driverId).filter((id) => id !== PLAYER_DRIVER_ID)];
+    let save = applyMyTeamRace(team, fakeRaceResult(config, { order })).save;
+    for (let round = 1; round < 4; round++) save = applyMyTeamRace(save, fakeRaceResult(config, { order })).save;
+    const quali = buildSessionConfig(myTeamRequest(save, 'qualifying', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    expect(quali.development).toEqual(developmentGains(save.development));
+    expect(quali.development?.[MY_TEAM_ID]?.frontWing).toBeGreaterThan(0);
+    // AI teams developed on their own budget
+    for (const t of TEAMS) expect(Object.keys(quali.development?.[t.id] ?? {}).length).toBeGreaterThan(0);
+  });
+
+  test('development advances after each race (seeded), is saved and carries into the next season', () => {
+    let team = { ...createMyTeam(draft, 3, SYNTH_LAYOUTS), budget: 100 };
+    team = startMyTeamProject(startMyTeamProject(team, 'frontWing')!, 'floor')!;
+    const config = buildSessionConfig(myTeamRequest(team, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    const order = [PLAYER_DRIVER_ID, ...config.grid.map((g) => g.driverId).filter((id) => id !== PLAYER_DRIVER_ID)];
+    const result = fakeRaceResult(config, { order });
+    const upd = applyMyTeamRace(team, result);
+    const mine = myTeamDevelopment(upd.save);
+    expect(mine.projects).toEqual([]);
+    expect(mine.bank).toBe(0);
+    for (const part of ['frontWing', 'floor'] as const) {
+      expect(mine.parts[part].level).toBe(1);
+      expect([0.5, 1]).toContain(mine.parts[part].gain);
     }
-    expect(teamUpgradeBonus(TEAMS[0]!)).toBe(0);
+    expect(CAR_PARTS.filter((p) => mine.parts[p].level > 0)).toEqual(['frontWing', 'floor']);
+    expect(upd.save.development.report.map((l) => `${l.teamId}:${l.part}`).sort()).toEqual([`${MY_TEAM_ID}:floor`, `${MY_TEAM_ID}:frontWing`]);
+    // AI teams started a project with their first budget; it completes at a later round
+    for (const t of TEAMS) expect(upd.save.development.teams[t.id]!.projects).toHaveLength(1);
+    // deterministic: the same round gives the same development
+    expect(applyMyTeamRace(team, result).save.development).toEqual(upd.save.development);
+    // persisted
+    saveMyTeam(upd.save);
+    expect(loadMyTeam()?.development).toEqual(upd.save.development);
+    // the next round completes the AI projects
+    const second = applyMyTeamRace(upd.save, result).save;
+    expect(second.development.report.filter((l) => l.teamId !== MY_TEAM_ID)).toHaveLength(TEAMS.length);
+    // next season: every team's parts drop a level (rule changes); the report starts empty
+    const next = startNextMyTeamSeason(second, 7, SYNTH_LAYOUTS);
+    expect(next.development).toEqual(rolloverDevelopment(second.development, [MY_TEAM_ID]));
+    expect(myTeamDevelopment(next).parts.frontWing).toEqual({ level: 0, gain: 0 });
+    expect(next.development.report).toEqual([]);
+    expect(next.lastIncome.map((l) => l.label)).toEqual(['車隊錦標獎金', '動力單元與車手合約']);
+    // a project still running at the rollover aims at the cheaper new level and refunds the difference
+    const floor4: MyTeamSave = { ...second, budget: 10 };
+    floor4.development = { ...second.development, teams: { ...second.development.teams, [MY_TEAM_ID]: { ...myTeamDevelopment(second), parts: { ...myTeamDevelopment(second).parts, floor: { level: 4, gain: 4 } } } } };
+    const late = startNextMyTeamSeason(startMyTeamProject(floor4, 'floor')!, 7, SYNTH_LAYOUTS);
+    const waited = startMyTeamProject(startNextMyTeamSeason(floor4, 7, SYNTH_LAYOUTS), 'floor')!;
+    expect(late.budget).toBe(waited.budget);
+    expect(myTeamDevelopment(late)).toEqual(myTeamDevelopment(waited));
+    expect(late.lastIncome.at(-1)).toEqual({ label: '研發專案降級退費', amount: 0.7 });
+  });
+
+  test('a save from before part-level R&D migrates its department levels onto parts', () => {
+    const current = createMyTeam(draft, 3, SYNTH_LAYOUTS);
+    const { development: _d, ...rest } = current;
+    const legacy = JSON.parse(JSON.stringify({ ...rest, rd: { aero: 2, power: 5, chassis: 1, reliability: 3 } }));
+    const migrated = sanitizeMyTeam(legacy, SYNTH_LAYOUTS)!;
+    expect('rd' in migrated).toBe(false);
+    const mine = myTeamDevelopment(migrated);
+    const levels = Object.fromEntries(CAR_PARTS.map((p) => [p, mine.parts[p].level]));
+    expect(levels).toEqual({ frontWing: 2, rearWing: 2, floor: 2, suspension: 1, powerUnit: 5, ers: 5, gearbox: 5, brakes: 1, weight: 1, reliability: 3 });
+    expect(CAR_PARTS.every((p) => mine.parts[p].gain === mine.parts[p].level)).toBe(true);
+    expect(mine.projects).toEqual([]);
+    for (const t of TEAMS) expect(totalLevel(migrated.development.teams[t.id]!)).toBe(0);
+    // the same rating as the old departments (Helion 0.94 / 0.94, cap 0.99): aero 2, power 5, chassis 1, reliability 3
+    expect(myTeamDef(migrated).rating).toEqual({ aero: 0.912, power: 0.99, chassis: 0.886, reliability: 0.97 });
+    const config = buildSessionConfig(myTeamRequest(migrated, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    expect(config.development?.[MY_TEAM_ID]).toEqual(levels);
+    // a stored development wins over a stray legacy field and survives the round trip
+    const stored = sanitizeMyTeam(JSON.parse(JSON.stringify({ ...migrated, rd: { aero: 0, power: 0, chassis: 0, reliability: 0 } })), SYNTH_LAYOUTS)!;
+    expect(stored.development).toEqual(migrated.development);
+  });
+
+  test('every legacy department combination migrates to the old department rating, for every power unit', () => {
+    // the department formula before part-level R&D (git HEAD myTeam.ts): base + (max(base, 0.99) − base) · L / 5
+    const old = (base: number, level: number): number => Math.round((base + (Math.max(base, 0.99) - base) * (level / 5)) * 10000) / 10000;
+    for (const pu of POWER_UNITS) {
+      for (let aero = 0; aero <= 5; aero++) {
+        for (let power = 0; power <= 5; power++) {
+          for (let chassis = 0; chassis <= 5; chassis++) {
+            for (let reliability = 0; reliability <= 5; reliability++) {
+              const development = { teams: { [MY_TEAM_ID]: developmentFromRd({ aero, power, chassis, reliability }) }, report: [] };
+              expect(myTeamRating({ powerUnit: pu.id, development })).toEqual({
+                aero: old(0.86, aero),
+                power: old(pu.power, power),
+                chassis: old(0.86, chassis),
+                reliability: old(pu.reliability, reliability),
+              });
+            }
+          }
+        }
+      }
+    }
   });
 
   test('race income adds budget and records the round', () => {
@@ -593,8 +836,9 @@ describe('my team', () => {
     expect(sanitizeMyTeam('nope', SYNTH_LAYOUTS)).toBeNull();
     expect(sanitizeMyTeam({ shortName: 'bad' }, SYNTH_LAYOUTS)).toBeNull();
     const repaired = sanitizeMyTeam({ shortName: 'ABC', rd: { aero: 99, power: -3 }, budget: 'x', calendar: 5 }, SYNTH_LAYOUTS)!;
-    expect(repaired.rd.aero).toBe(RD_MAX_LEVEL);
-    expect(repaired.rd.power).toBe(0);
+    expect(myTeamDevelopment(repaired).parts.frontWing).toEqual({ level: PART_MAX_LEVEL, gain: PART_MAX_LEVEL });
+    expect(myTeamDevelopment(repaired).parts.powerUnit).toEqual({ level: 0, gain: 0 });
+    expect(Object.keys(repaired.development.teams)).toEqual([...TEAMS.map((t) => t.id), MY_TEAM_ID]);
     expect(Number.isFinite(repaired.budget)).toBe(true);
     expect(repaired.calendar).toHaveLength(SEASON_ROUNDS);
   });
@@ -830,5 +1074,47 @@ describe('achievements & progression', () => {
     applyProgress({ result, config, ctx, trackLimitWarnings: 0, ghost: null, qualifyingOrder: null, date: 'd' });
     expect(loadCareer()?.results).toHaveLength(1);
     expect(loadProfile().stats.sessions).toBe(2);
+  });
+
+  test('My Team race that completes the last level of a part unlocks 研發極限', () => {
+    const team = createMyTeam(
+      { name: 'Nova Works', shortName: 'NVW', livery: { primary: '#ff5a1f', secondary: '#111111', accent: '#ffffff', pattern: 'stripe' }, powerUnit: 'Helion', identity: IDENTITY, teammateId: 'ishikawa', settings: DEFAULT_SEASON_SETTINGS },
+      3,
+      SYNTH_LAYOUTS,
+    );
+    const mine = team.development.teams[MY_TEAM_ID]!;
+    mine.parts.weight = { level: PART_MAX_LEVEL - 1, gain: PART_MAX_LEVEL - 1 };
+    mine.projects = [{ part: 'weight', level: PART_MAX_LEVEL, roundsLeft: 1, rounds: 3, chance: 0.65 }];
+    saveMyTeam(team);
+    const config = buildSessionConfig(myTeamRequest(team, 'race', 60, { assists: DEFAULT_ASSISTS, setup: DEFAULT_SETUP, startCompound: null }, null)!, LAYOUT);
+    const ctx = { returnTo: 'myTeam' as const, weekendQueue: [], round: 0, storyId: null };
+    const out = applyProgress({ result: fakeRaceResult(config), config, ctx, trackLimitWarnings: 0, ghost: null, qualifyingOrder: null, date: 'd' });
+    expect(myTeamDevelopment(loadMyTeam()!).parts.weight.level).toBe(PART_MAX_LEVEL);
+    expect(out.newAchievements).toContain('rdMaxed');
+    expect(loadAchievements().unlocked.rdMaxed).toBe('d');
+  });
+});
+
+describe('pit assist', () => {
+  test('presets: beginner keeps the pit autopilot, intermediate / expert drive the pit lane', () => {
+    expect(ASSIST_PRESETS.beginner.pitAssist).toBe(true);
+    expect(ASSIST_PRESETS.intermediate.pitAssist).toBe(false);
+    expect(ASSIST_PRESETS.expert.pitAssist).toBe(false);
+    expect(DEFAULT_ASSISTS.pitAssist).toBe(false);
+  });
+
+  test('saves without the field: a beginner set gets the autopilot back and still reads as the beginner preset', () => {
+    const strip = (a: typeof DEFAULT_ASSISTS): Record<string, unknown> => {
+      const { pitAssist: _drop, ...rest } = a;
+      return rest;
+    };
+    const beginner = sanitizeAssists(strip(ASSIST_PRESETS.beginner));
+    expect(beginner.pitAssist).toBe(true);
+    expect(detectAssistPreset(beginner)).toBe('beginner');
+    const intermediate = sanitizeAssists(strip(ASSIST_PRESETS.intermediate));
+    expect(intermediate.pitAssist).toBe(false);
+    expect(detectAssistPreset(intermediate)).toBe('intermediate');
+    expect(sanitizeAssists({ ...ASSIST_PRESETS.beginner, pitAssist: false }).pitAssist).toBe(false);
+    expect(sanitizeAssists({ ...ASSIST_PRESETS.expert, pitAssist: true }).pitAssist).toBe(true);
   });
 });

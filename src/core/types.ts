@@ -104,6 +104,13 @@ export interface TeamDef {
   driverIds: [string, string];
 }
 
+/** Car parts developed in season modes (meta/development.ts); 0..5 levels each. */
+export type CarPartId =
+  | 'frontWing' | 'rearWing' | 'floor' | 'suspension' | 'powerUnit'
+  | 'ers' | 'gearbox' | 'brakes' | 'weight' | 'reliability';
+/** Achieved development per part, 0..5 (a level that only partly succeeded adds 0.5). Missing = 0. */
+export type CarPartGains = Partial<Record<CarPartId, number>>;
+
 export interface DriverDef {
   id: string;
   firstName: string;
@@ -317,6 +324,11 @@ export interface Assists {
   drsAssist: boolean;
   /** behind the safety car, hold the queue speed (throttle cut, light braking): no passing the car ahead / the safety car */
   scLimiter: boolean;
+  /**
+   * pit autopilot: drive the whole pit visit (entry road → box → exit road). Off = the driver drives the pit lane
+   * (limiter between the speed-limit lines, speeding penalised); only the box stop itself is automatic.
+   */
+  pitAssist: boolean;
 }
 
 /** Car setup. Ranges & zh-TW labels live in core/defaults.ts SETUP_RANGES. */
@@ -595,8 +607,8 @@ export interface CarEntry {
   id: number;
   driverId: string;
   teamId: string;
-  /** -1 = AI, 0 / 1 = human player index */
-  playerIndex: -1 | 0 | 1;
+  /** -1 = AI, 0–3 = human player index (0 / 1 local split-screen; online up to four) */
+  playerIndex: -1 | PlayerIndex;
   displayName: string;
   abbr: string;
   number: number;
@@ -628,8 +640,11 @@ export interface CarFlagState {
 }
 
 // ───────────────────────────── session / world ─────────────────────────────
+/** Human player index: 0 / 1 on one computer (split-screen), up to 3 in an online session. */
+export type PlayerIndex = 0 | 1 | 2 | 3;
+
 export interface PlayerSlot {
-  playerIndex: 0 | 1;
+  playerIndex: PlayerIndex;
   driverId: string;
   teamId: string;
   setup: CarSetup;
@@ -639,7 +654,7 @@ export interface PlayerSlot {
 export interface GridEntry {
   driverId: string;
   teamId: string;
-  playerIndex: -1 | 0 | 1;
+  playerIndex: -1 | PlayerIndex;
   startCompound: TireCompound;
 }
 
@@ -713,6 +728,8 @@ export interface SessionConfig {
   objective: StoryObjective | null;
   /** race kind only: sprint race (short distance, SPRINT_POINTS, no mandatory stop). undefined = false */
   sprint?: boolean;
+  /** season modes: achieved part development per team id (meta/development.ts). undefined / missing team = none */
+  development?: Record<string, CarPartGains>;
 }
 
 /**
@@ -937,7 +954,7 @@ export interface ResultRow {
   carId: number;
   driverId: string;
   teamId: string;
-  playerIndex: -1 | 0 | 1;
+  playerIndex: -1 | PlayerIndex;
   position: number;
   gridPosition: number;
   lapsCompleted: number;

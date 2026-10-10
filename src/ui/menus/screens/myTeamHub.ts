@@ -1,9 +1,10 @@
 /**
- * My Team hub over the team car: budget, next round, R&D centre (aero / power / chassis / reliability upgrades
- * → team rating + createCarSpec upgrade bonus), driver market, livery editor, calendar, standings, season flow.
+ * My Team hub over the team car: budget, next round, R&D centre (part-level projects → createCarSpec part gains),
+ * driver market, livery editor, calendar, standings, season flow.
  */
 import {
   myTeamDef,
+  myTeamDevelopment,
   myTeamRequest,
   myTeamRoster,
   sponsorTarget,
@@ -20,6 +21,7 @@ import { focusElement } from '../nav';
 import { launchWeekend } from '../flow';
 import { FORMAT_LABEL, money, weatherLabel } from '../labels';
 import { minimapCanvas } from '../minimap';
+import { developmentNote, idleSlotsNote, seasonRuleNote } from '../components/rndRows';
 import { seasonSummaryCard } from '../components/seasonTables';
 import { Screen, type Host, type StageRequest } from '../screen';
 import { myTeamCar } from '../showroom';
@@ -106,6 +108,8 @@ export class MyTeamHubScreen extends Screen {
       this.primary = null;
     }
     const income = save.lastIncome.length > 0 ? h('p', { class: 'nvm-note', text: `上一筆：${save.lastIncome.map((l) => `${l.label} ${l.amount >= 0 ? '+' : ''}${l.amount.toFixed(1)}`).join('・')}` }) : null;
+    const devNote = developmentNote(save.development, MY_TEAM_ID, save.results.length);
+    const ruleNote = seasonRuleNote(save.season, save.results.length);
     setChildren(
       this.col,
       heading(save.name, `我的車隊・${save.shortName}`),
@@ -123,12 +127,18 @@ export class MyTeamHubScreen extends Screen {
         h('span', null, h('b', { text: String(mine ? mine.points : 0) }), h('small', { text: '積分' })),
       ),
       income,
+      devNote ? h('p', { class: 'nvm-note', text: devNote }) : null,
+      ruleNote ? h('p', { class: 'nvm-note', text: ruleNote }) : null,
       roundCard,
       h(
         'nav',
         { class: 'nvm-menu-list' },
         this.primary,
-        button({ label: '研發中心', onClick: () => this.host.push(new RndScreen(this.host)) }),
+        button({
+          label: '研發中心',
+          badge: idleSlotsNote(myTeamDevelopment(save), save.budget, 'money') ?? undefined,
+          onClick: () => this.host.push(new RndScreen(this.host)),
+        }),
         button({ label: '車手市場', onClick: () => this.host.push(new DriverMarketScreen(this.host)) }),
         button({ label: '塗裝編輯', onClick: () => this.host.push(new LiveryEditorScreen(this.host)) }),
         button({ label: '賽季賽程', onClick: () => this.host.push(new CalendarScreen(this.host, `第 ${save.season} 季`, save.calendar, save.results, PLAYER_DRIVER_ID, save.settings)) }),

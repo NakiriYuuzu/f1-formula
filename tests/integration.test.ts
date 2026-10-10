@@ -10,6 +10,7 @@ import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/co
 import { computeAIInput } from '../src/ai/index';
 import { getLayout, hasLayout, LAYOUTS } from '../src/data/tracks/index';
 import { createCareer, careerRequest } from '../src/meta/career';
+import { developmentFromRd } from '../src/meta/development';
 import { createMyTeam, myTeamRequest } from '../src/meta/myTeam';
 import { reserveDrivers, standardRoster, type PlayerIdentity } from '../src/meta/roster';
 import { DEFAULT_SEASON_SETTINGS } from '../src/meta/season';
@@ -282,13 +283,17 @@ describe('every mode / kind runs through the App flow', () => {
     endAndClassify(withGhost.world, withGhost.track, 'timeTrial');
   });
 
-  test('driver career round (race)', () => {
-    const career = createCareer(IDENTITY, 'kestrel', DEFAULT_SEASON_SETTINGS, 11, LAYOUTS);
+  test('driver career round (race) with season development on the player team and an AI team', () => {
+    const fresh = createCareer(IDENTITY, 'kestrel', DEFAULT_SEASON_SETTINGS, 11, LAYOUTS);
+    const teams = { ...fresh.development.teams, kestrel: developmentFromRd({ aero: 2, power: 1, chassis: 1, reliability: 1 }), vanta: developmentFromRd({ aero: 3, power: 3, chassis: 2, reliability: 2 }) };
+    const career = { ...fresh, development: { ...fresh.development, teams } };
     const round = careerRequest(career, 'race', 50, PLAYER, null);
     expect(round).not.toBeNull();
     const config = buildSessionConfig(round!);
     expect(config.mode).toBe('career');
     expect(config.drivers.some((d) => d.id === 'player')).toBe(true);
+    expect(config.development?.kestrel?.frontWing).toBe(2);
+    expect(config.development?.vanta?.powerUnit).toBe(3);
     const { world } = exerciseSession(config);
     expectResult(world, 'race');
   });

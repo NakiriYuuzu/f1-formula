@@ -11,6 +11,8 @@ import type {
   BuiltTrack,
   CameraMode,
   ControlInput,
+  GameEvent,
+  PlayerIndex,
   RacingLineMode,
   SessionConfig,
   SessionResult,
@@ -48,6 +50,9 @@ import { FlashbackBuffer, REWIND_SECONDS, flashbacksLeft } from './flashback';
 import { ReplayRecorder, type ReplayClip } from './replay';
 import { sceneCarsFor, sceneTeamColors } from './sceneCars';
 import { buildViews, nextCamera } from './views';
+import { HostSession } from '../net/host';
+import type { ClientSession } from '../net/client';
+import type { NetTransport } from '../net/transport';
 
 /** Seconds of simulation after every human car took the flag before the rest of the race is fast-forwarded. */
 const FINISH_GRACE = 6;
@@ -95,6 +100,32 @@ export interface SessionOutcome {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Online client with no control this step (pause menu open): coast. */
+const COAST: ControlInput = {
+  throttle: 0,
+  brake: 0,
+  steer: 0,
+  shiftUp: false,
+  shiftDown: false,
+  drsPressed: false,
+  ersCycle: false,
+  limiterToggle: false,
+  overtakeHeld: false,
+};
+
+/**
+ * Online session (docs/plans/phase3-online.md §3): the host runs the world with the remote players' inputs (their
+ * links → HostSession); a client shows its ClientSession's mirror world and predicted car. Either way: one local view,
+ * no flashback / restart, the pause menu does not stop the world (only the host's pause does, for everyone).
+ */
+export type SessionNet =
+  | {
+      role: 'host';
+      session: number;
+      players: { playerIndex: PlayerIndex; name: string; transport: NetTransport }[];
+    }
+  | { role: 'client'; client: ClientSession };
+
 export class SessionRuntime {
   world: WorldState;
   readonly track: BuiltTrack;
@@ -119,16 +150,31 @@ export class SessionRuntime {
   private disposed = false;
   /** Test aid (URL `autopilot=1`): human cars are driven by the AI controller instead of player input. */
   autopilot = false;
+  /** online: the host's link layer / the client's session (null offline) */
+  readonly host: HostSession | null = null;
+  readonly client: ClientSession | null = null;
+  private readonly online: 'host' | 'client' | null;
 
-  constructor(deps: SessionDeps, config: SessionConfig, ctx: SessionContext, track: BuiltTrack) {
+  constructor(deps: SessionDeps, config: SessionConfig, ctx: SessionContext, track: BuiltTrack, net: SessionNet | null = null) {
     this.deps = deps;
     this.config = config;
     this.ctx = ctx;
     this.track = track;
-    this.world = createWorld(config, track);
+    this.online = net ? net.role : null;
+    if (net?.role === 'client') {
+      this.client = net.client;
+      this.world = net.client.world;
+    } else this.world = createWorld(config, track);
+    if (net?.role === 'host') {
+      this.host = new HostSession(this.world, track, net.session, net.players, {
+        playerLeft: (_pi, name) => (this.hud as HudLayer | undefined)?.notify(`${name} 已離線`, '改由 AI 代駕', 'warn', 4),
+      });
+    }
     this.humans = playerCarIds(this.world);
     const settings = deps.settings();
-    const { views, hudViews } = buildViews(this.humans, settings.defaultCamera, 0);
+    // online: only this computer's car gets a view (the host's other human cars are remote players)
+    const local = net?.role === 'client' ? [net.client.carId] : net?.role === 'host' ? [getPlayerCarId(this.world, 0)] : this.humans;
+    const { views, hudViews } = buildViews(local, settings.defaultCamera, 0);
     this.views = views;
     this.hudViews = hudViews;
     const p0 = config.players.find((p) => p.playerIndex === 0);
@@ -170,9 +216,10 @@ export class SessionRuntime {
       this.runFastForward();
       return;
     }
-    if (!this.pausedFlag) {
+    // a guest's pause menu does not stop the race (that player just coasts); the host's stops it for everyone
+    if (!this.pausedFlag || this.online === 'client') {
       const steps = this.clock.advance(dt);
-      const controls = this.readControls();
+      const controls = this.pausedFlag ? [null, null] : this.readControls();
       if (steps > 0) this.simulate(steps, controls);
       else this.holdOneShots(controls);
     }
@@ -238,17 +285,31 @@ export class SessionRuntime {
   }
 
   isOver(): boolean {
-    return !this.disposed && isSessionOver(this.world);
+    if (this.disposed) return false;
+    if (this.client) return this.client.result !== null;
+    return isSessionOver(this.world);
+  }
+
+  /** A notice on the HUD (online: players leaving, the host pausing). */
+  notify(title: string, sub: string, tone: 'info' | 'warn' | 'bad' | 'good' = 'info'): void {
+    if (!this.disposed) this.hud.notify(title, sub, tone, 4);
+  }
+
+  /** Online role of this session (null offline). */
+  get onlineRole(): 'host' | 'client' | null {
+    return this.online;
   }
 
   setPaused(paused: boolean): void {
     if (this.disposed || this.fastForward || paused === this.pausedFlag) return;
     this.pausedFlag = paused;
-    this.clock.reset();
+    if (this.online !== 'client') this.clock.reset();
     this.pending = [null, null];
     this.deps.input.reset();
-    this.deps.audio.setPaused(paused);
+    if (this.online !== 'client') this.deps.audio.setPaused(paused);
     this.hud.setPaused(paused, this.world);
+    // the host's pause menu stops the race for everyone
+    this.host?.setPaused(paused);
   }
 
   /** Settings overlay (opened from the pause menu) closed: the pause menu takes input again. */
@@ -263,6 +324,7 @@ export class SessionRuntime {
   /** Why a flashback is not possible right now (zh-TW), or null when it is. */
   private flashbackBlock(): string | null {
     const w = this.world;
+    if (this.online) return '線上模式無法回溯';
     if (w.session.phase === 'finished') return '節次已結束';
     // a retirement chosen from the pause menu is final (rewinding would put the car back in the race)
     if (this.humans.some((id) => w.cars[id]?.status === 'retired')) return '退賽後無法回溯';
@@ -298,7 +360,7 @@ export class SessionRuntime {
 
   /** Same config from the start: new world, fresh HUD, empty flashback / replay buffers. */
   restart(): void {
-    if (this.disposed) return;
+    if (this.disposed || this.online) return;
     const settings = this.deps.settings();
     this.world = createWorld(this.config, this.track);
     this.hud.destroy();
@@ -317,7 +379,7 @@ export class SessionRuntime {
 
   /** Final classification + the recorded replay (call once the session is over). */
   finish(): SessionOutcome {
-    const result = buildSessionResult(this.world);
+    const result = this.client?.result?.result ?? buildSessionResult(this.world);
     const clip = this.recorder.length >= 2 ? this.recorder.toClip() : null;
     return {
       result,
@@ -330,6 +392,8 @@ export class SessionRuntime {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.host?.dispose();
+    this.client?.dispose();
     this.hud.destroy();
     this.scene.dispose();
     this.deps.audio.stopSession();
@@ -345,9 +409,9 @@ export class SessionRuntime {
       restart: () => this.restart(),
       quit: () => this.deps.quit(),
       openSettings: () => this.deps.openSettings(),
-      requestPit: (carId, compound) => requestPit(this.world, carId, compound),
-      cancelPit: (carId) => cancelPit(this.world, carId),
-      setErsMode: (carId, mode) => setErsMode(this.world, carId, mode),
+      requestPit: (carId, compound) => (this.client ? this.client.requestPit(compound) : requestPit(this.world, carId, compound)),
+      cancelPit: (carId) => (this.client ? this.client.cancelPit() : cancelPit(this.world, carId)),
+      setErsMode: (carId, mode) => (this.client ? this.client.setErsMode(mode) : setErsMode(this.world, carId, mode)),
       setRacingLine: (mode) => {
         this.racingLine = mode;
         this.scene.setRacingLine(mode);
@@ -357,12 +421,19 @@ export class SessionRuntime {
         if (this.flashback()) this.setPaused(false);
       },
       endSession: () => {
-        endSession(this.world);
+        if (!this.client) endSession(this.world);
         this.setPaused(false);
       },
       // only the chosen player retires; the race runs on (watchFinish fast-forwards once every human is out)
       retire: (playerIndex) => {
-        for (const id of this.humans) {
+        if (this.client) {
+          this.client.retire();
+          this.setPaused(false);
+          return;
+        }
+        // online host: its own car only (the others are remote players)
+        const own = this.online ? [getPlayerCarId(this.world, 0)] : this.humans;
+        for (const id of own) {
           const car = this.world.cars[id];
           if (!car || (playerIndex !== undefined && car.playerIndex !== playerIndex)) continue;
           if (car.status !== 'finished' && car.status !== 'retired') retireCar(this.world, id, '車手退賽');
@@ -370,7 +441,7 @@ export class SessionRuntime {
         this.setPaused(false);
       },
     };
-    return new HudLayer(this.deps.uiRoot, this.track, this.hudViews, settings, cb);
+    return new HudLayer(this.deps.uiRoot, this.track, this.hudViews, settings, cb, this.online);
   }
 
   private viewIndexOf(playerIndex: 0 | 1): number {
@@ -400,23 +471,46 @@ export class SessionRuntime {
 
   private simulate(steps: number, controls: readonly (ControlInput | null)[]): void {
     const { first, rest } = substepInputs(controls);
+    const client = this.client;
+    if (client) {
+      // a client predicts its own car only; the host runs the world
+      for (let k = 0; k < steps; k++) {
+        const car = client.car;
+        const input = this.autopilot && car ? computeAIInput(this.world, car, this.track, SIM_DT) : (k === 0 ? first : rest)[0];
+        client.step(input ?? COAST);
+      }
+      this.pending = [null, null];
+      return;
+    }
     for (let k = 0; k < steps; k++) {
-      stepWorld(this.world, this.track, this.autopilot ? this.autopilotInputs() : k === 0 ? first : rest, SIM_DT);
+      const local = this.autopilot ? this.autopilotInputs() : k === 0 ? first : rest;
+      let inputs = local;
+      if (this.host) {
+        // the remote players' inputs for this step (one-shots fire once) beside the host's own
+        inputs = [local[0] ?? null, null, null, null];
+        this.host.fillInputs(inputs);
+        if (this.autopilot) for (const id of this.humans) this.autopilotFor(id, inputs, true);
+      }
+      stepWorld(this.world, this.track, inputs, SIM_DT);
       this.afterStep();
+      this.host?.afterStep();
     }
     this.pending = [null, null];
   }
 
   /** AI-computed controls for every human car (autopilot test aid), indexed by playerIndex. */
   private autopilotInputs(): (ControlInput | null)[] {
-    const out: (ControlInput | null)[] = [null, null];
-    for (const id of this.humans) {
-      const car = this.world.cars[id];
-      if (car && (car.playerIndex === 0 || car.playerIndex === 1)) {
-        out[car.playerIndex] = computeAIInput(this.world, car, this.track, SIM_DT);
-      }
-    }
+    const out: (ControlInput | null)[] = [null, null, null, null];
+    for (const id of this.humans) this.autopilotFor(id, out, false);
     return out;
+  }
+
+  /** `out[playerIndex]` = the AI controller's input for human car `id` (only where none is set, if `fillOnly`). */
+  private autopilotFor(id: number, out: (ControlInput | null)[], fillOnly: boolean): void {
+    const car = this.world.cars[id];
+    if (!car || car.playerIndex < 0) return;
+    if (fillOnly && out[car.playerIndex]) return;
+    out[car.playerIndex] = computeAIInput(this.world, car, this.track, SIM_DT);
   }
 
   private afterStep(): void {
@@ -427,12 +521,25 @@ export class SessionRuntime {
 
   private dispatchEvents(): void {
     const w = this.world;
-    if (w.events.length === 0) return;
-    const events = w.events.splice(0, w.events.length);
+    let events: GameEvent[];
+    if (this.client) {
+      // what the host reports (local prediction events are dropped by the client session)
+      w.events.length = 0;
+      events = this.client.takeEvents();
+    } else {
+      events = w.events.splice(0, w.events.length);
+      this.host?.forwardEvents(events);
+    }
+    if (events.length === 0) return;
     this.hud.handleEvents(events, w);
-    this.deps.audio.handleEvents(events, this.humans);
+    // online: sound and rumble are for this computer's car only (the others are remote players)
+    this.deps.audio.handleEvents(events, this.online ? [this.viewCarId] : this.humans);
     for (const ev of events) {
       if (ev.type !== 'collision') continue;
+      if (this.online) {
+        if (ev.carId === this.viewCarId) this.deps.input.rumble(0, clamp01(ev.impulse / RUMBLE_FULL_IMPULSE), RUMBLE_MS);
+        continue;
+      }
       const pi = w.cars[ev.carId]?.playerIndex;
       if (pi === 0 || pi === 1) this.deps.input.rumble(pi, clamp01(ev.impulse / RUMBLE_FULL_IMPULSE), RUMBLE_MS);
     }
@@ -483,14 +590,21 @@ export class SessionRuntime {
 
   private togglePit(playerIndex: 0 | 1): void {
     const w = this.world;
-    const carId = getPlayerCarId(w, playerIndex);
+    const carId = this.client ? this.client.carId : getPlayerCarId(w, playerIndex);
     const car = w.cars[carId];
     if (!car) return;
+    const compound = this.hud.getMfdCompound(playerIndex) ?? car.pit.nextCompound;
+    if (this.client) {
+      if (car.pit.requested) {
+        if (car.pit.phase === 'none') this.client.cancelPit();
+      } else this.client.requestPit(compound);
+      return;
+    }
     if (car.pit.requested) {
       if (car.pit.phase === 'none') cancelPit(w, carId);
       return;
     }
-    requestPit(w, carId, this.hud.getMfdCompound(playerIndex) ?? car.pit.nextCompound);
+    requestPit(w, carId, compound);
   }
 
   private present(dt: number, fps: number): void {
@@ -500,7 +614,7 @@ export class SessionRuntime {
       const pi = this.hudViews[i]?.playerIndex ?? 0;
       view.lookBack = !this.pausedFlag && this.deps.input.isHeld('lookBack', pi);
     }
-    const frame = buildRenderFrame(w, this.track);
+    const frame = this.client ? this.client.renderFrame(dt) : buildRenderFrame(w, this.track);
     this.scene.render(frame, this.views, dt);
     const v0 = this.views[0];
     if (!this.pausedFlag && v0) {
@@ -524,6 +638,8 @@ export class SessionRuntime {
   /** Race / practice / qualifying: once every human car is done, fast-forward the rest of the field after a short grace. */
   private watchFinish(): void {
     const w = this.world;
+    // a client's session ends with the host's result
+    if (this.client) return;
     const allDone =
       w.session.kind !== 'timeTrial' &&
       w.session.phase !== 'finished' &&

@@ -72,6 +72,31 @@ export function createWeather(config: SessionConfig, track: BuiltTrack, rng: Rng
   };
 }
 
+/** Step (s) of the wetness prediction. */
+const PREDICT_STEP = 1;
+
+/**
+ * Track wetness expected `ahead` seconds after world time `now`: the forecast entries become current at their times,
+ * the rain eases toward each kind's level and the water follows it (the rates of stepWeather; the track temperature is
+ * held at its current value). Pure — used by the AI strategy to read the forecast.
+ */
+export function predictWetness(w: WeatherState, now: number, ahead: number): number {
+  let kind = w.kind;
+  let rain = clamp01(fin(w.rain));
+  let wet = clamp01(fin(w.wetness));
+  const dryRate = 0.0022 * (1 + Math.max(0, fin(w.trackTemp, 25) - 18) / 22);
+  const span = Math.max(0, fin(ahead));
+  let next = 0;
+  for (let t = 0; t < span; t += PREDICT_STEP) {
+    const h = Math.min(PREDICT_STEP, span - t);
+    while (next < w.forecast.length && fin(now) + t >= w.forecast[next].time) kind = w.forecast[next++].kind;
+    rain = clamp01(moveToward(rain, RAIN_LEVEL[kind], h / 70));
+    const target = clamp01(rain * (WETNESS_LEVEL.heavyRain / RAIN_LEVEL.heavyRain));
+    wet = wet < target ? clamp01(wet + (target - wet) * (1 - Math.exp(-h / 30))) : Math.max(target, wet - dryRate * h);
+  }
+  return wet;
+}
+
 /** Advance the weather by dt; emits weatherChange when a forecast entry becomes current. */
 export function stepWeather(world: WorldState, track: BuiltTrack, dt: number): void {
   const w = world.weather;

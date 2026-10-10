@@ -11,7 +11,7 @@ import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout, LAYOUTS } from '../src/data/tracks/index';
 import { careerTeammateId, createCareer, sanitizeCareer } from '../src/meta/career';
 import { createMyTeam, myTeamRequest, powerUnitOption, powerUnitOptions, sanitizeMyTeam } from '../src/meta/myTeam';
-import { builtinRoster, reserveDrivers, rosterTeams, standardRoster, type PlayerIdentity } from '../src/meta/roster';
+import { builtinRoster, MY_TEAM_ID, reserveDrivers, rosterTeams, standardRoster, type PlayerIdentity } from '../src/meta/roster';
 import {
   activeRosterPack,
   MAX_PACK_TEAMS,
@@ -25,7 +25,7 @@ import {
   useDefaultRosterPack,
   type RosterPack,
 } from '../src/meta/rosterPack';
-import { loadCareer, saveCareer } from '../src/meta/save';
+import { loadCareer, loadMyTeam, saveCareer, saveMyTeam } from '../src/meta/save';
 import { DEFAULT_SEASON_SETTINGS } from '../src/meta/season';
 import { buildQuickStart, buildSessionConfig, validateSessionConfig } from '../src/meta/sessionBuilder';
 import { STORY_CHAPTERS, STORY_TEAM_ID, storyRoster } from '../src/meta/story';
@@ -220,6 +220,38 @@ describe('active roster', () => {
     expect(sanitizeCareer(custom, LAYOUTS)).toBeNull();
   });
 
+  test('season development follows the active roster: a re-imported pack keeps only its own teams', () => {
+    setRosterPack(okPack(4));
+    const save = createMyTeam(
+      { name: '新星測試車隊', shortName: 'NTS', livery: { primary: '#2266ff', secondary: '#ffffff', accent: '#ff3300', pattern: 'chevron' }, powerUnit: 'Alpha', identity: IDENTITY, teammateId: 'res-1', settings: DEFAULT_SEASON_SETTINGS },
+      6,
+      LAYOUTS,
+    );
+    expect(Object.keys(save.development.teams)).toEqual(['team-0', 'team-1', 'team-2', 'team-3', MY_TEAM_ID]);
+    save.development.teams[MY_TEAM_ID]!.parts.floor = { level: 2, gain: 1.5 };
+    save.development.teams['team-3']!.parts.ers = { level: 1, gain: 1 };
+    saveMyTeam(save);
+    const career = createCareer(IDENTITY, 'team-1', DEFAULT_SEASON_SETTINGS, 6, LAYOUTS);
+    expect(Object.keys(career.development.teams)).toEqual(['team-0', 'team-1', 'team-2', 'team-3']);
+    career.development.teams['team-1']!.parts.brakes = { level: 1, gain: 0.5 };
+    saveCareer(career);
+    // a smaller pack takes over the same save slot: the missing team's development is dropped
+    setRosterPack(okPack(3));
+    const team = loadMyTeam()!;
+    expect(Object.keys(team.development.teams)).toEqual(['team-0', 'team-1', 'team-2', MY_TEAM_ID]);
+    expect(team.development.teams[MY_TEAM_ID]!.parts.floor).toEqual({ level: 2, gain: 1.5 });
+    const back = loadCareer()!;
+    expect(Object.keys(back.development.teams)).toEqual(['team-0', 'team-1', 'team-2']);
+    expect(back.development.teams['team-1']!.parts.brakes).toEqual({ level: 1, gain: 0.5 });
+    saveMyTeam(team);
+    // a bigger one adds its new teams undeveloped
+    setRosterPack(okPack(5));
+    const bigger = loadMyTeam()!;
+    expect(Object.keys(bigger.development.teams)).toEqual(['team-0', 'team-1', 'team-2', 'team-3', 'team-4', MY_TEAM_ID]);
+    expect(bigger.development.teams['team-3']!.parts.ers).toEqual({ level: 0, gain: 0 });
+    expect(bigger.development.teams[MY_TEAM_ID]!.parts.floor).toEqual({ level: 2, gain: 1.5 });
+  });
+
   test('quick start falls back to a driver of the pack', () => {
     setRosterPack(okPack(5));
     const { config } = buildQuickStart({ kind: 'race', layoutId: 'porto-lumen', laps: 1, seed: 3 });
@@ -249,6 +281,7 @@ describe('active roster', () => {
     const config = buildSessionConfig(myTeamRequest(save, 'race', 50, PLAYER, null)!);
     expect(validateSessionConfig(config)).toEqual([]);
     expect(config.teams.length).toBe(12);
+    expect(Object.keys(config.development ?? {}).sort()).toEqual(config.teams.map((t) => t.id).sort());
     expect(config.grid.length).toBe(24);
     expect(new Set(config.drivers.map((d) => d.number)).size).toBe(24);
     const world = createWorld(config, getLayout(config.layoutId));

@@ -22,11 +22,17 @@ import {
   steerInputForAngle,
   tyreGrip,
 } from '../src/physics/index';
-import { TEAMS } from '../src/data/teams';
+import { DRIVERS, TEAMS } from '../src/data/teams';
+import { getLayout } from '../src/data/tracks/index';
+import { aiCarTeam } from '../src/ai/index';
+import { predictLapTime } from '../src/race/qualiSim';
+import { CAR_PARTS } from '../src/meta/development';
 import { DEFAULT_ASSISTS, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
 import { forwardX, forwardZ, nextRandom, rightX, rightZ, worldToLocal } from '../src/core/math';
 import type {
   Assists,
+  CarPartGains,
+  CarPartId,
   CarPhysicsState,
   CarSpec,
   ControlInput,
@@ -137,11 +143,15 @@ describe('car spec', () => {
     expect(backMarker.icePower).toBeLessThan(base.icePower);
     expect(backMarker.downforceArea).toBeLessThan(base.downforceArea);
     expect(backMarker.baseMu).toBeLessThan(base.baseMu);
-    const upgraded = createCarSpec(TEAMS[TEAMS.length - 1]!, DEFAULT_SETUP, '2025', 0.1);
+    const upgraded = createCarSpec(TEAMS[TEAMS.length - 1]!, DEFAULT_SETUP, '2025', { powerUnit: 5 });
     expect(upgraded.icePower).toBeGreaterThan(backMarker.icePower);
     const bias = createCarSpec(TOP_TEAM, { ...DEFAULT_SETUP, brakeBias: 65 }, '2025');
     expect(bias.brakeBias).toBeCloseTo(0.65, 6);
-    const garbage = createCarSpec(TOP_TEAM, { ...DEFAULT_SETUP, frontWing: Number.NaN, rearWing: 999 }, '2025', Number.NaN);
+    const garbage = createCarSpec(TOP_TEAM, { ...DEFAULT_SETUP, frontWing: Number.NaN, rearWing: 999 }, '2025', {
+      floor: Number.NaN,
+      ers: Number.POSITIVE_INFINITY,
+      weight: -3,
+    });
     expect(Object.values(garbage).every((v) => typeof v !== 'number' || Number.isFinite(v))).toBe(true);
   });
 
@@ -170,6 +180,163 @@ describe('car spec', () => {
     expect(maxCornerSpeed(spec, 1 / 30)).toBeLessThan(v100);
     expect(maxCornerSpeed(spec, 0)).toBe(MAX_CORNER_SPEED);
     expect(maxCornerSpeed(spec, 1 / 100, 0.6)).toBeLessThan(v100);
+  });
+});
+
+describe('part development (season R&D)', () => {
+  const ALL5: CarPartGains = Object.fromEntries(CAR_PARTS.map((p) => [p, 5]));
+  const same = (a: unknown, b: unknown): boolean => (Array.isArray(a) ? JSON.stringify(a) === JSON.stringify(b) : Object.is(a, b));
+
+  test('no / zero / invalid gains leave the spec identical field for field', () => {
+    const zero: CarPartGains = Object.fromEntries(CAR_PARTS.map((p) => [p, 0]));
+    const setups = [DEFAULT_SETUP, { ...DEFAULT_SETUP, frontWing: 5, rearWing: 45, suspension: 1, rideHeight: 11, tyrePressure: 1 }];
+    for (const reg of ['2025', '2026'] as const) {
+      for (const team of TEAMS) {
+        for (const setup of setups) {
+          const plain = createCarSpec(team, setup, reg);
+          for (const parts of [{}, zero, { floor: Number.NaN, weight: -2, ers: Number.NEGATIVE_INFINITY }]) {
+            const spec = createCarSpec(team, setup, reg, parts);
+            expect(spec).toStrictEqual(plain);
+            for (const key of Object.keys(plain) as (keyof CarSpec)[]) expect(same(spec[key], plain[key])).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  test('each part moves only its own fields, in the right direction', () => {
+    const base = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025');
+    const expected: Record<CarPartId, Partial<Record<keyof CarSpec, 1 | -1>>> = {
+      frontWing: { downforceArea: 1, aeroBalance: 1 },
+      rearWing: { downforceArea: 1, aeroBalance: -1, dragArea: -1 },
+      floor: { downforceArea: 1 },
+      suspension: { baseMu: 1, kerbGrip: 1, tyreWearScale: -1 },
+      powerUnit: { icePower: 1 },
+      ers: { ersPower: 1, ersHarvestBrake: 1, ersHarvestThrottle: 1 },
+      gearbox: { drivetrainEfficiency: 1 },
+      brakes: { maxBrakeForce: 1, brakeGrip: 1, ersHarvestBrake: 1 },
+      weight: { mass: -1, yawInertia: -1 },
+      reliability: { damageScale: -1 },
+    };
+    for (const part of CAR_PARTS) {
+      const spec = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025', { [part]: 3 });
+      const changed = (Object.keys(base) as (keyof CarSpec)[]).filter((k) => !same(spec[k], base[k]));
+      expect(changed.sort()).toEqual(Object.keys(expected[part]).sort());
+      for (const [key, sign] of Object.entries(expected[part]) as [keyof CarSpec, number][]) {
+        expect(Math.sign((spec[key] as number) - (base[key] as number))).toBe(sign);
+      }
+    }
+  });
+
+  test('level-5 sizes match the design table; gains clamp to 0..5', () => {
+    const base = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025');
+    const at = (parts: CarPartGains): CarSpec => createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025', parts);
+    expect(at({ floor: 5 }).downforceArea / base.downforceArea).toBeCloseTo(1.05, 9);
+    expect(at({ rearWing: 5 }).dragArea / base.dragArea).toBeCloseTo(0.96, 9);
+    expect(at({ powerUnit: 5 }).icePower / base.icePower).toBeCloseTo(1.06, 9);
+    expect(at({ ers: 5 }).ersPower / base.ersPower).toBeCloseTo(1.15, 9);
+    expect(at({ ers: 5 }).ersHarvestThrottle / base.ersHarvestThrottle).toBeCloseTo(1.15, 9);
+    expect(at({ ers: 5, brakes: 5 }).ersHarvestBrake / base.ersHarvestBrake).toBeCloseTo(1.15 * 1.1, 9);
+    expect(at({ gearbox: 5 }).drivetrainEfficiency).toBeCloseTo(0.9, 9);
+    expect(at({ brakes: 5 }).maxBrakeForce).toBeCloseTo(71_300, 6);
+    expect(base.brakeGrip).toBe(1);
+    expect(at({ brakes: 5 }).brakeGrip).toBeCloseTo(1.03, 12);
+    expect(at({ suspension: 5 }).baseMu / base.baseMu).toBeCloseTo(1.02, 9);
+    expect(at({ suspension: 5 }).kerbGrip).toBeCloseTo(base.kerbGrip + 0.05, 9);
+    expect(at({ suspension: 5 }).tyreWearScale / base.tyreWearScale).toBeCloseTo(0.9, 9);
+    expect(at({ weight: 5 }).mass).toBe(base.mass - 10);
+    expect(at({ weight: 5 }).yawInertia / base.yawInertia).toBeCloseTo((base.mass - 10 + 50) / (base.mass + 50), 9);
+    expect(at({ reliability: 5 }).damageScale / base.damageScale).toBeCloseTo(0.8, 9);
+    // everything at 5: ≈ +10 % downforce, −4 % drag, balance slightly forward
+    const all = at(ALL5);
+    expect(all.downforceArea / base.downforceArea).toBeGreaterThan(1.09);
+    expect(all.downforceArea / base.downforceArea).toBeLessThan(1.11);
+    expect(all.dragArea / base.dragArea).toBeCloseTo(0.96, 9);
+    expect(all.aeroBalance).toBeGreaterThan(base.aeroBalance);
+    expect(all.aeroBalance - base.aeroBalance).toBeLessThan(0.02);
+    // clamps
+    expect(at({ powerUnit: 9, floor: 5.5 })).toStrictEqual(at({ powerUnit: 5, floor: 5 }));
+    expect(at({ powerUnit: -1 })).toStrictEqual(base);
+    expect(at({ powerUnit: 2.5 }).icePower / base.icePower).toBeCloseTo(1.03, 9);
+    const kerbHeavy = createCarSpec(TOP_TEAM, { ...DEFAULT_SETUP, suspension: 1, rideHeight: 11 }, '2025', { suspension: 5 });
+    expect(kerbHeavy.kerbGrip).toBe(0.98);
+    const sturdiest = { ...TOP_TEAM, rating: { ...TOP_TEAM.rating, reliability: 1.05 } };
+    const sturdy = createCarSpec(sturdiest, DEFAULT_SETUP, '2025', { reliability: 5 });
+    expect(sturdy.damageScale).toBeGreaterThanOrEqual(0.6);
+    expect(sturdy.damageScale).toBeCloseTo(0.6, 9);
+  });
+
+  test('brakes part: tyre braking limit +3 % at Lv5 (maxBrakeDecel, full-physics braking with ABS), identity at 0', () => {
+    const base = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025');
+    const at5 = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025', { brakes: 5 });
+    // capability model (AI / quali sim): ≈ +3 % at low speed, a little less where the brake force cap starts to bite
+    for (const v of [0, 30, 50, 70, 90]) {
+      const ratio = maxBrakeDecel(at5, v) / maxBrakeDecel(base, v);
+      expect(ratio).toBeGreaterThan(1.02);
+      expect(ratio).toBeLessThanOrEqual(1.0300001);
+    }
+    // full physics, straight line 300 → 100 km/h at full pedal
+    const brakeFrom300 = (spec: CarSpec, abs: boolean): { dist: number; lockup: number; wear: number } => {
+      const car = createCarPhysics({ x: 0, y: 0, z: 0, yaw: 0 }, 'soft', 50, spec);
+      car.tire.temp = 92;
+      car.vz = 300 / 3.6;
+      car.speed = 300 / 3.6;
+      car.gear = 8;
+      const env = makeEnv('2025', { abs });
+      const wear0 = car.tire.wear;
+      let lockup = 0;
+      for (let i = 0; i < 10 / SIM_DT && car.speed > 100 / 3.6; i++) {
+        stepCarPhysics(car, spec, makeInput({ brake: 1 }), env, SIM_DT);
+        lockup = Math.max(lockup, car.lockup);
+      }
+      expect(car.speed).toBeLessThanOrEqual(100 / 3.6);
+      return { dist: car.z, lockup, wear: car.tire.wear - wear0 };
+    };
+    const plain = brakeFrom300(base, true);
+    const developed = brakeFrom300(at5, true);
+    expect(plain.dist).toBeGreaterThan(60);
+    expect(plain.dist).toBeLessThan(120);
+    // measured −2.6 % with ABS (no lock-up either way); without ABS still shorter
+    expect(developed.dist / plain.dist).toBeLessThan(0.985);
+    expect(developed.dist / plain.dist).toBeGreaterThan(0.96);
+    expect(developed.lockup).toBeLessThan(0.05);
+    // the slip that wears the tyres counts brake use against fmax × brakeGrip too: the shorter ABS stop does not wear
+    // the tyres more (measured −0.2 %; +1.6 % while the slip still used plain fmax)
+    expect(developed.wear).toBeGreaterThan(0);
+    expect(developed.wear / plain.wear).toBeLessThanOrEqual(1);
+    expect(developed.wear / plain.wear).toBeGreaterThan(0.98);
+    expect(brakeFrom300(at5, false).dist).toBeLessThan(brakeFrom300(base, false).dist);
+    // brakes at 0 = the plain spec, step for step
+    const zero = createCarSpec(TOP_TEAM, DEFAULT_SETUP, '2025', { brakes: 0 });
+    expect(zero).toStrictEqual(base);
+    expect(Object.is(brakeFrom300(zero, true).dist, plain.dist)).toBe(true);
+    expect(Object.is(brakeFrom300(zero, true).wear, plain.wear)).toBe(true);
+    expect(Object.is(brakeFrom300(zero, false).dist, brakeFrom300(base, false).dist)).toBe(true);
+  });
+
+  test('all parts at level 5: clearly but not absurdly faster on the in-game point-mass lap', () => {
+    // measured (difficulty 90, dry): 3.1 % (monaco) … 5.0 % (isola-verde), both regulations, front-runner and back-marker
+    const backMarker = TEAMS[TEAMS.length - 1]!;
+    for (const reg of ['2025', '2026'] as const) {
+      for (const layoutId of ['porto-lumen', 'highland-ridge', 'isola-verde', 'monaco']) {
+        const track = getLayout(layoutId);
+        expect(track.id).toBe(layoutId);
+        for (const raw of [TOP_TEAM, backMarker]) {
+          const team = aiCarTeam(raw);
+          const driver = DRIVERS.find((d) => d.teamId === raw.id)!;
+          const base = predictLapTime(track, team, driver, 90, reg, 0);
+          const gain = 1 - predictLapTime(track, team, driver, 90, reg, 0, ALL5) / base;
+          expect(gain).toBeGreaterThan(0.025);
+          expect(gain).toBeLessThan(0.06);
+          // no single part carries the package (front wing / power unit / ERS / suspension ≈ 25–31 % at most)
+          for (const part of CAR_PARTS) {
+            const single = 1 - predictLapTime(track, team, driver, 90, reg, 0, { [part]: 5 }) / base;
+            expect(single).toBeGreaterThanOrEqual(0);
+            expect(single).toBeLessThan(0.4 * gain);
+          }
+        }
+      }
+    }
   });
 });
 
@@ -208,15 +375,20 @@ describe('straight line', () => {
       const { spec, car } = makeCar();
       const env = makeEnv('2025', { abs });
       car.vz = 300 / 3.6;
+      car.speed = 300 / 3.6;
       car.gear = 8;
       let steps = 0;
+      let lockup = 0;
       while (car.speed > 100 / 3.6 && steps < 10 / SIM_DT) {
         stepCarPhysics(car, spec, makeInput({ brake: 1 }), env, SIM_DT);
+        lockup = Math.max(lockup, car.lockup);
         steps++;
       }
       expect(car.speed).toBeLessThanOrEqual(100 / 3.6);
+      // the stop was actually simulated (≈ 81 m with ABS, ≈ 87 m without), not skipped
+      expect(car.z).toBeGreaterThan(60);
       expect(car.z).toBeLessThan(120);
-      if (abs) expect(car.lockup).toBeLessThan(0.05);
+      if (abs) expect(lockup).toBeLessThan(0.05);
     }
   });
 

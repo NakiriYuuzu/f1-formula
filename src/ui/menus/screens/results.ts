@@ -83,7 +83,7 @@ export class ResultsScreen extends Screen {
       h(
         'div',
         { class: race ? 'nvm-results__col' : 'nvm-wide' },
-        heading(this.title, `${MODE_LABEL[result.mode]}・${layout ? layout.displayName : result.layoutId}・${weatherLabel(result.weather)}`),
+        heading(this.title, `${ctx.returnTo === 'online' ? '線上多人' : MODE_LABEL[result.mode]}・${layout ? layout.displayName : result.layoutId}・${weatherLabel(result.weather)}`),
         banner,
         notes.length > 0 ? h('ul', { class: 'nvm-notes' }, notes.map((n) => h('li', { text: n }))) : null,
         scrollRegion(this.table()),

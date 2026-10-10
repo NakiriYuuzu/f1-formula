@@ -8,7 +8,7 @@
  * while the settings overlay or a text field has focus, and exposes the test hooks window.render_game_to_text()
  * and window.advanceTime(ms).
  */
-import type { SessionConfig, Settings } from '../core/types';
+import type { SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
 import { AudioEngine } from '../audio/index';
 import { getLayout, hasLayout } from '../data/tracks/index';
@@ -24,7 +24,10 @@ import { reportError } from './errorOverlay';
 import { parseQuickStart } from './quickStart';
 import { ReplayRuntime, type ReplayDeps } from './ReplayRuntime';
 import { forceIncident } from '../race/index';
-import { SessionRuntime, type SessionDeps, type SessionOutcome } from './SessionRuntime';
+import { SessionRuntime, type SessionDeps, type SessionNet, type SessionOutcome } from './SessionRuntime';
+import { OnlineController } from './online';
+import { setOnlineHooks } from '../ui/menus/onlineHooks';
+import { ClientSession } from '../net/client';
 import { buildTextState, type AppScreen } from './textState';
 
 declare global {
@@ -93,6 +96,10 @@ export class App {
 
   private readonly sessionDeps: SessionDeps;
   private readonly replayDeps: ReplayDeps;
+  /** online room (menus host / join through it; null hooks in tests) */
+  private readonly online: OnlineController;
+  /** the running online host session ends the weekend (its result is final) */
+  private onlineFinal = true;
 
   /** Throws if WebGL 2 is unavailable (GameRenderer). */
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
@@ -127,6 +134,11 @@ export class App {
       resultsClosed: () => this.resultsClosed(),
     };
     this.menus = new MenuSystem(uiRoot, this.settings, callbacks);
+    this.online = new OnlineController({
+      start: (session, config, final) => this.startClientSession(session, config, final),
+      closed: (reason) => this.onlineClosed(reason),
+    });
+    setOnlineHooks(this.online);
   }
 
   /** Attach listeners, expose test hooks, show the title (or a URL quick start) and start the frame loop. */
@@ -140,6 +152,8 @@ export class App {
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('blur', this.onWindowBlur);
     window.addEventListener('focus', this.onWindowFocus);
+    // closing / reloading the page leaves an online room at once (the others need not wait for the link to time out)
+    window.addEventListener('pagehide', this.onPageHide);
     document.addEventListener('focusin', this.onFocusIn);
     document.addEventListener('focusout', this.onFocusOut);
     window.render_game_to_text = () => this.renderGameToText();
@@ -190,6 +204,7 @@ export class App {
     document.removeEventListener('visibilitychange', this.onVisibility);
     window.removeEventListener('blur', this.onWindowBlur);
     window.removeEventListener('focus', this.onWindowFocus);
+    window.removeEventListener('pagehide', this.onPageHide);
     document.removeEventListener('focusin', this.onFocusIn);
     document.removeEventListener('focusout', this.onFocusOut);
     delete window.render_game_to_text;
@@ -197,6 +212,8 @@ export class App {
     delete window.render_debug_info;
     delete window.debug_force_incident;
     this.disposeActive();
+    this.online.leave();
+    setOnlineHooks(null);
     this.showroom?.dispose();
     this.showroom = null;
     this.menus.destroy();
@@ -225,6 +242,7 @@ export class App {
   /** One frame: real-time (`manualSteps` null) or a test-hook step of exactly `manualSteps` simulation steps. */
   private tick(dt: number, manualSteps: number | null): void {
     try {
+      this.online.room()?.tick();
       this.input.update(dt);
       const actions = this.input.consumeActions();
       const menuInputs = this.input.consumeMenuInputs();
@@ -261,6 +279,12 @@ export class App {
   private feedVehicleSpeeds(s: SessionRuntime): void {
     const setSpeed: unknown = Reflect.get(this.input, 'setVehicleSpeed');
     if (typeof setSpeed !== 'function') return;
+    // online: this computer's player is input 0 (a guest's car may be any seat)
+    if (s.onlineRole) {
+      const car = s.world.cars[s.viewCarId];
+      if (car) Reflect.apply(setSpeed, this.input, [0, car.phys.speed]);
+      return;
+    }
     for (const car of s.world.cars) {
       if (car.playerIndex === 0 || car.playerIndex === 1) Reflect.apply(setSpeed, this.input, [car.playerIndex, car.phys.speed]);
     }
@@ -299,24 +323,89 @@ export class App {
 
   private startSession(config: SessionConfig, ctx: SessionContext): void {
     if (this.destroyed) return;
+    // an online host's weekend session: every guest gets the same config, the host session takes their links
+    const room = this.online.room();
+    let net: SessionNet | null = null;
+    if (room?.hostLobby && ctx.returnTo === 'online') {
+      const session = room.nextSession();
+      const players = room.hostLobby.sessionPlayers();
+      this.onlineFinal = ctx.weekendQueue.length === 0;
+      room.hostLobby.startSession(session, config, this.onlineFinal);
+      net = { role: 'host', session, players };
+    }
+    this.beginLoad(config, ctx, () => net);
+  }
+
+  /** Guest: the host started a session — leave whatever is shown (results, lobby) and join it. */
+  private startClientSession(session: number, config: SessionConfig, final: boolean): void {
+    const room = this.online.room();
+    const lobby = room?.guestLobby;
+    if (this.destroyed || !room || !lobby || lobby.playerIndex === null) return;
+    const playerIndex = lobby.playerIndex;
+    // the host runs the weekend: a guest's results only lead back to the lobby, the next session arrives from the host
+    const ctx: SessionContext = { returnTo: 'online', weekendQueue: [], round: null, storyId: null };
+    let runtime: SessionRuntime | null = null;
+    // the session's link handler takes over at once: the host's first (complete) mirror and events must not be missed
+    let client: ClientSession;
+    try {
+      const track = getLayout(config.layoutId);
+      client = new ClientSession(config, track, session, playerIndex, lobby.link, {
+        other: (m) => lobby.handle(m),
+        hostLost: () => {
+          // the room is gone with its host: one notice, not a second one when the matchmaking link closes too
+          this.online.leave();
+          this.onlineClosed('房主已離線，連線中斷');
+        },
+        playerLeft: (_pi, name) => runtime?.notify(`${name} 已離線`, '改由 AI 代駕'),
+        paused: (p) => runtime?.notify(p ? '房主已暫停比賽' : '比賽繼續', '', p ? 'warn' : 'info'),
+      });
+    } catch (err) {
+      reportError(err, '線上節次');
+      return;
+    }
+    this.beginLoad(
+      config,
+      ctx,
+      () => ({ role: 'client', client }),
+      (s) => {
+        runtime = s;
+      },
+    );
+  }
+
+  private beginLoad(
+    config: SessionConfig,
+    ctx: SessionContext,
+    net: (track: ReturnType<typeof getLayout>) => SessionNet | null,
+    created?: (s: SessionRuntime) => void,
+  ): void {
     const token = ++this.loadToken;
     this.disposeActive();
     this.results = null;
     this.setState('loading');
     this.menus.showLoading(LOADING_TEXT);
-    void this.loadSession(config, ctx, token);
+    void this.loadSession(config, ctx, token, net, created);
   }
 
-  private async loadSession(config: SessionConfig, ctx: SessionContext, token: number): Promise<void> {
+  private async loadSession(
+    config: SessionConfig,
+    ctx: SessionContext,
+    token: number,
+    makeNet: (track: ReturnType<typeof getLayout>) => SessionNet | null = () => null,
+    created?: (s: SessionRuntime) => void,
+  ): Promise<void> {
     await afterPaint();
     if (token !== this.loadToken || this.destroyed) return;
     let session: SessionRuntime;
     try {
       const track = getLayout(config.layoutId);
-      session = new SessionRuntime(this.sessionDeps, config, ctx, track);
+      session = new SessionRuntime(this.sessionDeps, config, ctx, track, makeNet(track));
+      created?.(session);
       session.autopilot = new URLSearchParams(window.location.search).get('autopilot') === '1';
     } catch (err) {
       reportError(err, '載入節次');
+      // an online guest's link goes back to the lobby
+      this.online.room()?.guestLobby?.attach();
       this.setState('menu');
       this.menus.showHome(ctx.returnTo);
       this.menus.toast('無法載入節次，已返回選單', 'bad');
@@ -332,7 +421,8 @@ export class App {
     this.setState('session');
     this.menus.hide();
     // the tab was hidden / the window lost focus while loading: start paused like a running session would be
-    if (document.visibilityState === 'hidden' || this.windowBlurred) session.setPaused(true);
+    // (online the race runs for everyone regardless)
+    if (!session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
   }
 
   private finishSession(): void {
@@ -346,7 +436,16 @@ export class App {
     } catch (err) {
       reportError(err, '節次成績');
     }
+    const role = s.onlineRole;
+    if (role === 'host' && outcome) s.host?.sendResult(outcome.result, this.onlineFinal);
     s.dispose();
+    // online: back to the lobby's message handling (the host resets ready flags after the weekend)
+    const room = this.online.room();
+    if (role === 'host') room?.hostLobby?.attach(this.onlineFinal);
+    if (role === 'client' && room?.guestLobby) {
+      room.guestLobby.attach();
+      if (outcome) outcome = { ...outcome, result: localizeResult(outcome.result, outcome.world, room.guestLobby.playerIndex ?? 0) };
+    }
     if (!outcome) {
       this.setState('menu');
       this.menus.showHome(s.ctx.returnTo);
@@ -379,7 +478,16 @@ export class App {
     if (!s) return;
     this.session = null;
     this.releaseOverlay();
+    // leaving an online session leaves the room (the host's room closes for everyone)
+    const online = s.onlineRole !== null;
     s.dispose();
+    if (online) {
+      this.online.leave();
+      this.results = null;
+      this.setState('menu');
+      this.menus.showHome('main');
+      return;
+    }
     this.results = null;
     this.setState('menu');
     this.menus.showHome(s.ctx.returnTo);
@@ -527,9 +635,34 @@ export class App {
     void this.audio.resume();
   };
 
-  /** Tab hidden or window blurred: pause the running session / replay. */
+  /** Online room gone (host left, link lost): drop an online session or the lobby and say why. */
+  private onlineClosed(reason: string): void {
+    if (this.destroyed) return;
+    const s = this.session;
+    const inOnline = (s !== null && s.onlineRole !== null) || this.menus.isOpen();
+    if (s && s.onlineRole !== null) {
+      this.session = null;
+      this.releaseOverlay();
+      s.dispose();
+      this.results = null;
+      this.setState('menu');
+      this.menus.showHome('main');
+    } else if (this.state === 'loading') {
+      this.loadToken++;
+      this.setState('menu');
+      this.menus.showHome('main');
+    } else if (this.state === 'menu' || this.state === 'results') {
+      // the lobby (or a guest's results): back to the online screen
+      this.results = null;
+      this.setState('menu');
+      this.menus.showHome('online');
+    }
+    if (inOnline) this.menus.toast(reason, 'bad');
+  }
+
+  /** Tab hidden or window blurred: pause the running session / replay (an online race runs on for everyone). */
   private autoPause(): void {
-    if (this.state === 'session' && this.session && !this.session.fastForwarding) this.session.setPaused(true);
+    if (this.state === 'session' && this.session && !this.session.fastForwarding && !this.session.onlineRole) this.session.setPaused(true);
     else if (this.state === 'replay') this.replay?.pause();
   }
 
@@ -545,6 +678,10 @@ export class App {
 
   private readonly onWindowFocus = (): void => {
     this.windowBlurred = false;
+  };
+
+  private readonly onPageHide = (): void => {
+    this.online.leave();
   };
 
   private readonly onFocusIn = (e: FocusEvent): void => {
@@ -586,4 +723,15 @@ export class App {
       }),
     );
   }
+}
+
+/**
+ * A guest's view of the classification: its own row becomes player 0 (results highlighting, stats), the host's row
+ * takes the guest's index (the mirror world's cars alike).
+ */
+function localizeResult(result: SessionResult, world: WorldState, mine: number): SessionResult {
+  if (mine === 0) return result;
+  const swap = <T extends number>(pi: T): T => (pi === mine ? 0 : pi === 0 ? mine : pi) as T;
+  for (const c of world.cars) if (c.playerIndex >= 0) c.playerIndex = swap(c.playerIndex);
+  return { ...result, rows: result.rows.map((r) => (r.playerIndex >= 0 ? { ...r, playerIndex: swap(r.playerIndex) } : r)) };
 }

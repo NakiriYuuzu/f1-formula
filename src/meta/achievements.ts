@@ -38,7 +38,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'tenRaces', title: '十場老手', description: '累積完成 10 場正賽', glyph: '10' },
   { id: 'beatGhost', title: '超越幽靈', description: '在計時賽中跑贏自己的幽靈車', glyph: '◐' },
   { id: 'storyComplete', title: '新星誕生', description: '完成「新星之路」全部 6 章', glyph: '★' },
-  { id: 'rdMaxed', title: '研發極限', description: '在我的車隊將任一研發部門升到最高等級', glyph: '⚙' },
+  { id: 'rdMaxed', title: '研發極限', description: '在我的車隊將任一零件研發到滿級', glyph: '⚙' },
   { id: 'champion', title: '年度冠軍', description: '在車手生涯或我的車隊贏得車手或車隊年度冠軍', glyph: '♛' },
 ];
 

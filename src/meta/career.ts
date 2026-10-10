@@ -1,17 +1,31 @@
 /**
  * Driver Career (pure logic): custom 'player' driver replaces the chosen team's second driver for a full
- * season (real or original calendar, see season.ts); points for every classified driver; driver rating growth; teammate head-to-head; season history.
+ * season (real or original calendar, see season.ts); points for every classified driver; driver rating growth; teammate head-to-head; season history;
+ * part-level R&D of every team (meta/development.ts), the player's team paying with R&D points earned each round.
  */
-import type { Assists, CarSetup, DriverDef, SessionKind, SessionResult, TireCompound } from '../core/types';
+import type { Assists, CarPartId, CarSetup, DriverDef, SessionKind, SessionResult, TireCompound } from '../core/types';
 import { clamp } from '../core/math';
 import { asRecord, bool, int, isRecord, num, sanitizeDriver, str } from './guards';
+import {
+  advanceDevelopment,
+  canStartProject,
+  careerRoundPoints,
+  createSeasonDevelopment,
+  nextProject,
+  projectCost,
+  rolloverDevelopment,
+  rolloverRefund,
+  sanitizeDevelopment,
+  startProject,
+  teamsByStrength,
+  type SeasonDevelopment,
+} from './development';
 import {
   createPlayerDriver,
   PLAYER_DRIVER_ID,
   rosterDrivers,
   rosterTeams,
   rosterWithReplacement,
-  teamStrength,
   usedNumbers,
   type PlayerIdentity,
   type Roster,
@@ -87,6 +101,10 @@ export interface CareerSave {
   teammate: HeadToHead;
   history: SeasonSummary[];
   settings: SeasonSettings;
+  /** part development of every roster team (the player's team is developed with rdPoints) */
+  development: SeasonDevelopment;
+  /** unspent R&D points (careerRoundPoints per round, spent by startCareerProject) */
+  rdPoints: number;
   /** sprint of the current round already raced (its points join the round record at the race) */
   pendingSprint?: PendingSprint | null;
 }
@@ -142,6 +160,8 @@ export function createCareer(
     teammate: { ...EMPTY_HEAD_TO_HEAD },
     history: [],
     settings: sanitizeSeasonSettings(settings),
+    development: createSeasonDevelopment(rosterTeams().map((t) => t.id)),
+    rdPoints: 0,
   };
 }
 
@@ -190,12 +210,13 @@ export function careerRequest(
     setup: player.setup,
     startCompound: player.startCompound,
     gridOrder,
+    development: save.development,
   });
 }
 
-/** Expected finishing position of a car from its team's rank in the field (1-based). */
-export function expectedPosition(teamId: string, roster: Roster): number {
-  const ranked = [...roster.teams].sort((a, b) => teamStrength(b) - teamStrength(a));
+/** Expected finishing position of a car from its team's rank in the field (1-based): rating plus part development. */
+export function expectedPosition(teamId: string, roster: Roster, development?: SeasonDevelopment): number {
+  const ranked = teamsByStrength(roster.teams, development);
   const rank = Math.max(0, ranked.findIndex((t) => t.id === teamId));
   return rank * 2 + 1.5;
 }
@@ -259,7 +280,11 @@ export function applyCareerSprint(save: CareerSave, result: SessionResult): Care
   return { ...save, pendingSprint: withPendingSprint(save.results.length, result) };
 }
 
-/** Apply a race result: round record (all drivers' points), rating, head-to-head, season completion. */
+/**
+ * Apply a race result: round record (all drivers' points), rating, head-to-head, R&D points (careerRoundPoints), one
+ * round of development for every team (seeded by the round, AI budgets by the constructor standings after this race),
+ * season completion.
+ */
 export function applyCareerRace(save: CareerSave, result: SessionResult, trackLimitWarnings: number): CareerRaceUpdate {
   const record = attachSprint(recordRace(result), save.pendingSprint, save.results.length);
   const roster = careerRoster(save).roster;
@@ -271,7 +296,7 @@ export function applyCareerRace(save: CareerSave, result: SessionResult, trackLi
     rating = updateRating(save.rating, {
       position: mine.status === 'retired' ? null : mine.position,
       grid: mine.gridPosition > 0 ? mine.gridPosition : mine.position,
-      expected: expectedPosition(save.teamId, roster),
+      expected: expectedPosition(save.teamId, roster, save.development),
       wet: result.weather === 'lightRain' || result.weather === 'heavyRain',
       penaltySec: mine.penaltySec,
       trackLimitWarnings,
@@ -282,6 +307,17 @@ export function applyCareerRace(save: CareerSave, result: SessionResult, trackLi
     }
   }
   const results = [...save.results, record].slice(0, save.calendar.length);
+  const standings = teamStandings(results, roster.teams.map((t) => t.id)).map((s) => s.id);
+  const sprintEntry = record.sprint?.find((e) => e.driverId === PLAYER_DRIVER_ID);
+  const teamRank0 = standings.indexOf(save.teamId);
+  const earned = careerRoundPoints({
+    teamRank0: teamRank0 >= 0 ? teamRank0 : standings.length - 1,
+    teamCount: standings.length,
+    position: mine && mine.status !== 'retired' ? mine.position : null,
+    fieldSize: result.rows.length,
+    aheadOfTeammate: mine !== undefined && mateRow !== undefined && mine.position < mateRow.position,
+    sprintPosition: sprintEntry && sprintEntry.status !== 'retired' ? sprintEntry.position : null,
+  });
   const { pendingSprint: _spent, ...rest } = save;
   const next: CareerSave = {
     ...rest,
@@ -289,6 +325,9 @@ export function applyCareerRace(save: CareerSave, result: SessionResult, trackLi
     rating,
     teammate,
     driver: { ...save.driver, skill: ratingToSkill(rating) },
+    rdPoints: save.rdPoints + earned,
+    // roundSeed(save) = this round (results not yet extended): save seed, season and round index
+    development: advanceDevelopment(save.development, { seed: roundSeed(save), playerTeamIds: [save.teamId], standings }),
   };
   let summary: SeasonSummary | null = null;
   if (isSeasonComplete(next)) {
@@ -319,13 +358,30 @@ export function seasonSummary(
   };
 }
 
-/** Start the next season: new calendar, cleared results & head-to-head; rating and history persist. */
+/** Start the player's team's next-level project of a part, paid with R&D points (PART_COST_POINTS); null when unaffordable / not startable. */
+export function startCareerProject(save: CareerSave, part: CarPartId): CareerSave | null {
+  const team = save.development.teams[save.teamId];
+  const project = team && canStartProject(team, part) ? nextProject(team, part) : null;
+  if (!project) return null;
+  const cost = projectCost(project.level, 'points');
+  if (save.rdPoints < cost) return null;
+  const development = startProject(save.development, save.teamId, part);
+  if (!development) return null;
+  return { ...save, rdPoints: save.rdPoints - cost, development };
+}
+
+/**
+ * Start the next season: new calendar, cleared results & head-to-head; rating, history and R&D points persist; every
+ * part drops a level (rolloverDevelopment) and a running project re-targeted at a cheaper level refunds the difference
+ * in R&D points (rolloverRefund).
+ */
 export function startNextCareerSeason(
   save: CareerSave,
   seed: number,
   layouts: readonly LayoutLike[],
 ): CareerSave {
   const { pendingSprint: _spent, ...rest } = save;
+  const own = save.development.teams[save.teamId];
   return {
     ...rest,
     season: save.season + 1,
@@ -333,6 +389,8 @@ export function startNextCareerSeason(
     calendar: createCalendar(seed, layouts, save.settings.calendar),
     results: [],
     teammate: { ...EMPTY_HEAD_TO_HEAD },
+    rdPoints: save.rdPoints + (own ? rolloverRefund(own, 'points') : 0),
+    development: rolloverDevelopment(save.development, [save.teamId]),
   };
 }
 
@@ -391,6 +449,7 @@ export function sanitizeHistory(v: unknown): SeasonSummary[] {
 
 /**
  * Validate a stored career against the active roster. Unknown team → null (no career). A lost calendar is regenerated from the seed.
+ * Development follows the roster (saves from before part-level R&D start every team at zero, with 0 R&D points).
  */
 export function sanitizeCareer(
   v: unknown,
@@ -418,6 +477,8 @@ export function sanitizeCareer(
     teammate: sanitizeHeadToHead(v.teammate),
     history: sanitizeHistory(v.history),
     settings,
+    development: sanitizeDevelopment(v.development, rosterTeams().map((t) => t.id)),
+    rdPoints: int(v.rdPoints, 0, 1e6, 0),
     ...(pending && pending.round === results.length ? { pendingSprint: pending } : {}),
   };
 }

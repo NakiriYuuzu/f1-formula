@@ -5,7 +5,7 @@
 import type { WeekendStep } from './options';
 import type { SessionRequest } from './sessionBuilder';
 
-export type MenuHome = 'main' | 'grandPrix' | 'timeTrial' | 'career' | 'myTeam' | 'story' | 'splitScreen';
+export type MenuHome = 'main' | 'grandPrix' | 'timeTrial' | 'career' | 'myTeam' | 'story' | 'splitScreen' | 'online';
 
 /** Everything needed to build the remaining sessions of a weekend. */
 export interface WeekendPlan {

@@ -1,5 +1,5 @@
 /**
- * Main menu: the nine game areas in a left column over the showroom car, plus a profile strip.
+ * Main menu: the ten game areas in a left column over the showroom car, plus a profile strip.
  */
 import { ACHIEVEMENTS } from '../../../meta/achievements';
 import type { MenuHome } from '../../../meta/context';
@@ -26,6 +26,7 @@ export class MainMenuScreen extends Screen {
       ['我的車隊', '建立自己的車隊，經營研發與資金', go('myTeam')],
       ['新星之路', '原創劇情 6 章＋挑戰賽', go('story')],
       ['雙人分割畫面', '同一台電腦上的雙人對戰', go('splitScreen')],
+      ['線上多人', '2–4 名玩家連線對戰（點對點）', go('online')],
       ['設定', '畫面、音效、操控與按鍵', () => this.host.push(new SettingsScreen(this.host, null))],
       ['成就', '12 項本機成就', () => this.host.push(new AchievementsScreen(this.host))],
       ['製作名單', '關於本作', () => this.host.push(new CreditsScreen(this.host))],

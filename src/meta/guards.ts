@@ -3,7 +3,7 @@
  * (falling back to the provided default) and never throws.
  */
 import type { Assists, CarSetup, DriverDef, GhostData, Livery, LiveryPattern, SessionRules } from '../core/types';
-import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SETUP_RANGES } from '../core/defaults';
+import { ASSIST_PRESETS, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SETUP_RANGES } from '../core/defaults';
 import { clamp } from '../core/math';
 
 export type PlainRecord = Record<string, unknown>;
@@ -82,7 +82,7 @@ export function sanitizeLivery(v: unknown, fallback: Livery): Livery {
 
 export function sanitizeAssists(v: unknown, fallback: Assists = DEFAULT_ASSISTS): Assists {
   const r = asRecord(v);
-  return {
+  const out: Assists = {
     steering: bool(r.steering, fallback.steering),
     braking: oneOf(r.braking, ['off', 'low', 'high'] as const, fallback.braking),
     abs: bool(r.abs, fallback.abs),
@@ -92,7 +92,15 @@ export function sanitizeAssists(v: unknown, fallback: Assists = DEFAULT_ASSISTS)
     ersAssist: bool(r.ersAssist, fallback.ersAssist),
     drsAssist: bool(r.drsAssist, fallback.drsAssist),
     scLimiter: bool(r.scLimiter, fallback.scLimiter),
+    pitAssist: bool(r.pitAssist, fallback.pitAssist),
   };
+  // saves from before the pit assist: a beginner set keeps the full pit autopilot it always had
+  if (typeof r.pitAssist !== 'boolean') {
+    const beginner = ASSIST_PRESETS.beginner;
+    const keys = Object.keys(beginner).filter((k) => k !== 'pitAssist') as (keyof Assists)[];
+    if (keys.every((k) => out[k] === beginner[k])) out.pitAssist = true;
+  }
+  return out;
 }
 
 /** Incident-frequency settings in menu order. */

@@ -2,6 +2,7 @@
  * Minimum-curvature racing line: lateral offsets n[i] (+ right) within ±(halfWidth - margin) that minimise
  * Σ |q[i-1] - 2 q[i] + q[i+1]|² for q = p + n·right. Solved by projected Gauss-Seidel (exact coordinate
  * minimisation, box constraints) on a coarse-to-fine hierarchy so long wavelengths converge quickly.
+ * Optional `extraLeft` / `extraRight` (m per sample) widen the box on that side (the AI's kerb-use line).
  */
 
 /** Car-body margin kept from each road edge (m). */
@@ -23,8 +24,13 @@ export function computeRacingLine(
   rz: Float64Array,
   halfWidth: Float64Array,
   margin = RACING_LINE_MARGIN,
+  extraLeft?: ArrayLike<number>,
+  extraRight?: ArrayLike<number>,
 ): Float64Array {
   const count = px.length;
+  // box per sample: [-(halfWidth - margin + extraLeft), halfWidth - margin + extraRight]
+  const loAt = (i: number): number => -(Math.max(0, halfWidth[i] - margin) + (extraLeft ? Math.max(0, extraLeft[i]) : 0));
+  const hiAt = (i: number): number => Math.max(0, halfWidth[i] - margin) + (extraRight ? Math.max(0, extraRight[i]) : 0);
   let prevIdx: Int32Array | null = null;
   let prevOff: Float64Array | null = null;
 
@@ -37,18 +43,20 @@ export function computeRacingLine(
     const bz = new Float64Array(m);
     const nx = new Float64Array(m);
     const nz = new Float64Array(m);
-    const lim = new Float64Array(m);
+    const lo = new Float64Array(m);
+    const hi = new Float64Array(m);
     for (let k = 0; k < m; k++) {
       const i = idx[k];
       bx[k] = px[i];
       bz[k] = pz[i];
       nx[k] = rx[i];
       nz[k] = rz[i];
-      lim[k] = Math.max(0, halfWidth[i] - margin);
+      lo[k] = loAt(i);
+      hi[k] = hiAt(i);
     }
     const off: Float64Array = prevIdx && prevOff ? resampleOffsets(prevIdx, prevOff, idx, count) : new Float64Array(m);
-    for (let k = 0; k < m; k++) off[k] = clampAbs(off[k], lim[k]);
-    relax(bx, bz, nx, nz, lim, off, level.iterations);
+    for (let k = 0; k < m; k++) off[k] = clampRange(off[k], lo[k], hi[k]);
+    relax(bx, bz, nx, nz, lo, hi, off, level.iterations);
     prevIdx = idx;
     prevOff = off;
   }
@@ -56,13 +64,13 @@ export function computeRacingLine(
   const out = new Float64Array(count);
   if (prevIdx && prevOff) {
     const full = resampleOffsets(prevIdx, prevOff, Int32Array.from({ length: count }, (_, i) => i), count);
-    for (let i = 0; i < count; i++) out[i] = clampAbs(full[i], Math.max(0, halfWidth[i] - margin));
+    for (let i = 0; i < count; i++) out[i] = clampRange(full[i], loAt(i), hiAt(i));
   }
   return out;
 }
 
-function clampAbs(v: number, lim: number): number {
-  return v > lim ? lim : v < -lim ? -lim : v;
+function clampRange(v: number, lo: number, hi: number): number {
+  return v > hi ? hi : v < lo ? lo : v;
 }
 
 function relax(
@@ -70,7 +78,8 @@ function relax(
   bz: Float64Array,
   nx: Float64Array,
   nz: Float64Array,
-  lim: Float64Array,
+  lo: Float64Array,
+  hi: Float64Array,
   off: Float64Array,
   iterations: number,
 ): void {
@@ -92,7 +101,7 @@ function relax(
       const tx = (4 * (qx[b] + qx[c]) - qx[a] - qx[d]) / 6;
       const tz = (4 * (qz[b] + qz[c]) - qz[a] - qz[d]) / 6;
       const target = (tx - bx[k]) * nx[k] + (tz - bz[k]) * nz[k];
-      const next = clampAbs(off[k] + RELAXATION * (target - off[k]), lim[k]);
+      const next = clampRange(off[k] + RELAXATION * (target - off[k]), lo[k], hi[k]);
       const change = Math.abs(next - off[k]);
       if (change > maxChange) maxChange = change;
       off[k] = next;

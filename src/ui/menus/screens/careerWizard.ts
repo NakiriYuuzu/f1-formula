@@ -37,7 +37,8 @@ export class CareerWizardScreen extends Screen {
     helmet: { primary: '#ff5a1f', secondary: '#f4f1e8', accent: '#111214', pattern: 'classic' },
   };
   private teamId = defaultCareerTeam();
-  private settings: SeasonSettings = { ...DEFAULT_SEASON_SETTINGS, rules: { ...DEFAULT_SEASON_SETTINGS.rules } };
+  // new careers draw a random calendar so every save runs a different season
+  private settings: SeasonSettings = { ...DEFAULT_SEASON_SETTINGS, calendar: 'random', rules: { ...DEFAULT_SEASON_SETTINGS.rules } };
   private assists: Assists;
   private readonly body: HTMLElement;
   private readonly kicker: HTMLElement;

@@ -89,6 +89,8 @@ function restartLightsOut(world: WorldState): void {
     t.lapValid = true;
     car.race.sectorStart = world.time;
     car.race.pitLap = false;
+    // a standing start: not a clean lap
+    car.race.neutralLap = true;
     if (t.lap > s.leaderLap) s.leaderLap = t.lap;
   }
   const previous = c.mode;

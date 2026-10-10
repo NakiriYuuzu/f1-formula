@@ -1,16 +1,17 @@
 /**
  * Meta layer: real-circuit support (fake defs / layouts, independent of the registered track data):
- * real / original season calendars, sprint venues, old-save sanitising, track filter, real facts, credits list.
+ * real / original / random season calendars, sprint venues, old-save sanitising, track filter, real facts, credits list.
  */
 import { describe, expect, test } from 'bun:test';
 import type { RealCircuitInfo } from '../src/core/types';
-import { createCareer, isSeasonComplete, sanitizeCareer } from '../src/meta/career';
+import { createCareer, isSeasonComplete, sanitizeCareer, startNextCareerSeason } from '../src/meta/career';
 import { circuitCredits, directionLabel, featureLabels, filterLayouts, formatKm, realFacts } from '../src/meta/circuits';
 import { createMyTeam, sanitizeMyTeam, startNextMyTeamSeason } from '../src/meta/myTeam';
 import {
   createCalendar,
   DEFAULT_SEASON_SETTINGS,
   isSprintRound,
+  RANDOM_ROUNDS,
   realCalendarLayouts,
   REAL_CALENDAR_ORDER,
   REAL_SPRINT_VENUES,
@@ -100,6 +101,67 @@ describe('sprint venues', () => {
 
   test('off by default', () => {
     expect(real.some((_, i) => isSprintRound(DEFAULT_SEASON_SETTINGS, i, real))).toBe(false);
+  });
+});
+
+describe('random calendar', () => {
+  /** 5 originals + 13 real circuits, as many as the registered track data. */
+  const MANY = [...ORIGINALS, ...['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13'].flatMap((id) => fake(id, true))];
+  const circuit = (layoutId: string) => layoutId.replace(/-rev$/, '');
+  const ids = (seed: number, layouts = MANY) => createCalendar(seed, layouts, 'random').map((r) => r.layoutId);
+
+  test('RANDOM_ROUNDS distinct circuits; same seed = same calendar', () => {
+    for (const seed of [1, 7, 123456]) {
+      const cal = ids(seed);
+      expect(cal).toHaveLength(RANDOM_ROUNDS);
+      expect(new Set(cal.map(circuit)).size).toBe(RANDOM_ROUNDS);
+      expect(ids(seed)).toEqual(cal);
+      expect(createCalendar(seed, MANY, 'random')).toEqual(createCalendar(seed, MANY, 'random'));
+    }
+  });
+
+  test('different seeds give different seasons mixing real / original circuits and both directions', () => {
+    const seasons = Array.from({ length: 40 }, (_, i) => ids(i * 7919 + 3));
+    expect(new Set(seasons.map((c) => c.join())).size).toBeGreaterThan(35);
+    const rounds = seasons.flat();
+    const reverse = rounds.filter((id) => id.endsWith('-rev')).length / rounds.length;
+    expect(reverse).toBeGreaterThan(0.15);
+    expect(reverse).toBeLessThan(0.45);
+    expect(rounds.some((id) => ['a', 'b', 'c', 'd', 'e'].includes(circuit(id)))).toBe(true);
+    expect(rounds.some((id) => circuit(id).startsWith('r'))).toBe(true);
+  });
+
+  test('fewer circuits than rounds: repeats in the other direction, never back to back', () => {
+    for (const seed of [2, 5, 99]) {
+      const cal = ids(seed, ORIGINALS);
+      expect(cal).toHaveLength(RANDOM_ROUNDS);
+      for (let i = 1; i < cal.length; i++) expect(circuit(cal[i] ?? '')).not.toBe(circuit(cal[i - 1] ?? ''));
+      for (const c of ['a', 'b', 'c', 'd', 'e']) {
+        const visits = cal.filter((id) => circuit(id) === c);
+        expect(visits.length).toBeGreaterThanOrEqual(2);
+        expect(visits[0]).not.toBe(visits[1]);
+      }
+    }
+  });
+
+  test('sprint weekends on rounds 3 / 6 / 9 when the draw mixes circuit kinds', () => {
+    const cal = createCalendar(4, MANY, 'random');
+    const on = { ...DEFAULT_SEASON_SETTINGS, sprintWeekends: true };
+    const sprints = cal.map((_, i) => i).filter((i) => isSprintRound(on, i, cal));
+    expect(cal.some((r) => ['a', 'b', 'c', 'd', 'e'].includes(circuit(r.layoutId)))).toBe(true);
+    expect(sprints).toEqual([2, 5, 8]);
+  });
+
+  test('careers keep the random kind and redraw the calendar every season', () => {
+    const settings = { ...DEFAULT_SEASON_SETTINGS, calendar: 'random' as const };
+    const career = createCareer(IDENTITY, 'kestrel', settings, 11, MANY);
+    expect(career.calendar).toHaveLength(RANDOM_ROUNDS);
+    expect(sanitizeSeasonSettings(career.settings).calendar).toBe('random');
+    const back = sanitizeCareer(JSON.parse(JSON.stringify(career)), MANY);
+    expect(back?.calendar).toEqual(career.calendar);
+    const next = startNextCareerSeason(career, 12, MANY);
+    expect(next.calendar).toHaveLength(RANDOM_ROUNDS);
+    expect(next.calendar.map((r) => r.layoutId)).not.toEqual(career.calendar.map((r) => r.layoutId));
   });
 });
 

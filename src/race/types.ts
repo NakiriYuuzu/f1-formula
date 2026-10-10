@@ -37,6 +37,13 @@ export interface CarRaceInternal {
   pitStopS: number;
   pitStopTotal: number;
   pitRepair: boolean;
+  /**
+   * driver-driven pit visit (no pit assist): physics + driver inputs except while pitAuto, the kinematic
+   * box manoeuvre (approach → stop → back to the lane centre); pitSpeeding = already penalised this visit
+   */
+  pitManual: boolean;
+  pitAuto: boolean;
+  pitSpeeding: boolean;
   /** dry compounds used (mandatory-stop rule) and whether a wet-weather tyre was used */
   usedCompounds: TireCompound[];
   usedWetTyre: boolean;
@@ -68,6 +75,10 @@ export interface CarRaceInternal {
   /** current lap touched the pit lane (in / out lap), and completed laps that did not (qualifying timed laps) */
   pitLap: boolean;
   timedLaps: number;
+  /** current lap ran (partly) under a neutralisation (SC / VSC / red) or from a standing start: not a clean lap */
+  neutralLap: boolean;
+  /** latest clean race lap (s, 0 = none): AIState.cleanLap is the better of it and the clean lap before */
+  lastCleanLap: number;
 
   // ── race control ──
   /** own grid slot (race start / red-flag restart) */

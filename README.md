@@ -110,7 +110,9 @@ src/
   ui/hud/              節次 HUD、暫停選單、MFD、重播控制列
   audio/               WebAudio 即時合成的引擎聲、音效與原創背景音樂
   input/               鍵盤、Gamepad、震動
-  app/                 App 狀態機、節次執行、回溯、重播、URL 快速開始、測試掛鉤
+  app/                 App 狀態機、節次執行、回溯、重播、URL 快速開始、測試掛鉤、線上房間控制
+  net/                 線上多人：連線協定、房主／客戶端節次、大廳、WebRTC、配對客戶端
+server/                線上多人的配對伺服器（Cloudflare Workers + Durable Objects，部署見 server/README.md）
 tools/import-circuit.ts  真實賽道離線匯入工具（OpenStreetMap 中心線 + DEM 高程 → 控制點；設定在 tools/circuits.json）
 tests/                 bun 自動測試（物理、賽道、比賽規則、AI、無頭整場比賽、存檔、輸入、音訊、整合、渲染）
 docs/SPEC.md           實作規格與原創性規則
@@ -122,7 +124,15 @@ progress.md            開發紀錄
 - 純邏輯模組（core、data、track、physics、race、ai、meta）不使用 three.js 或 DOM，可以用 `bun test` 無頭跑完整場比賽。
 - 進度存在瀏覽器的 localStorage（鍵名以 `formula-nova:` 開頭）；清除瀏覽器資料會刪除存檔。
 
+## 線上多人
+
+主選單 → 線上多人：2–4 名玩家（AI 補位），一人建立房間、其他人輸入 6 碼房間代碼加入。房主的電腦模擬整場比賽，玩家之間以 WebRTC 點對點連線。
+
+- **本機測試（不需要伺服器）**：配對方式選「本機測試（同一台電腦的分頁）」，在同一個瀏覽器開兩個分頁（同一個網址，例如 `bun run dev` 的 `http://localhost:5173/`），一個建立房間、另一個輸入代碼加入。
+- **跨網路**：部署 `server/` 的配對伺服器（`cd server && bun install && bunx wrangler login && bunx wrangler deploy`，詳見 [`server/README.md`](server/README.md)），把網址填到「配對伺服器網址」，或建置時設定 `VITE_SIGNAL_URL`。
+- 限制：沒有 TURN 中繼（嚴格 NAT 可能連不上）、沒有反作弊、斷線不能重新加入。
+
 ## 未實作
 
-線上多人、區域網路、跨平台連線、VR、HDR、社群工作坊、雲端存檔、反作弊（需要伺服器或專用硬體）。
+跨平台連線、VR、HDR、社群工作坊、雲端存檔、反作弊（需要伺服器或專用硬體）。
 詳見 [`docs/FEATURES.md`](docs/FEATURES.md) 第 1 節與第 10 節。

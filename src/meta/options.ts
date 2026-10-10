@@ -108,7 +108,8 @@ export function assistsEqual(a: Assists, b: Assists): boolean {
     a.racingLine === b.racingLine &&
     a.ersAssist === b.ersAssist &&
     a.drsAssist === b.drsAssist &&
-    a.scLimiter === b.scLimiter
+    a.scLimiter === b.scLimiter &&
+    a.pitAssist === b.pitAssist
   );
 }
 

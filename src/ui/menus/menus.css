@@ -1812,6 +1812,13 @@
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
 }
 
+/* a card whose project button is disabled takes the keyboard focus itself */
+.nvm-rnd__dept:focus {
+  outline: none;
+  border-color: var(--nv-accent);
+  box-shadow: inset 0 0 0 1px var(--nv-accent);
+}
+
 .nvm-rnd__head {
   display: flex;
   align-items: center;
@@ -1829,6 +1836,20 @@
   font-family: var(--nv-font-mono);
   font-size: 13px;
   color: var(--nv-text-2);
+}
+
+.nvm-rnd__group {
+  margin-top: 6px;
+}
+
+/* team names and running parts wrap so the tables fit the R&D column */
+.nvm-table.nvm-rnd__table td {
+  white-space: normal;
+}
+
+/* short report tables need no minimum scroll height */
+.nvm-rnd .nvm-scroll {
+  min-height: 0;
 }
 
 .nvm-market__grid {
@@ -2481,4 +2502,39 @@
   .nvm-onboard__rows {
     grid-template-columns: 1fr;
   }
+}
+
+/* ───────────── online multiplayer (screens/online.ts) ───────────── */
+.nvm-note.is-bad {
+  color: var(--nv-danger);
+}
+.nvm-lobby__player {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: 'chip name' 'chip driver' 'chip meta';
+  column-gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--nv-line);
+  border-radius: var(--nv-radius);
+  background: var(--nv-panel-solid);
+}
+.nvm-lobby__player > :first-child {
+  grid-area: chip;
+}
+.nvm-lobby__player b {
+  grid-area: name;
+}
+.nvm-lobby__player span {
+  grid-area: driver;
+  color: var(--nv-text-2);
+  font-size: 13px;
+}
+.nvm-lobby__player small {
+  grid-area: meta;
+  color: var(--nv-text-3);
+  font-size: 12px;
+}
+.nvm-lobby__player.is-me {
+  border-color: var(--nv-accent);
 }

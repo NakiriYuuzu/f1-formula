@@ -6,6 +6,7 @@ import type {
   Biome,
   BrakingAssist,
   CameraMode,
+  CarPartId,
   DamageLevel,
   GameMode,
   GearboxMode,
@@ -18,9 +19,9 @@ import type {
   TractionControl,
   WeatherKind,
 } from '../../core/types';
+import type { PartGroup } from '../../meta/development';
 import type { AssistPreset, LapsChoice, QualifyingType, TimeOfDayChoice, WeatherChoice, WeekendFormat, WeekendStep } from '../../meta/options';
 import { resolveLaps } from '../../meta/options';
-import type { RdDepartment } from '../../meta/myTeam';
 
 export const WEATHER_LABEL: Record<WeatherChoice, string> = {
   clear: '晴天',
@@ -129,9 +130,37 @@ export const ASSIST_LABEL: Record<keyof Assists, string> = {
   ersAssist: 'ERS 輔助',
   drsAssist: 'DRS 輔助',
   scLimiter: '安全車限速',
+  pitAssist: '進站自動駕駛',
 };
 
-export const RD_LABEL: Record<RdDepartment, string> = { aero: '空力', power: '動力單元', chassis: '底盤', reliability: '可靠度' };
+export const PART_LABEL: Record<CarPartId, string> = {
+  frontWing: '前翼',
+  rearWing: '尾翼',
+  floor: '底板',
+  suspension: '懸吊',
+  powerUnit: '動力單元',
+  ers: 'ERS',
+  gearbox: '變速箱',
+  brakes: '煞車',
+  weight: '輕量化',
+  reliability: '可靠度',
+};
+
+/** Effect of one fully successful level (physics/spec.ts createCarSpec, per 1.0 gain). */
+export const PART_EFFECT: Record<CarPartId, string> = {
+  frontWing: '每級前軸下壓力 +1.6%，空力平衡略往前',
+  rearWing: '每級後軸下壓力 +0.5%、空氣阻力 −0.8%',
+  floor: '每級前後軸下壓力 +1%',
+  suspension: '每級機械抓地力 +0.4%、路緣石抓地提升、輪胎磨耗 −2%',
+  powerUnit: '每級內燃機馬力 +1.2%',
+  ers: '每級 ERS 輸出與電能回收 +3%',
+  gearbox: '每級傳動效率 +0.4 個百分點（88% → 滿級 90%）',
+  brakes: '每級最大煞車力 +3%、煞車回收電能 +2%；滿級時煞車減速度最多 +3%、最大煞車力 +15%',
+  weight: '每級車重 −2 kg',
+  reliability: '每級碰撞損傷 −4%',
+};
+
+export const PART_GROUP_LABEL: Record<PartGroup, string> = { aero: '空力', power: '動力', chassis: '底盤' };
 
 export const KEY_ACTION_LABEL: Record<KeyAction, string> = {
   throttle: '油門',

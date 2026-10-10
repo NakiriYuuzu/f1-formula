@@ -78,6 +78,7 @@ function startLap(world: WorldState, car: CarEntry, time: number, lap: number): 
   t.sectors = [null, null, null];
   t.lapValid = !(world.config.kind !== 'race' && car.pit.phase !== 'none');
   car.race.pitLap = car.pit.phase !== 'none';
+  car.race.neutralLap = world.session.control.mode !== 'green';
   car.race.sectorStart = time;
   car.race.ghostCur = [];
   if (lap > world.session.leaderLap) world.session.leaderLap = lap;
@@ -101,6 +102,17 @@ function completeSector(world: WorldState, car: CarEntry, index: number, time: n
     if (overallBest) world.race.bestSectors[index] = sectorTime;
   }
   emit(world, { type: 'sector', carId: car.id, sector: index, time: sectorTime, personalBest, overallBest });
+}
+
+/**
+ * AIState.cleanLap (race pace for team orders / traffic): the better of the last two clean laps — valid, green flag
+ * throughout, no pit lane, not from a standing start (lap 1, red-flag restart).
+ */
+function noteCleanLap(car: CarEntry, lapTime: number, clean: boolean): void {
+  if (!clean || !(lapTime > 1) || !Number.isFinite(lapTime)) return;
+  const r = car.race;
+  car.ai.cleanLap = r.lastCleanLap > 0 ? Math.min(r.lastCleanLap, lapTime) : lapTime;
+  r.lastCleanLap = lapTime;
 }
 
 /** Complete the current lap at `time`; returns true when the car finished (no new lap started). */
@@ -128,6 +140,7 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
       r.ghostBestTime = lapTime;
     }
   }
+  if (s.kind === 'race') noteCleanLap(car, lapTime, valid && !r.pitLap && !r.neutralLap);
   t.lapsCompleted += 1;
   if (!r.pitLap) r.timedLaps += 1;
   car.phys.tire.laps += 1;
@@ -177,6 +190,7 @@ export function updateCarTiming(world: WorldState, track: BuiltTrack, car: CarEn
   const next = prev + ds;
   t.progress = next;
   if (car.pit.phase !== 'none') r.pitLap = true;
+  if (s.control.mode !== 'green') r.neutralLap = true;
   if (p.speed > t.topSpeed && Number.isFinite(p.speed)) t.topSpeed = p.speed;
   if (s.kind === 'race') recordCheckpoints(world, car, prev, next, t0, dt);
   recordCrossings(track, car, prevS, ds, t0, dt);

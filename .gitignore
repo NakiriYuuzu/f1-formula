@@ -6,3 +6,5 @@ __pycache__/
 public/rosters/
 public/music/
 dist/
+.wrangler/
+.pi/

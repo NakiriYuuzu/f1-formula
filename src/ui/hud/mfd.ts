@@ -3,38 +3,12 @@
  * summary and the estimated pit-stop time loss. Mouse, plus keyboard shortcuts while open
  * (1–4 ERS mode, 5 next compound, 6 box / cancel; split-screen: P1 top-row digits, P2 numpad digits).
  */
-import type { BuiltTrack, CarEntry, ErsMode, TireCompound, WorldState } from '../../core/types';
+import type { CarEntry, ErsMode, TireCompound, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
-import { clamp, clamp01 } from '../../core/math';
+import { clamp01 } from '../../core/math';
+import { PIT_LOSS_FALLBACK } from '../../race/index';
 import { AttrSlot, ShowSlot, TextSlot, clickable, el } from './dom';
 import { ALL_COMPOUNDS, ERS_LABEL, ERS_MODES, cycle, fin } from './labels';
-
-/** Average stationary time (SPEC: 2–3.5 s) and extra decel/accel loss around the box. */
-const STOP_TIME = 2.8;
-const BOX_MANOEUVRE = 1.5;
-const FALLBACK_LOSS = 22;
-
-/** Estimated time lost by a stop: pit-lane time at the limit + stop − racing time over the same stretch. */
-export function estimatePitLoss(track: BuiltTrack): number {
-  const pit = track.pit;
-  const len = track.length;
-  if (!pit || !(pit.laneLength > 0) || !(pit.speedLimit > 0) || track.count < 2 || !(len > 0)) return FALLBACK_LOSS;
-  const wrap = (s: number): number => ((s % len) + len) % len;
-  const entry = wrap(pit.entry);
-  const exit = wrap(pit.exit);
-  let racing = 0;
-  for (let i = 0; i < track.count; i++) {
-    const s = track.s[i];
-    const inside = entry <= exit ? s >= entry && s < exit : s >= entry || s < exit;
-    if (!inside) continue;
-    const next = i + 1 < track.count ? track.s[i + 1] : len;
-    const ds = next - s;
-    if (!(ds > 0) || !Number.isFinite(ds)) continue;
-    racing += ds / Math.max(10, fin(track.speedProfile[i], 60));
-  }
-  const loss = pit.laneLength / pit.speedLimit + STOP_TIME + BOX_MANOEUVRE - racing;
-  return Number.isFinite(loss) ? clamp(loss, 8, 45) : FALLBACK_LOSS;
-}
 
 /** Sensible next compound: weather crossover first, otherwise a different dry compound. */
 function suggestCompound(car: CarEntry, world: WorldState): TireCompound {
@@ -126,7 +100,7 @@ export class MfdPanel {
     const loss = el('div', '', info);
     this.pitRows.push(new ShowSlot(loss));
     this.lossInfo = new TextSlot(loss);
-    this.lossInfo.set(`預估進站損失 ≈ ${fin(pitLoss, FALLBACK_LOSS).toFixed(1)} 秒`);
+    this.lossInfo.set(`預估進站損失 ≈ ${fin(pitLoss, PIT_LOSS_FALLBACK).toFixed(1)} 秒`);
     el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消');
   }
 

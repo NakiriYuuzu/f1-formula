@@ -95,6 +95,28 @@ export function radioTrackLimits(world: WorldState, car: CarEntry, warnings: num
   else if (warnings < 3) say(world, car, '注意賽道界線，四輪不要全部越過白線。');
 }
 
+/** Pit-lane speeding outside a race (no time penalty: in real F1 it is a fine). */
+export function radioPitSpeeding(world: WorldState, car: CarEntry): void {
+  say(world, car, '維修道超速！記得在限速線前開啟限速器，正賽會被罰 5 秒。', true);
+}
+
+/**
+ * Team order to an AI car: let its team-mate by on the next straight (a human team-mate is told it is coming). Orders
+ * only ever go to AI drivers — a human is never asked to give a place up. AI-only lines carry the AI car's id (no HUD
+ * view shows them).
+ */
+export function radioTeamYield(world: WorldState, car: CarEntry, mate: CarEntry | undefined): void {
+  if (!mate || isHuman(car)) return;
+  emit(world, { type: 'radio', carId: car.id, text: `車隊指令：讓隊友 ${mate.abbr} 通過，下一段直線讓出路線。` });
+  say(world, mate, `車隊指令：${car.abbr} 會在下一段直線讓你通過。`, true);
+}
+
+/** Team order to an AI car: hold position, no racing its (AI) team-mate. */
+export function radioTeamHold(world: WorldState, car: CarEntry, mate: CarEntry | undefined): void {
+  if (!mate || isHuman(car)) return;
+  emit(world, { type: 'radio', carId: car.id, text: `車隊指令：維持現有名次，不要和 ${mate.abbr} 互相攻擊。` });
+}
+
 export function radioPitExit(world: WorldState, car: CarEntry): void {
   say(world, car, '出站完成，注意出口白線與後方來車。', true);
 }

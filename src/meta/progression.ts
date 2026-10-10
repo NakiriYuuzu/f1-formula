@@ -8,7 +8,8 @@ import { formatLapTime } from '../core/math';
 import { evaluateAchievements, unlockAchievements, updateStats, type AchievementId } from './achievements';
 import { applyCareerQualifying, applyCareerRace, applyCareerSprint, type SeasonSummary } from './career';
 import type { SessionContext } from './context';
-import { applyMyTeamRace, applyMyTeamSprint, isAnyDepartmentMaxed } from './myTeam';
+import { isAnyPartMaxed } from './development';
+import { applyMyTeamRace, applyMyTeamSprint, myTeamDevelopment } from './myTeam';
 import {
   loadAchievements,
   loadCareer,
@@ -64,7 +65,7 @@ export function resolveObjectiveMet(result: SessionResult, config: SessionConfig
   return config.objective ? evaluateObjective(config.objective, result) : null;
 }
 
-/** Unlock achievements outside a session (e.g. buying the last R&D level). Returns the newly unlocked ids. */
+/** Unlock achievements outside a session (e.g. from a menu screen). Returns the newly unlocked ids. */
 export function unlockNow(ids: readonly AchievementId[], date: string): AchievementId[] {
   const { save, newly } = unlockAchievements(loadAchievements(), ids, date);
   if (newly.length > 0) saveAchievements(save);
@@ -168,11 +169,12 @@ export function applyProgress(input: ProgressInput): ProgressOutcome {
     }
   }
 
-  // ── My Team
-  const team = loadMyTeam();
+  // ── My Team (the race's development round may max a part: the achievement checks the updated save)
+  let team = loadMyTeam();
   if (result.mode === 'myTeam' && result.kind === 'race' && team && ctx.round === team.results.length) {
     const upd = applyMyTeamRace(team, result);
     saveMyTeam(upd.save);
+    team = upd.save;
     const income = upd.save.lastIncome.reduce((acc, l) => acc + l.amount, 0);
     out.notes.push(`車隊收入 +${income.toFixed(1)} M（資金 ${upd.save.budget.toFixed(1)} M）`);
     if (upd.summary) {
@@ -198,7 +200,7 @@ export function applyProgress(input: ProgressInput): ProgressOutcome {
     trackLimitWarnings: Math.max(0, Number.isFinite(input.trackLimitWarnings) ? input.trackLimitWarnings : 0),
     beatGhost,
     storyComplete: storyDone,
-    rdMaxed: team !== null && isAnyDepartmentMaxed(team),
+    rdMaxed: team !== null && isAnyPartMaxed(myTeamDevelopment(team)),
     champion,
     stats: profile.stats,
   });

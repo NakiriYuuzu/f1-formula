@@ -18,6 +18,7 @@ import type {
   StandingRow,
   TireCompound,
   WorldState,
+  PlayerIndex,
 } from '../core/types';
 import { concludeRace as conclude } from './conclude';
 import { ghostOf, renderFrame } from './frame';
@@ -38,6 +39,8 @@ export { DRS_GAP, DRS_WET_LIMIT } from './drs';
 export { GRID_FRONT, GRID_GAP, GRID_LATERAL, FLYING_START, BOX_SPACING, BOX_SLOTS } from './world';
 export { RAIN_LEVEL } from './weather';
 export { COLLISION_EVENT_IMPULSE } from './contact';
+export { predictHumanStep } from './step';
+export { estimatePitLoss, pitLossFactor, PIT_LOSS_FALLBACK, SC_ENDING_PIT_LOSS_FACTOR, SC_PIT_LOSS_FACTOR, VSC_PIT_LOSS_FACTOR } from './pitlane';
 
 const ERS_MODES: readonly ErsMode[] = ['none', 'medium', 'hotlap', 'overtake'];
 
@@ -134,8 +137,8 @@ export function extractGhost(world: WorldState, carId: number): GhostData | null
   return ghostOf(world, carId);
 }
 
-/** Car id driven by a human player (0 / 1), or -1. */
-export function getPlayerCarId(world: WorldState, playerIndex: 0 | 1 = 0): number {
+/** Car id driven by a human player (0–3), or -1. */
+export function getPlayerCarId(world: WorldState, playerIndex: PlayerIndex = 0): number {
   const car = world.cars.find((c) => c.playerIndex === playerIndex);
   return car ? car.id : -1;
 }

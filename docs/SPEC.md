@@ -46,7 +46,7 @@
 - 橫向偏移、曲率、轉向一律「+ = 右」。
 - WorldState 必須是純資料（可 `structuredClone`）。固定步長 `SIM_DT = 1/120`。
 - 各模組的私有狀態放在自己擁有的型別：`physics/types.ts`（CarSpec、PhysicsInternal）、`ai/types.ts`（AIState）、
-  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 不可修改。
+  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
 
 ## 3. F1 25 功能對照（本作要實作的範圍）
 
@@ -59,8 +59,8 @@
 | 反向賽道 | 每條賽道皆可反向（共 10 種佈局） | track |
 | Grand Prix（自訂單場） | 大獎賽：自選賽道/車隊/圈數/天氣/AI 難度/規則/賽制（練習→排位→正賽） | menus / race |
 | Time Trial | 計時賽：個人最佳 + 幽靈車 + 本機排行 | race / menus / render |
-| Driver Career | 車手生涯：自創車手、加入車隊、10 站賽季、積分榜、評價成長、隊友對比 | menus(meta) |
-| My Team（車隊經營） | 我的車隊：自建第 11 隊、塗裝、研發部門升級、資金、簽第二車手 | menus(meta) |
+| Driver Career | 車手生涯：自創車手、加入車隊、10 站賽季、積分榜、評價成長、隊友對比、車輛研發（每站賺研發點數，指定自家車隊的零件研發）、AI 車隊整季研發 | menus(meta) |
+| My Team（車隊經營） | 我的車隊：自建第 11 隊、塗裝、零件級研發（10 個零件 × 5 級研發專案，花資金、需數站完成、有成功率）、對手車隊整季研發、資金、簽第二車手 | menus(meta) |
 | Braking Point 劇情 | 原創劇情模式「新星之路」6 章 + 挑戰賽（目標制） | menus(meta) |
 | F1 World 挑戰 | 挑戰賽清單（同目標系統） | menus(meta) |
 | 分割畫面多人 | 本機雙人分割畫面（可加 AI） | app / render / hud / input |
@@ -70,7 +70,7 @@
 | 天氣與動態天氣 | 晴/陰/小雨/大雨、動態變化、賽道積水與乾燥、雨滴與水霧 | race / render |
 | 輪胎（軟/中/硬/半雨/全雨） | 配方抓地、磨耗、溫度窗口、溼地交叉點 | physics |
 | ERS / DRS | ERS 四種模式 + 電池；DRS 偵測點 1 秒規則、第 3 圈起開放、雨天停用 | physics / race |
-| 進站 | MFD 指定換胎、自動駕駛維修道（限速 80 km/h）、停站 2–3.5 秒、修好所有受損部位 | race / hud |
+| 進站 | MFD 指定換胎；真實 F1 規則：引道不限速、限速線之間 80 km/h，玩家手動開維修道並按限速器（超速正賽 +5 秒），只有停進維修格自動；「進站自動駕駛」輔助與 AI 走完整自動駕駛；停站 2–3.5 秒、修好所有受損部位 | race / hud |
 | 罰則 | 賽道界線警告（3 次 → +5 秒）、碰撞損傷 | race |
 | 排位 | 單圈排位（One-shot）/ 短排位（3 圈）；AI 成績模擬；決定發車順序 | race / menus |
 | 練習賽 | 計時練習 | race |
@@ -113,14 +113,14 @@
 - 驗收用 `validateTrackDef(def)`（`src/track/validate.ts`，與 `tests/track.real.test.ts` 同一套規則）：長度在官方值 ±2%、坡度 ≤ 20%、
   半徑 ≥ 9 m、路寬 10–16 m、DRS 1–4 區（150–2300 m）、計時段各 15–55%、參考圈速 60–125 s、非相鄰路面邊緣 ≥ 3 m（立體交叉除外）、
   維修區 ≥ 380 m 且曲率 ≤ 1/250。立體交叉：兩段路面在平面重疊且高差 ≥ 6 m 時上層為 `BuiltTrack.deck`。
-- 生涯「真實賽曆」依 2025 賽曆順序排列（雪邦不在 2025 賽曆，只出現在大獎賽／計時賽／分割畫面）；原創賽道仍可在所有模式選擇。
+- 生涯／我的車隊預設「隨機賽曆」：每季從所有賽道（真實＋原創，正反向）以存檔種子抽 12 站不重複賽道。「真實賽曆」依 2025 賽曆順序排列（雪邦不在 2025 賽曆，只出現在大獎賽／計時賽／分割畫面）；原創賽道仍可在所有模式選擇。
 - 環境（`Biome`）新增 `tropical`（熱帶：油棕、雨林、濕熱霧氣、綠色丘陵），用於雪邦。
 
 ### 4.2 遊戲模式與畫面（menus agent；全部 zh-TW）
 啟動畫面 → 主選單（大獎賽、計時賽、車手生涯、我的車隊、新星之路（劇情 + 挑戰賽）、雙人分割畫面、設定、成就、製作名單）→
 各模式設定頁（賽道選擇含小地圖預覽與反向切換、車隊/車手選擇、圈數、天氣、時段、規則年份、AI 難度、輔助、賽制）→
 賽車設定頁（SETUP_RANGES 滑桿 + 起步胎）→ 載入畫面 → 比賽 → 成績 / 頒獎台 → 下一節 / 重播 / 返回樞紐。
-生涯樞紐：賽程（10 站：5 賽道正反向）、車手/車隊積分榜、下一站、車手評價。我的車隊樞紐：車隊名稱/塗裝、資金、研發（空力/動力/底盤/可靠度）、第二車手簽約。
+生涯樞紐：賽程（10 站：5 賽道正反向）、車手/車隊積分榜、下一站、車手評價、車輛研發（研發點數）。我的車隊樞紐：車隊名稱/塗裝、資金、研發中心（10 個零件依空力/動力/底盤分組的研發專案）、第二車手簽約。兩個樞紐都顯示上站研發報告摘要；研發畫面另列上站研發報告與對手研發進度。
 
 ## 5. 模組分工（擁有者只能寫自己的路徑；可讀所有檔案）
 
@@ -134,6 +134,7 @@
 | audio-input | `src/audio/**`, `src/input/**`, `tests/input*.test.ts` | core |
 | race-ai（第二階段） | `src/race/**`, `src/ai/**`, `tests/race*.test.ts`, `tests/ai*.test.ts`, `tests/headless*.test.ts` | core, track, physics |
 | integration（第三階段） | `src/app/**`, `src/main.ts`, `index.html`, `src/ui/app.css`；可修正任何模組的整合錯誤 | 全部 |
+| net（線上多人，2026-10） | `src/net/**`, `server/**`, `tests/net*.test.ts`（`docs/plans/phase3-online.md`） | core, race, ai, meta, physics 契約 |
 
 規則：
 - 保留 stub 的匯出名稱與簽章（可新增匯出、可新增**選用**參數）。stub 的 `NI(...)` 全部要換成真實實作。
@@ -181,7 +182,10 @@
   賽道界線（四輪越界於彎道 → 警告並作廢單圈；3 次後每次 +5 s）→ 維修道自動駕駛（入口→車道→停站→出口，限速，換胎/修翼）→
   天氣演進（預報、雨量、積水滯後、乾燥）→ 方格旗與完賽 → 無線電訊息事件（中文原創）。
 - AI：沿 `racingLine` + `speedProfile` 的 pure-pursuit 轉向與速度追蹤（依難度/技能/輪胎/天氣/燃油調整）、超車（側移 2.5–3.5 m 並保持）、
-  防守、跟車避撞、煞車點誤差（依 consistency）、DRS/ERS 使用、進站策略（磨耗門檻、天氣交叉點、強制進站規則）。
+  防守、跟車避撞、煞車點誤差（依 consistency）、DRS/ERS 使用、進站策略。第 2 階段（`docs/plans/phase2-ai.md`）：循跡煞車、路緣石、
+  配速模式、自然失誤、溼地差距；進攻階段（假動作、交叉超車）、DRS 列車、防守規則；比賽時間模型（不停／1–4 停，磨耗上限 0.72／0.82，
+  不進入 0.85 懸崖）、undercut／overcut／cover、安全車／VSC 進站（新胎下限保護）、天氣預報、車隊指令（玩家永遠不被要求讓車）。
+  進站損失 `estimatePitLoss` 在 race 契約（MFD 與 AI 共用）。
 - 可重現：同 seed、同輸入 ⇒ 完全相同結果；`snapshotWorld` 後分別推進兩份應完全一致。
 - 測試：每個佈局 20 台 AI 跑 3 圈（難度 90，晴天）：全部完賽、無 NaN、沒有車卡住 > 10 s、最佳圈在 referenceLapTime 的 0.95–1.25 倍、
   有超車事件；雨天一場（有人換雨胎）；進站流程（停站時間與損失 18–32 s）；賽道界線罰則；DRS 規則；決定性測試；排位模擬排序合理。
@@ -198,7 +202,7 @@
   雨燈（雨天閃爍）、後視鏡、方向盤（座艙鏡頭）、塗裝（canvas 貼圖：三色 + 圖樣 + 車號 + 隊名縮寫）。前輪轉向、輪子轉動、損傷時前翼缺件。
   2026 規格車更短更窄。幽靈車半透明。
 - 特效：雨滴（跟隨鏡頭）、溼地水霧（車後）、輪胎煙（鎖死/打滑）、碰撞火花、刹車碟發光、溼路面反光（降 roughness）。
-- 鏡頭：chase / chaseFar / tcam / cockpit / nose / tv（電視轉播：沿賽道固定機位自動切換），後視（lookBack），平滑跟隨、速度感 FOV、可選震動。
+- 鏡頭：chase / chaseFar / tcam / cockpit / nose / tv（電視轉播：沿賽道固定機位自動切換），後視（lookBack），平滑跟隨、速度感 FOV、可選震動、強度可調的速度模糊（post chain 徑向模糊，隨跟隨車速增強，0% 關閉，電視鏡頭不套用）。
 - 分割畫面：每個 ViewSpec 各自相機與 viewport（scissor），CSS 座標左上原點。
 - `ShowroomScene`：轉台展示車 + 頒獎台模式。
 - 品質：low/medium/high/ultra 影響陰影解析度、物件密度、特效數量；20 台車 high 畫質目標 60 fps（draw call < 500）。
@@ -213,10 +217,14 @@
 
 ### 6.6 menus + meta
 - 第 4.2 節所有畫面；滑鼠 + 鍵盤（方向鍵 / Enter / Esc）操作；焦點可見；原創視覺（使用 tokens.css，非模仿任何商業遊戲 UI）。
-- 設定：畫質、解析度比例、陰影、FPS、FOV、音量、單位、預設鏡頭、震動、轉向靈敏度、死區、按鍵重新綁定（P1/P2）、HUD 元件開關。
+- 設定：畫質、解析度比例、陰影、FPS、FOV、音量、單位、預設鏡頭、震動、速度模糊強度、轉向靈敏度、死區、按鍵重新綁定（P1/P2）、HUD 元件開關。
 - meta：`save.ts`（版本化 localStorage、壞資料回預設）、生涯（自創車手 DriverDef id `'player'`、取代所選車隊一位車手、10 站、
-  積分（POINTS_TABLE）、車手/車隊積分榜、AI 也依模擬成績累積積分）、我的車隊（第 11 隊 TeamDef id `'myteam'`、資金、研發升級轉成 rating 與
-  createCarSpec upgrade、簽約候補車手）、劇情 6 章 + 挑戰賽 6 個（StoryObjective）、計時賽紀錄 + 幽靈、成就 12 項。
+  積分（POINTS_TABLE）、車手/車隊積分榜、AI 也依模擬成績累積積分、研發點數）、我的車隊（第 11 隊 TeamDef id `'myteam'`、資金、研發專案、
+  簽約候補車手；評分固定為基礎車 + 動力單元）、劇情 6 章 + 挑戰賽 6 個（StoryObjective）、計時賽紀錄 + 幽靈、成就 12 項。
+- 零件級研發 `meta/development.ts`（車手生涯與我的車隊共用，規格見 `docs/plans/phase1-rnd.md`）：10 個零件各 0–5 級，每級一個研發專案
+  （站數、成功率、失敗只得一半效果；每隊同時 2 個）；所有 AI 車隊依車隊積分榜分配的預算整季研發；正賽後 `advanceDevelopment` 推進，
+  下一季保留。各隊已達成的效果經 `SessionConfig.development` 傳入 `createCarSpec(team, setup, regulation, parts)`（`race/world.ts` 實車與
+  `race/qualiSim.ts` 排位模擬／AI 配速都用），全部 0 級時規格與沒有研發時逐欄位相同。
 - 週末流程：排位結果 → 依成績（AI 用 `race.simulateLapTimes`）排發車順序 → 正賽。
 
 ### 6.7 audio-input

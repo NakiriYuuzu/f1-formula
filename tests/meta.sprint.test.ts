@@ -7,6 +7,7 @@ import type { ResultRow, SessionConfig, SessionKind, SessionResult } from '../sr
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, POINTS_TABLE, SPRINT_POINTS } from '../src/core/defaults';
 import { parseQuickStart } from '../src/app/quickStart';
 import { applyCareerRace, applyCareerSprint, careerRequest, careerRoster, createCareer, sanitizeCareer } from '../src/meta/career';
+import { aiDevelopmentBudget } from '../src/meta/development';
 import { sanitizeRules } from '../src/meta/guards';
 import { sprintLaps, weekendSessions, withSprint, WEEKEND_FORMATS, type LayoutMeta } from '../src/meta/options';
 import { applyProgress } from '../src/meta/progression';
@@ -275,6 +276,12 @@ describe('career sprint rounds', () => {
     expect(total).toBe(POINTS_TABLE.reduce((a, b) => a + b, 0) + SPRINT_POINTS.reduce((a, b) => a + b, 0));
     const teams = teamStandings(upd.save.results, careerRoster(upd.save).roster.teams.map((t) => t.id));
     expect(teams.reduce((a, t) => a + t.points, 0)).toBe(total);
+    // R&D points: the team's budget × (0.85 + 0.05 sprint win) (P20 behind the team-mate adds nothing for the race); both
+    // sessions carry the development
+    const rank0 = teams.findIndex((t) => t.id === 'kestrel');
+    expect(upd.save.rdPoints).toBe(Math.round(aiDevelopmentBudget(rank0, teams.length) * (0.85 + 0.05)));
+    expect(sprintConfig.development).toEqual(raceConfig.development);
+    expect(Object.keys(sprintConfig.development ?? {}).sort()).toEqual(sprintConfig.teams.map((t) => t.id).sort());
   });
 
   test('applyProgress stores a sprint without advancing the round, then the race consumes it', () => {

@@ -17,8 +17,8 @@ import { updateDrs } from './drs';
 import { buildEnv } from './env';
 import { applyProjection, emit, inGarage, isHuman } from './events';
 import { updateTrackLimits } from './limits';
-import { engagePit, gearForSpeed, shouldEngagePit, stepPitLane } from './pitlane';
-import { stepRadio } from './radio';
+import { engagePit, estimatePitLoss, gearForSpeed, pitLossFactor, shouldEngagePit, stepManualPit, stepPitLane } from './pitlane';
+import { radioTeamHold, radioTeamYield, stepRadio } from './radio';
 import { checkSessionEnd, mandatoryStopOpen, stepSessionClock } from './session';
 import { stepRaceControl } from './control';
 import { stepParking } from './gridPark';
@@ -78,7 +78,9 @@ function stepCar(world: WorldState, track: BuiltTrack, car: CarEntry, inputs: re
     if (!isCarHeld(p)) setCarHeld(p, true);
     return;
   }
-  if (car.pit.phase !== 'none') {
+  // autopilot visits (and the box manoeuvre of a manual one) are kinematic; a manual visit is driven below
+  const manualPit = car.pit.phase !== 'none' && r.pitManual && !r.pitAuto;
+  if (car.pit.phase !== 'none' && !manualPit) {
     stepPitLane(world, track, car, dt);
     return;
   }
@@ -98,6 +100,31 @@ function stepCar(world: WorldState, track: BuiltTrack, car: CarEntry, inputs: re
   const after = barrierContact(world, track, car, projectToTrack(track, p.x, p.z, proj.index));
   applyProjection(car, after);
   if (isHuman(car) && p.gear !== gearBefore) emit(world, { type: 'shift', carId: car.id, gear: p.gear });
+  if (manualPit) stepManualPit(world, track, car);
+}
+
+/**
+ * Online client prediction: one step of a human car under `input` exactly as stepWorld drives it on the open road —
+ * projection, safety-car limiter assist, PhysicsEnv, physics, re-projection and barrier contact — without the pit
+ * lane, parking, other cars or timing (the host decides those). Events land in world.events as usual.
+ */
+export function predictHumanStep(world: WorldState, track: BuiltTrack, car: CarEntry, input: ControlInput, dt: number): void {
+  const p = car.phys;
+  const r = car.race;
+  r.prevX = p.x;
+  r.prevY = p.y;
+  r.prevZ = p.z;
+  r.prevYaw = p.yaw;
+  if (r.collisionCooldown > 0) r.collisionCooldown = Math.max(0, r.collisionCooldown - dt);
+  const proj = projectToTrack(track, p.x, p.z, p.trackIndex);
+  applyProjection(car, proj);
+  let inp = input;
+  if (car.assists.scLimiter && car.status === 'running') inp = limitToSafetyCar(world, track, car, inp);
+  const env = buildEnv(world, track, car);
+  if (env.wake) r.wake = env.wake;
+  stepCarPhysics(p, car.spec, inp, env, dt);
+  const after = barrierContact(world, track, car, projectToTrack(track, p.x, p.z, proj.index));
+  applyProjection(car, after);
 }
 
 /**
@@ -205,18 +232,33 @@ export function queuePit(world: WorldState, car: CarEntry, compound: TireCompoun
   emit(world, { type: 'pitRequested', carId: car.id, compound });
 }
 
+/**
+ * AI strategy for every AI car (decidePitStop evaluates once per lap): pit requests with the shared pit-loss estimate
+ * (cheaper under a safety car / VSC), and the team-order radio when an order is given.
+ */
 function runStrategies(world: WorldState, track: BuiltTrack, dt: number): void {
   if (world.session.phase !== 'running') return;
+  const pitLoss = estimatePitLoss(track);
+  const lossFactor = pitLossFactor(world.session.control.mode);
+  const mandatoryFor = (o: CarEntry): boolean => mandatoryStopOpen(world, o);
   for (const car of world.cars) {
     if (car.playerIndex !== -1) continue;
+    const ai = car.ai;
+    const yieldBefore = ai.yieldFor;
+    const holdBefore = ai.holdFor;
     const compound = decidePitStop(world, car, track, dt, {
       usedCompounds: car.race.usedCompounds,
       mandatoryOpen: mandatoryStopOpen(world, car),
+      pitLoss,
+      lossFactor,
+      mandatoryFor,
     });
     if (compound) {
-      car.ai.plannedCompound = compound;
+      ai.plannedCompound = compound;
       queuePit(world, car, compound);
     }
+    if (ai.yieldFor >= 0 && ai.yieldFor !== yieldBefore) radioTeamYield(world, car, world.cars[ai.yieldFor]);
+    if (ai.holdFor >= 0 && ai.holdFor !== holdBefore) radioTeamHold(world, car, world.cars[ai.holdFor]);
   }
 }
 

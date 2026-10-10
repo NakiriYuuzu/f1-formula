@@ -40,5 +40,5 @@ export {
   pitWallRange,
   pitZoneLength,
 } from './pit';
-export { RACING_LINE_MARGIN } from './racingLine';
+export { RACING_LINE_MARGIN, computeRacingLine } from './racingLine';
 export { cornerSpeedLimit } from './speedProfile';

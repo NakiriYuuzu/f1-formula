@@ -3,10 +3,12 @@
  * that resolves each objective (lap targets use the layout's reference lap, scaled to the regulation's pace)
  * before the briefing.
  */
+import type { Regulation } from '../../../core/types';
 import { formatLapTime } from '../../../core/math';
+import { DRIVERS, TEAMS } from '../../../data/teams';
 import { getLayout } from '../../../data/tracks';
 import { findLayout } from '../../../meta/options';
-import { qualiCalibration } from '../../../race/index';
+import { predictLapTime, qualiCalibration } from '../../../race/index';
 import { loadProfile, loadSetup, loadStory } from '../../../meta/save';
 import {
   isChapterUnlocked,
@@ -47,9 +49,17 @@ export function launchStoryEntry(host: Host, entry: StoryChapter | StoryChalleng
   if (entry.objective.kind === 'lapUnder') {
     const s = entry.session;
     try {
-      // the reference lap is a 2025-class car: scale by the same regulation pace the race module uses
-      const pace = qualiCalibration(s.aiDifficulty, s.regulation) / qualiCalibration(s.aiDifficulty, '2025');
-      reference = getLayout(s.layoutId).referenceLapTime * pace;
+      // the reference lap is a 2025-class car: scale by the regulation pace the race module expects of the team's car
+      // on this layout (calibrated flying-lap prediction; qualiCalibration alone no longer carries the 2026 pace)
+      const track = getLayout(s.layoutId);
+      const team = TEAMS.find((t) => t.id === s.teamId);
+      const driver = DRIVERS.find((d) => d.teamId === s.teamId);
+      let pace = 1;
+      if (team && driver && s.regulation !== '2025') {
+        const lap = (reg: Regulation): number => predictLapTime(track, team, driver, s.aiDifficulty, reg, 0) * qualiCalibration(s.aiDifficulty, reg);
+        pace = lap(s.regulation) / lap('2025');
+      }
+      reference = track.referenceLapTime * pace;
     } catch {
       reference = null;
     }

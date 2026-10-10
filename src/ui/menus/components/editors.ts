@@ -97,6 +97,7 @@ export function assistsEditor(initial: Assists, onChange: (a: Assists) => void, 
     add('ersAssist', toggle(ASSIST_LABEL.ersAssist, value.ersAssist, set('ersAssist'), '自動管理電池釋放模式')),
     add('drsAssist', toggle(ASSIST_LABEL.drsAssist, value.drsAssist, set('drsAssist'), '可用時自動開啟 DRS／主動空力')),
     add('scLimiter', toggle(ASSIST_LABEL.scLimiter, value.scLimiter, set('scLimiter'), '安全車期間自動控制車速（收油、必要時輕踩煞車）：不會超過前車或安全車，落後時仍可加速追上')),
+    add('pitAssist', toggle(ASSIST_LABEL.pitAssist, value.pitAssist, set('pitAssist'), '開啟：整段進站自動駕駛。關閉（真實 F1）：自己開進、開出維修道，在限速線前按限速器，維修道超速會被罰時；只有停進維修區換胎自動')),
   );
 }
 
@@ -248,10 +249,11 @@ export function seasonSettingsEditor(initial: SeasonSettings, onChange: (s: Seas
   const sprint = toggle('衝刺賽週末', value.sprintWeekends, (v) => {
     value = { ...value, sprintWeekends: v };
     onChange({ ...value });
-  }, '開啟後，真實賽曆的上海、斯帕、奧斯汀、英特拉格斯站（原創賽曆為第 3、6、9 站）為衝刺賽週末：排位 → 衝刺賽 → 正賽，衝刺賽積分計入積分榜');
+  }, '開啟後，真實賽曆的上海、斯帕、奧斯汀、英特拉格斯站（原創與隨機賽曆為第 3、6、9 站）為衝刺賽週末：排位 → 衝刺賽 → 正賽，衝刺賽積分計入積分榜');
   const calendar = cycler<CalendarKind>({
     label: '賽曆',
     options: [
+      { value: 'random', label: '隨機賽曆（12 站）' },
       { value: 'real', label: '真實賽曆（12 站）' },
       { value: 'original', label: '原創賽道（10 站）' },
     ],
@@ -260,7 +262,7 @@ export function seasonSettingsEditor(initial: SeasonSettings, onChange: (s: Seas
       value = { ...value, calendar: v };
       onChange({ ...value });
     },
-    description: '真實賽曆依 2025 年順序行駛真實賽道的正向佈局；進行中的賽季不變，下一季起生效',
+    description: '隨機賽曆每季從所有賽道（真實與原創、正向與反向）抽出 12 站，每次建立都不同；真實賽曆依 2025 年順序行駛真實賽道的正向佈局；進行中的賽季不變，下一季起生效',
   });
   const rules = rulesEditor(value.rules, (r) => {
     value = { ...value, rules: r };

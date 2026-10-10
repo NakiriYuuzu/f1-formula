@@ -10,6 +10,8 @@ import { CareerWizardScreen } from './screens/careerWizard';
 import { grandPrixEntry, grandPrixStack } from './screens/grandPrix';
 import { MyTeamHubScreen } from './screens/myTeamHub';
 import { MyTeamWizardScreen } from './screens/myTeamWizard';
+import { LobbyScreen, OnlineScreen } from './screens/online';
+import { onlineHooks } from './onlineHooks';
 import { SplitScreenSetupScreen } from './screens/splitScreen';
 import { StoryScreen } from './screens/story';
 import { TimeTrialScreen } from './screens/timeTrial';
@@ -27,6 +29,11 @@ export function entryScreen(host: Host, home: MenuHome): Screen {
       return new StoryScreen(host);
     case 'splitScreen':
       return new SplitScreenSetupScreen(host);
+    case 'online': {
+      // back from an online session: the lobby while the room lasts
+      const room = onlineHooks()?.room();
+      return room && !room.closed ? new LobbyScreen(host) : new OnlineScreen(host);
+    }
     case 'grandPrix':
     case 'main':
       return grandPrixEntry(host);

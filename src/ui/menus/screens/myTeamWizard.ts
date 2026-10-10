@@ -67,7 +67,8 @@ export class MyTeamWizardScreen extends Screen {
         helmet: { primary: '#ff5a1f', secondary: '#f4f1e8', accent: '#111214', pattern: 'classic' },
       },
       teammateId: reserves[0]?.id ?? '',
-      settings: { ...DEFAULT_SEASON_SETTINGS, rules: { ...DEFAULT_SEASON_SETTINGS.rules } },
+      // new teams draw a random calendar so every save runs a different season
+      settings: { ...DEFAULT_SEASON_SETTINGS, calendar: 'random', rules: { ...DEFAULT_SEASON_SETTINGS.rules } },
     };
     this.assists = { ...loadProfile().assists };
     this.stepsEl = h('div', { class: 'nvm-steps' });

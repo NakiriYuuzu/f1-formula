@@ -1,6 +1,6 @@
 /**
- * Season bookkeeping shared by Driver Career and My Team: the calendar (real 2025-order circuits, or the original
- * 10 rounds = 5 layouts forward + 5 reverse), per-round race records, points (POINTS_TABLE) and driver / constructor standings with countback tie-breaks.
+ * Season bookkeeping shared by Driver Career and My Team: the calendar (real 2025-order circuits, the original
+ * 10 rounds = 5 layouts forward + 5 reverse, or a seeded random draw from every layout), per-round race records, points (POINTS_TABLE) and driver / constructor standings with countback tie-breaks.
  */
 import type {
   Assists,
@@ -36,6 +36,7 @@ import {
 } from './options';
 import { PLAYER_DRIVER_ID, type Roster } from './roster';
 import type { SessionRequest } from './sessionBuilder';
+import { developmentGains, type SeasonDevelopment } from './development';
 
 /** Rounds of the original-circuit calendar. The real calendar has one round per registered real circuit. */
 export const SEASON_ROUNDS = 10;
@@ -43,9 +44,15 @@ export const SEASON_ROUNDS = 10;
 /** Upper bound of a stored calendar (save validation). */
 export const MAX_CALENDAR_ROUNDS = 30;
 
+/** Rounds of a random calendar (as many as the real calendar). */
+export const RANDOM_ROUNDS = 12;
+
+/** Chance that a random-calendar circuit is visited in its reverse layout. */
+const RANDOM_REVERSE_CHANCE = 0.3;
+
 /** Which circuits a season calendar is made of. */
-export type CalendarKind = 'real' | 'original';
-export const CALENDAR_KINDS: readonly CalendarKind[] = ['real', 'original'];
+export type CalendarKind = 'real' | 'original' | 'random';
+export const CALENDAR_KINDS: readonly CalendarKind[] = ['real', 'original', 'random'];
 
 /** Real circuit def ids in 2025 calendar order (only registered ones are used). */
 export const REAL_CALENDAR_ORDER: readonly string[] = [
@@ -95,10 +102,40 @@ export function realCalendarLayouts<T extends LayoutLike>(layouts: readonly T[])
 }
 
 /**
+ * Random calendar: RANDOM_ROUNDS distinct circuits (real and original mixed) in a seeded order, each run forward or (by
+ * RANDOM_REVERSE_CHANCE) reverse. With fewer circuits than rounds the list repeats in the same order with the other
+ * direction, so a circuit never runs twice in a row unless only one is registered.
+ */
+function randomCalendarPool(layouts: readonly LayoutLike[], rng: RngState): LayoutLike[] {
+  const byCircuit = new Map<string, LayoutLike[]>();
+  for (const l of layouts) byCircuit.set(l.defId, [...(byCircuit.get(l.defId) ?? []), l]);
+  const circuits = [...byCircuit.values()];
+  for (let i = circuits.length - 1; i > 0; i--) {
+    const j = Math.floor(nextRandom(rng) * (i + 1));
+    const tmp = circuits[i] as LayoutLike[];
+    circuits[i] = circuits[j] as LayoutLike[];
+    circuits[j] = tmp;
+  }
+  // per circuit: [direction of its first visit, the other direction]
+  const picks = circuits.map((variants) => {
+    const fwd = variants.find((l) => !l.reverse) ?? (variants[0] as LayoutLike);
+    const rev = variants.find((l) => l.reverse);
+    if (!rev) return [fwd];
+    return nextRandom(rng) < RANDOM_REVERSE_CHANCE ? [rev, fwd] : [fwd, rev];
+  });
+  const pool: LayoutLike[] = [];
+  for (let i = 0; pool.length < RANDOM_ROUNDS; i++) {
+    const p = picks[i % picks.length] as LayoutLike[];
+    pool.push(p[Math.floor(i / picks.length) % p.length] as LayoutLike);
+  }
+  return pool;
+}
+
+/**
  * Original calendar: 10 rounds: 5 forward layouts + 5 reverse layouts in a seeded order where the same circuit never runs twice in a
  * row (when avoidable). Missing layouts are filled by cycling the available ones; no layouts → empty calendar.
  * kind 'real' = forward layouts of the registered real circuits in 2025 order (falls back to the original logic
- * when none is registered).
+ * when none is registered). kind 'random' = see randomCalendarPool (every registered layout is a candidate).
  */
 export function createCalendar(seed: number, layouts: readonly LayoutLike[], kind: CalendarKind = 'original'): CalendarRound[] {
   if (layouts.length === 0) return [];
@@ -108,6 +145,10 @@ export function createCalendar(seed: number, layouts: readonly LayoutLike[], kin
       const rng: RngState = { s: (Math.floor(Math.abs(seed)) ^ 0x2545f491) >>> 0 };
       return real.map((l) => ({ layoutId: l.id, weather: seededWeather(rng) }));
     }
+  }
+  if (kind === 'random') {
+    const rng: RngState = { s: (Math.floor(Math.abs(seed)) ^ 0x2545f491) >>> 0 };
+    return randomCalendarPool(layouts, rng).map((l) => ({ layoutId: l.id, weather: seededWeather(rng) }));
   }
   // original circuits only (real defs carry `real`); fall back to everything when nothing else is registered
   const originals = layouts.filter((l) => !l.real);
@@ -381,7 +422,7 @@ export interface SeasonSettings {
   qualifying: QualifyingType;
   regulation: Regulation;
   rules: SessionRules;
-  /** sprint weekends: real calendar = the 2025 sprint venues, original calendar = rounds 3, 6 and 9 */
+  /** sprint weekends: real calendar = the 2025 sprint venues, original / random calendar = rounds 3, 6 and 9 */
   sprintWeekends: boolean;
   /** which circuits the calendar of a NEW season uses (stored calendars are never rewritten) */
   calendar: CalendarKind;
@@ -462,12 +503,14 @@ export interface RoundRequestArgs {
   setup: CarSetup;
   startCompound: TireCompound | null;
   gridOrder: string[] | null;
+  /** part development of every team (its gains go to SessionConfig.development) */
+  development?: SeasonDevelopment;
 }
 
 /** Session request for a season round; the human always drives the custom 'player' driver. */
 export function roundRequest(a: RoundRequestArgs): SessionRequest {
   const player = a.roster.drivers.find((d) => d.id === PLAYER_DRIVER_ID);
-  return {
+  const request: SessionRequest = {
     mode: a.mode,
     kind: a.kind,
     layoutId: a.round.layoutId,
@@ -496,4 +539,6 @@ export function roundRequest(a: RoundRequestArgs): SessionRequest {
     ghost: null,
     objective: null,
   };
+  if (a.development) request.development = developmentGains(a.development);
+  return request;
 }

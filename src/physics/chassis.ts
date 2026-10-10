@@ -144,13 +144,17 @@ export function chassisSubstep(body: BodyState, spec: CarSpec, p: ChassisParams,
   const demandR = fmaxR * Math.abs(pacR);
 
   // ── front axle: braking (ABS or lock) ──
+  // the tyres take braking up to fmax × brakeGrip (brakes part; 1 = undeveloped): ABS caps and the lock-up threshold
+  // scale with it, and the friction circle below counts brake use against that limit
+  const bg = spec.brakeGrip;
+  const fbF = fmaxF * bg;
   let brakeF = p.brakeForce * spec.brakeBias;
-  if (p.abs) brakeF = Math.min(brakeF, Math.max(0.4 * fmaxF, 0.95 * Math.sqrt(Math.max(0, fmaxF * fmaxF - demandF * demandF))));
+  if (p.abs) brakeF = Math.min(brakeF, Math.max(0.4 * fmaxF, 0.95 * Math.sqrt(Math.max(0, fmaxF * fmaxF - demandF * demandF))) * bg);
   let lockF = 0;
-  if (brakeF > fmaxF && absU > 1) {
-    lockF = clamp((brakeF / fmaxF - 1) * 3, 0, 1);
-    brakeF = fmaxF * (1 - 0.15 * lockF);
-  } else brakeF = Math.min(brakeF, fmaxF);
+  if (brakeF > fbF && absU > 1) {
+    lockF = clamp((brakeF / fbF - 1) * 3, 0, 1);
+    brakeF = fbF * (1 - 0.15 * lockF);
+  } else brakeF = Math.min(brakeF, fbF);
   if (dir === 0) lockF = 0;
 
   // ── rear axle: drive (TC / spin) and braking (ABS / lock) ──
@@ -160,7 +164,7 @@ export function chassisSubstep(body: BodyState, spec: CarSpec, p: ChassisParams,
   if (Math.abs(drive) > tcCap) drive = Math.sign(drive) * tcCap;
   let brakeR = p.brakeForce * (1 - spec.brakeBias) + p.engineBrake;
   // ABS on the rear keeps the cornering grip first (like brake-force distribution): small floor, no lateral starvation
-  if (p.abs) brakeR = Math.min(brakeR, Math.max(ABS_REAR_FLOOR * fmaxR, 0.95 * remainR));
+  if (p.abs) brakeR = Math.min(brakeR, Math.max(ABS_REAR_FLOOR * fmaxR, 0.95 * remainR) * bg);
   let spin = 0;
   let lockR = 0;
   let fxRDrive = drive;
@@ -168,13 +172,15 @@ export function chassisSubstep(body: BodyState, spec: CarSpec, p: ChassisParams,
     spin = clamp((Math.abs(drive) / fmaxRL - 1) * 2.5, 0, 1);
     fxRDrive = Math.sign(drive) * fmaxRL * (1 - 0.12 * spin);
   }
-  if (brakeR > fmaxR && absU > 1) {
-    lockR = clamp((brakeR / fmaxR - 1) * 3, 0, 1);
-    brakeR = fmaxR * (1 - 0.15 * lockR);
-  } else brakeR = Math.min(brakeR, fmaxR);
+  const fbR = fmaxR * bg;
+  if (brakeR > fbR && absU > 1) {
+    lockR = clamp((brakeR / fbR - 1) * 3, 0, 1);
+    brakeR = fbR * (1 - 0.15 * lockR);
+  } else brakeR = Math.min(brakeR, fbR);
   if (dir === 0) lockR = 0;
-  const fxRUsed = Math.min(fmaxR, Math.abs(fxRDrive) + (dir !== 0 ? brakeR : 0));
-  const fxFUsed = dir !== 0 ? brakeF : 0;
+  // braking uses the friction circle as a share of fmax × brakeGrip
+  const fxRUsed = Math.min(fmaxR, Math.abs(fxRDrive) + (dir !== 0 ? brakeR / bg : 0));
+  const fxFUsed = dir !== 0 ? brakeF / bg : 0;
 
   // ── lateral tyre forces (friction circle + no-overshoot clamp) ──
   const capF = Math.sqrt(Math.max(0, fmaxF * fmaxF - fxFUsed * fxFUsed)) * (1 - 0.75 * lockF);
@@ -208,11 +214,12 @@ export function chassisSubstep(body: BodyState, spec: CarSpec, p: ChassisParams,
   body.w = clamp(w1, -MAX_TURN_RATE, MAX_TURN_RATE);
 
   // ── outputs ──
-  const slipF = lockF > 0 ? -lockF : (0.08 * (dir !== 0 ? -brakeF : 0)) / fmaxF;
+  // unlocked braking slip grows with brake use as a share of fmax × brakeGrip, like the friction circle above
+  const slipF = lockF > 0 ? -lockF : (0.08 * (dir !== 0 ? -brakeF / bg : 0)) / fmaxF;
   let slipR: number;
   if (spin > 0) slipR = Math.sign(fxRDrive) * (0.1 + 0.9 * spin);
   else if (lockR > 0) slipR = -(0.1 + 0.9 * lockR);
-  else slipR = (0.08 * (fxRDrive - dir * brakeR)) / fmaxR;
+  else slipR = (0.08 * (fxRDrive - (dir * brakeR) / bg)) / fmaxR;
   out.fyFront = fyF;
   out.fyRear = fyR;
   out.alphaFront = alphaF;

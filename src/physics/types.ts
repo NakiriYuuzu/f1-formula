@@ -59,6 +59,11 @@ export interface CarSpec {
   brakeBias: number;
   /** total brake force at full pedal (N) */
   maxBrakeForce: number;
+  /**
+   * Braking limit of the tyres as a multiple of their grip (brakes part: 1 + 0.006 per gain; 1 = undeveloped): ABS
+   * caps, the lock-up threshold and the friction circle measure braking against fmax × brakeGrip.
+   */
+  brakeGrip: number;
   /** rolling resistance coefficient (× total normal load) */
   rollingResistance: number;
   /** engine/gearbox → wheel efficiency */
