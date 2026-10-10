@@ -177,6 +177,13 @@ describe('online session (loopback)', () => {
       expect(p95(ownErr)).toBeLessThan(2);
       expect(mean(othersErr)).toBeLessThan(1);
       expect(p95(othersErr)).toBeLessThan(3);
+      // round trips: the host measures each guest, the guest learns its own (80 ± 30 ms each way); B is gone
+      expect(a.ping).not.toBeNull();
+      expect(a.ping!).toBeGreaterThan(80);
+      expect(a.ping!).toBeLessThan(400);
+      const pings = host.pings();
+      expect(pings.map((p) => [p.playerIndex, p.name])).toEqual([[1, 'Ann']]);
+      expect(pings[0]!.ms).toBe(host.pingOf(1));
       expect(a.corrections).toBeGreaterThan(1000);
       expect(a.maxCorrection).toBeLessThan(2);
     },

@@ -216,6 +216,7 @@ describe('reliable messages', () => {
       { t: 'pause', paused: false },
       { t: 'left', playerIndex: 3, name: 'Bo' },
       { t: 'ping', at: 12.5 },
+      { t: 'ping', at: 3, pings: [null, 42, null, 180] },
     ];
     for (const m of msgs) expect(decodeMessage(encodeMessage(m))).toEqual(m);
     for (const bad of [
@@ -225,6 +226,8 @@ describe('reliable messages', () => {
       '{"t":"events","session":1,"seq":0,"events":[1]}',
       '{"t":"nope"}',
       '{"t":"ping","at":"soon"}',
+      '{"t":"ping","at":1,"pings":["fast"]}',
+      '{"t":"ping","at":1,"pings":[1,2,3,4,5]}',
       '[1,2]',
       'not json',
     ]) {

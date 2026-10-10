@@ -12,5 +12,6 @@ tag = "v1"
 new_sqlite_classes = ["Room"]
 
 [vars]
-# comma-separated origins allowed to create rooms (empty = any), e.g. "https://<user>.github.io"
-ALLOWED_ORIGINS = ""
+# comma-separated origins allowed to create and join rooms (empty = any): scheme + host [+ port], no path.
+# The game is served from github.yuuzu.net (GitHub Pages custom domain; https not enforced, so http too).
+ALLOWED_ORIGINS = "https://github.yuuzu.net,http://github.yuuzu.net"

@@ -37,8 +37,11 @@ import {
   WEATHER_LABEL,
   fin,
   formatClock,
+  pingLevel,
+  pingText,
   safeColor,
   sessionLabel,
+  type PingItem,
 } from './labels';
 import { Minimap } from './minimap';
 import { estimatePitLoss } from '../../race/index';
@@ -90,6 +93,8 @@ export interface HudFrameInfo {
   racingLine: RacingLineMode;
   /** replay playback active (HUD shows the replay bar instead of driving widgets) */
   replay: { time: number; duration: number; playing: boolean; speed: number } | null;
+  /** online round trips: a guest's own link to the host, or the host's link to each connected guest */
+  ping?: readonly PingItem[];
 }
 
 /** Timed-session warnings (seconds remaining). */
@@ -128,6 +133,8 @@ export class HudLayer {
   private readonly replayBar: ReplayBar;
   private readonly fpsText: TextSlot;
   private readonly fpsShow: ShowSlot;
+  /** online only: round trip(s) beside the FPS counter */
+  private readonly ping: { text: TextSlot; show: ShowSlot; level: AttrSlot } | null = null;
   private readonly replayAttr: AttrSlot;
   private settings: Settings;
   private lastInfo: HudFrameInfo | null = null;
@@ -188,9 +195,14 @@ export class HudLayer {
     this.control = new RaceControlStrip(this.rootEl);
     this.banner = new Banner(this.rootEl);
     this.banner.el.classList.add('nvh-gbanner');
-    const fps = el('div', 'nvh-fps', this.rootEl);
+    const topCentre = el('div', 'nvh-topc', this.rootEl);
+    const fps = el('div', 'nvh-fps', topCentre);
     this.fpsText = new TextSlot(fps);
     this.fpsShow = new ShowSlot(fps);
+    if (online) {
+      const ping = el('div', 'nvh-ping', topCentre);
+      this.ping = { text: new TextSlot(ping), show: new ShowSlot(ping), level: new AttrSlot(ping, 'data-level') };
+    }
     this.replayBar = new ReplayBar(this.rootEl);
     this.pause = new PauseMenu(this.rootEl);
     this.help = new ControlsHelp(this.rootEl, () => this.closeHelp());
@@ -210,6 +222,12 @@ export class HudLayer {
     if (this.settings.showFps && this.fpsAccum >= FPS_REFRESH) {
       this.fpsAccum = 0;
       this.fpsText.set(`${Math.max(0, Math.round(fin(info.fps)))} FPS`);
+    }
+    if (this.ping) {
+      const items = info.ping ?? [];
+      this.ping.show.set(items.length > 0);
+      this.ping.text.set(pingText(items));
+      this.ping.level.set(pingLevel(items));
     }
 
     const replay = info.replay ?? null;

@@ -1,7 +1,7 @@
 /**
  * Matchmaking room logic (server/src/roomLogic.ts, shared by the Cloudflare Durable Object and the local
  * BroadcastChannel test channel): join / host, full room, relay only between members, host leaving closes the room,
- * guests leaving, idle close, room codes.
+ * guests leaving, idle close, room codes, allowed origins.
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -10,6 +10,7 @@ import {
   IDLE_MS,
   MAX_GUESTS,
   createRoomState,
+  isOriginAllowed,
   isRoomCode,
   makeRoomCode,
   roomStep,
@@ -115,5 +116,18 @@ describe('room logic', () => {
     expect(isRoomCode('ABC1EF')).toBe(false);
     expect(isRoomCode('ABCDE')).toBe(false);
     expect(isRoomCode(42)).toBe(false);
+  });
+
+  test('allowed origins: anyone with an empty list, else an exact scheme + host match; no Origin is refused', () => {
+    expect(isOriginAllowed('https://evil.example', '')).toBe(true);
+    expect(isOriginAllowed(null, ' ')).toBe(true);
+    const list = 'https://github.yuuzu.net, http://github.yuuzu.net/';
+    expect(isOriginAllowed('https://github.yuuzu.net', list)).toBe(true);
+    expect(isOriginAllowed('http://github.yuuzu.net', list)).toBe(true);
+    expect(isOriginAllowed('https://github.yuuzu.net:8443', list)).toBe(false);
+    expect(isOriginAllowed('https://nakiriyuuzu.github.io', list)).toBe(false);
+    expect(isOriginAllowed('http://localhost:5173', list)).toBe(false);
+    expect(isOriginAllowed('null', list)).toBe(false);
+    expect(isOriginAllowed(null, list)).toBe(false);
   });
 });

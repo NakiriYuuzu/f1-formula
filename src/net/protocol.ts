@@ -336,7 +336,8 @@ export type NetMessage =
   | { t: 'pause'; paused: boolean }
   /** host → all: a player left (its car is now driven by the AI) */
   | { t: 'left'; playerIndex: PlayerIndex; name: string }
-  | { t: 'ping'; at: number }
+  /** round-trip probe; in a session the host adds every player's last round trip (ms) by playerIndex (null: none) */
+  | { t: 'ping'; at: number; pings?: (number | null)[] }
   | { t: 'pong'; at: number }
   /** host → all: the room is closing (host leaves) */
   | { t: 'bye'; reason: string };
@@ -388,6 +389,9 @@ export function decodeMessage(data: unknown): NetMessage | null {
     case 'left':
       return isSeat(v.playerIndex) && typeof v.name === 'string' ? (v as NetMessage) : null;
     case 'ping':
+      return isNum(v.at) && (v.pings === undefined || (Array.isArray(v.pings) && v.pings.length <= 4 && v.pings.every((x) => x === null || isNum(x))))
+        ? (v as NetMessage)
+        : null;
     case 'pong':
       return isNum(v.at) ? (v as NetMessage) : null;
     default:

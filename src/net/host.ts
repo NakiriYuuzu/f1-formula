@@ -48,13 +48,16 @@ interface Remote {
   mirror: unknown;
   mirrorSeq: number;
   eventSeq: number;
-  ping: number;
+  /** last round trip (ms), null before the first answer */
+  ping: number | null;
   connected: boolean;
 }
 
 export interface HostCallbacks {
   /** a remote player's link closed (its car is now AI-driven) */
   playerLeft?(playerIndex: PlayerIndex, name: string): void;
+  /** wall clock (ms) the round trips are measured with; default the simulation time (tests: loopback time) */
+  now?(): number;
 }
 
 export class HostSession {
@@ -86,7 +89,7 @@ export class HostSession {
         mirror: undefined,
         mirrorSeq: 0,
         eventSeq: 0,
-        ping: 0,
+        ping: null,
         connected: true,
       };
       this.remotes.set(p.playerIndex, r);
@@ -110,6 +113,14 @@ export class HostSession {
     return this.remotes.get(playerIndex)?.ping ?? 0;
   }
 
+  /** The connected remote players in seat order with their last round trip (ms; null: not measured yet). */
+  pings(): { playerIndex: PlayerIndex; name: string; ms: number | null }[] {
+    return [...this.remotes.values()]
+      .filter((r) => r.connected)
+      .sort((a, b) => a.playerIndex - b.playerIndex)
+      .map((r) => ({ playerIndex: r.playerIndex, name: r.name, ms: r.ping }));
+  }
+
   /** Fill `inputs[playerIndex]` for every remote player for the coming world step. */
   fillInputs(inputs: (ControlInput | null)[]): void {
     for (const r of this.remotes.values()) {
@@ -126,7 +137,10 @@ export class HostSession {
     if (this.steps % this.mirrorEvery === 0) this.sendMirror();
     if (this.world.time >= this.pingAt) {
       this.pingAt = this.world.time + PING_EVERY;
-      this.broadcast({ t: 'ping', at: this.world.time });
+      // every player's last round trip rides along (each client shows its own)
+      const pings: (number | null)[] = [null, null, null, null];
+      for (const r of this.remotes.values()) if (r.connected) pings[r.playerIndex] = r.ping;
+      this.broadcast({ t: 'ping', at: this.clock(), pings });
     }
   }
 
@@ -161,6 +175,11 @@ export class HostSession {
   }
 
   // ───────────────────────────── internals ─────────────────────────────
+
+  /** ms for round trips (a frame's worth of simulation time would quantise them) */
+  private clock(): number {
+    return this.cb.now ? this.cb.now() : this.world.time * 1000;
+  }
 
   private nextInput(r: Remote): ControlInput | null {
     // the next record in sequence, else (a record lost for good) the oldest newer one
@@ -205,7 +224,7 @@ export class HostSession {
     }
     const m = decodeMessage(data);
     if (!m) return;
-    if (m.t === 'pong') r.ping = Math.max(0, Math.round((this.world.time - m.at) * 1000));
+    if (m.t === 'pong') r.ping = Math.max(0, Math.round(this.clock() - m.at));
     else if (m.t === 'cmd' && m.session === this.session) this.command(r, m.command);
   }
 

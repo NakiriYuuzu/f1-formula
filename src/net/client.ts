@@ -123,6 +123,8 @@ export class ClientSession {
   result: { result: SessionResult; final: boolean } | null = null;
   paused = false;
   hostLeft = false;
+  /** own round trip to the host (ms) as the host last measured it; null before the first measurement */
+  ping: number | null = null;
   /** statistics: largest own-car correction (m) and reconciliations done */
   maxCorrection = 0;
   corrections = 0;
@@ -451,9 +453,12 @@ export class ClientSession {
       case 'left':
         this.cb.playerLeft?.(m.playerIndex, m.name);
         return;
-      case 'ping':
+      case 'ping': {
+        const own = m.pings?.[this.playerIndex];
+        if (typeof own === 'number') this.ping = own;
         this.send({ t: 'pong', at: m.at });
         return;
+      }
       case 'bye':
         this.lost();
         return;

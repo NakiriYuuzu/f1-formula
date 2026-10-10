@@ -168,6 +168,7 @@ export class SessionRuntime {
     if (net?.role === 'host') {
       this.host = new HostSession(this.world, track, net.session, net.players, {
         playerLeft: (_pi, name) => (this.hud as HudLayer | undefined)?.notify(`${name} 已離線`, '改由 AI 代駕', 'warn', 4),
+        now: () => performance.now(),
       });
     }
     this.humans = playerCarIds(this.world);
@@ -631,6 +632,8 @@ export class SessionRuntime {
       flashbacksLeft: this.flashbackBlock() ? 0 : flashbacksLeft(w.config.rules, w.flashbacksUsed),
       racingLine: this.racingLine,
       replay: null,
+      ...(this.host ? { ping: this.host.pings().map((p) => ({ name: p.name, ms: p.ms })) } : {}),
+      ...(this.client ? { ping: [{ name: null, ms: this.client.ping }] } : {}),
     };
     this.hud.update(w, dt, info);
   }

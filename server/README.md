@@ -26,8 +26,13 @@ bunx wrangler login      # 瀏覽器登入 Cloudflare
 bunx wrangler deploy     # 部署；完成後會顯示網址，例如 https://formula-nova-signal.<帳號>.workers.dev
 ```
 
-只允許自己的網站建立房間（選用）：在 `wrangler.toml` 的 `[vars]` 把 `ALLOWED_ORIGINS` 設成遊戲網址，例如
-`"https://<帳號>.github.io"`，再部署一次。
+只允許自己的網站使用（建立與加入房間）：在 `wrangler.toml` 的 `[vars]` 把 `ALLOWED_ORIGINS` 設成遊戲網站的來源
+（協定 + 網域 [+ 埠號]，不含路徑；逗號分隔），再部署一次。目前設為
+`"https://github.yuuzu.net,http://github.yuuzu.net"`（遊戲在 `github.yuuzu.net/f1-formula/`，HTTPS 沒有強制，所以兩個都要）。
+不在名單上的來源建立或加入房間都回 403（不會先建出房間）；沒有 Origin 標頭的請求（curl、腳本）也會被拒絕。
+因此本機開發伺服器（`localhost`）在「配對伺服器」模式下不能建房，請用「本機測試」，或暫時把
+`http://localhost:5173` 加進名單。名單清空（`""`）＝不限制。注意 Origin 標頭可以被非瀏覽器程式偽造，這只是
+防止其他網站借用伺服器，不是安全機制。
 
 本機試跑：`bunx wrangler dev`（預設 `http://localhost:8787`）。
 

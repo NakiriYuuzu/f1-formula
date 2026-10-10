@@ -71,6 +71,33 @@ export const ALL_COMPOUNDS: readonly TireCompound[] = COMPOUNDS;
 /** Finite number or fallback. */
 export const fin = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
 
+/** Online round trip (ms) from which the HUD's ping turns amber / red. */
+export const PING_WARN_MS = 100;
+export const PING_BAD_MS = 200;
+
+/** One online link's round trip: `name` null = the own link to the host; `ms` null = not measured yet. */
+export interface PingItem {
+  name: string | null;
+  ms: number | null;
+}
+
+/** 「延遲 32 ms」, 「延遲 Ann 32 ms・Bo —」; '' with nothing to show. */
+export function pingText(items: readonly PingItem[]): string {
+  if (items.length === 0) return '';
+  const part = (i: PingItem): string => {
+    const ms = i.ms !== null && Number.isFinite(i.ms) ? `${Math.max(0, Math.round(i.ms))} ms` : '—';
+    return i.name ? `${i.name} ${ms}` : ms;
+  };
+  return `延遲 ${items.map(part).join('・')}`;
+}
+
+/** 'warn' / 'bad' by the worst measured round trip; null when all are fine (or none is measured). */
+export function pingLevel(items: readonly PingItem[]): 'warn' | 'bad' | null {
+  let worst = 0;
+  for (const i of items) if (i.ms !== null && Number.isFinite(i.ms)) worst = Math.max(worst, i.ms);
+  return worst >= PING_BAD_MS ? 'bad' : worst >= PING_WARN_MS ? 'warn' : null;
+}
+
 /** Speed for display in the selected unit, rounded, never negative. */
 export function displaySpeed(ms: number, units: SpeedUnit): number {
   const v = Math.max(0, fin(ms));

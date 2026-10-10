@@ -6,7 +6,7 @@ import { IDLE_MS, createRoomState, roomStep, type RoomInput, type RoomState } fr
 
 export interface Env {
   ROOMS: DurableObjectNamespace;
-  /** comma-separated allowed origins for POST /rooms (empty: any) */
+  /** comma-separated origins allowed to create and join rooms (empty: any), see roomLogic isOriginAllowed */
   ALLOWED_ORIGINS?: string;
 }
 

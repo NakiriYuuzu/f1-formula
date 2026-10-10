@@ -53,6 +53,19 @@ export function isRoomCode(code: unknown): code is string {
   return typeof code === 'string' && code.length === CODE_LENGTH && [...code].every((c) => CODE_ALPHABET.includes(c));
 }
 
+/**
+ * May a request with this Origin header use the server? `allowed` is the comma-separated ALLOWED_ORIGINS list
+ * (scheme + host [+ port], e.g. "https://github.yuuzu.net"; a trailing slash is ignored): empty = anyone; otherwise
+ * an exact match — a request without an Origin (not from a web page) is refused.
+ */
+export function isOriginAllowed(origin: string | null, allowed: string): boolean {
+  const list = allowed
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+  return list.length === 0 || (origin !== null && list.includes(origin));
+}
+
 const msg = (v: unknown): string => JSON.stringify(v);
 
 export function roomStep(prev: RoomState, input: RoomInput): RoomStep {
