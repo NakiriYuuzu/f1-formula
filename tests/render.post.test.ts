@@ -4,17 +4,23 @@
  * controller's steps, floor, ceiling, hysteresis, hitch rejection and anti-oscillation backoff.
  */
 import { describe, expect, test } from 'bun:test';
+import { DEFAULT_SETTINGS } from '../src/core/defaults';
 import type { Biome, QualityLevel, TimeOfDay } from '../src/core/types';
+import { sanitizeSettings } from '../src/meta/save';
 import {
   ADAPTIVE_MIN_SCALE,
   AdaptiveResolution,
   BLOOM_OVERCAST_THRESHOLD,
+  SPEED_BLUR_FULL_SPEED,
+  SPEED_BLUR_MAX,
+  SPEED_BLUR_MIN_SPEED,
   acesFilmic,
   acesFilmicInverse,
   bloomParams,
   createPostLook,
   gradeParams,
   showroomLook,
+  speedBlurAmount,
 } from '../src/render/core/post';
 import { qualityProfile } from '../src/render/core/quality';
 
@@ -126,6 +132,57 @@ describe('colour grade', () => {
     expect(high.bloom.strength).toBeGreaterThan(0);
     expect(high.vignette).toBeGreaterThan(0);
     expect(showroomLook('medium', false).vignette).toBe(0);
+  });
+});
+
+describe('speed blur', () => {
+  test('none at strength 0, below the start speed, or for garbage input', () => {
+    expect(speedBlurAmount(80, 0)).toBe(0);
+    expect(speedBlurAmount(SPEED_BLUR_MIN_SPEED, 1)).toBe(0);
+    expect(speedBlurAmount(20, 1)).toBe(0);
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -10]) {
+      expect(speedBlurAmount(bad, 1)).toBe(0);
+      expect(speedBlurAmount(80, bad)).toBe(0);
+    }
+  });
+
+  test('grows with speed and saturates at SPEED_BLUR_MAX × strength', () => {
+    let prev = 0;
+    for (let v = SPEED_BLUR_MIN_SPEED + 5; v <= SPEED_BLUR_FULL_SPEED; v += 5) {
+      const b = speedBlurAmount(v, 1);
+      expect(b).toBeGreaterThan(prev);
+      prev = b;
+    }
+    expect(speedBlurAmount(SPEED_BLUR_FULL_SPEED, 1)).toBeCloseTo(SPEED_BLUR_MAX, 9);
+    expect(speedBlurAmount(120, 1)).toBeCloseTo(SPEED_BLUR_MAX, 9);
+  });
+
+  test('scales linearly with strength, clamped to 0..1', () => {
+    for (const v of [60, 75, 90]) {
+      expect(speedBlurAmount(v, 0.5)).toBeCloseTo(speedBlurAmount(v, 1) * 0.5, 9);
+      expect(speedBlurAmount(v, 0.25)).toBeCloseTo(speedBlurAmount(v, 1) * 0.25, 9);
+    }
+    expect(speedBlurAmount(90, 3)).toBeCloseTo(SPEED_BLUR_MAX, 9);
+  });
+
+  test('neutral and showroom looks have none', () => {
+    expect(createPostLook().speedBlur).toBe(0);
+    const reused = createPostLook();
+    reused.speedBlur = SPEED_BLUR_MAX;
+    expect(showroomLook('high', true, reused).speedBlur).toBe(0);
+  });
+
+  test('strength setting defaults to 50 %, is clamped to 0..1 and survives sanitising', () => {
+    expect(DEFAULT_SETTINGS.speedBlur).toBe(0.5);
+    expect(sanitizeSettings({}).speedBlur).toBe(0.5);
+    expect(sanitizeSettings({ speedBlur: 0 }).speedBlur).toBe(0);
+    expect(sanitizeSettings({ speedBlur: 0.8 }).speedBlur).toBe(0.8);
+    expect(sanitizeSettings({ speedBlur: 4 }).speedBlur).toBe(1);
+    expect(sanitizeSettings({ speedBlur: -1 }).speedBlur).toBe(0);
+    expect(sanitizeSettings({ speedBlur: 'off' }).speedBlur).toBe(0.5);
+    // the earlier on/off toggle: off stays off, on becomes the default strength
+    expect(sanitizeSettings({ speedBlur: false }).speedBlur).toBe(0);
+    expect(sanitizeSettings({ speedBlur: true }).speedBlur).toBe(0.5);
   });
 });
 

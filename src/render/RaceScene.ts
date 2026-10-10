@@ -3,7 +3,8 @@
  * terrain, road, kerbs, run-off, barriers, pit complex, start gantry, grandstands + crowd, boards,
  * biome props, racing-line overlay, rain, spray / smoke / sparks, procedural cars (+ ghost) and one
  * camera rig per split-screen view. render() draws a single full-screen view through GameRenderer's post chain
- * (bloom / grade / vignette by time of day, biome and rain; direct when the quality has no post); split-screen
+ * (bloom / grade / vignette by time of day, biome and rain, optional speed blur by the viewed car's speed; direct
+ * when the quality has no post); split-screen
  * clears once and draws every ViewSpec directly in its own scissored viewport.
  */
 import * as THREE from 'three';
@@ -28,7 +29,7 @@ import { createSafetyCar, type SafetyCarModel } from './car/safetyCar';
 import { createCarModel, type CarModel } from './car/carModel';
 import { CameraRig, type RigContext } from './cameras';
 import { Disposer } from './core/disposer';
-import { LAMP_HDR_GAIN, VIGNETTE_STRENGTH, bloomParams, createPostLook, gradeParams } from './core/post';
+import { LAMP_HDR_GAIN, VIGNETTE_STRENGTH, bloomParams, createPostLook, gradeParams, speedBlurAmount } from './core/post';
 import { CAMERA_FAR, qualityProfile, shadowSizeFor, type QualityProfile } from './core/quality';
 import { Environment, buildEnvironmentMap } from './environment';
 import { CarEffects } from './fx/carEffects';
@@ -441,6 +442,10 @@ export class RaceScene {
       bloomParams(this.ctx.timeOfDay, this.quality.level, this.env.cloud, rain, this.look.bloom);
       gradeParams(this.ctx.biome, this.ctx.timeOfDay, rain, this.look.grade);
       this.look.vignette = this.quality.vignette ? VIGNETTE_STRENGTH : 0;
+      // speed blur follows the viewed car; trackside TV cameras stand still, so they get none
+      const view = list[0];
+      const target = this.stateById.get(view.carId) ?? this.fallbackTarget(frame);
+      this.look.speedBlur = view.camera === 'tv' ? 0 : speedBlurAmount(target?.speed ?? 0, this.settings.speedBlur);
     }
     r.toneMappingExposure = this.env.exposure;
     r.setScissorTest(false);

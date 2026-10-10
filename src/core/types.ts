@@ -392,6 +392,9 @@ export interface Settings {
   units: SpeedUnit;
   defaultCamera: CameraMode;
   cameraShake: boolean;
+  /** strength 0..1 (0 = off) of the radial screen blur that grows with the followed car's speed
+   * (post chain only: quality medium+, single view) */
+  speedBlur: number;
   /** 0.5..1.5 */
   steeringSensitivity: number;
   /** gamepad stick deadzone 0..0.3 */

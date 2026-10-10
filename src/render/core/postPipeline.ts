@@ -1,7 +1,7 @@
 /**
  * Post-processing chain for one full-screen view (owned by GameRenderer, shared by RaceScene and ShowroomScene):
  * RenderPass into a half-float HDR target (MSAA) -> selective bloom (UnrealBloomPass with a soft-knee
- * brightest-channel bright pass, optionally at reduced resolution) -> grade + vignette ShaderPass -> OutputPass.
+ * brightest-channel bright pass, optionally at reduced resolution) -> speed blur + grade + vignette ShaderPass -> OutputPass.
  * While the chain is used the scene renders un-tone-mapped in linear space (three only tone-maps to the screen), so
  * OutputPass alone applies renderer.toneMapping / toneMappingExposure and the sRGB transfer: tone mapping runs once.
  * Sizes are drawing-buffer pixels (the composer runs at pixel ratio 1).
@@ -13,7 +13,16 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { clamp } from '../../core/math';
-import { BLOOM_KNEE, BLOOM_MAX_INPUT, GRADE_LIFT_RANGE, GRADE_PIVOT, VIGNETTE_START, type PostLook } from './post';
+import {
+  BLOOM_KNEE,
+  BLOOM_MAX_INPUT,
+  GRADE_LIFT_RANGE,
+  GRADE_PIVOT,
+  SPEED_BLUR_START,
+  SPEED_BLUR_TAPS,
+  VIGNETTE_START,
+  type PostLook,
+} from './post';
 
 const FULLSCREEN_VERT = /* glsl */ `
 varying vec2 vUv;
@@ -35,8 +44,12 @@ void main() {
   gl_FragColor = vec4(c * smoothstep(luminosityThreshold, luminosityThreshold + smoothWidth, b), 1.0);
 }`;
 
-/** Grade (tint, saturation, pivot-power contrast, toe lift) + vignette, all in linear HDR before OutputPass. */
+/**
+ * Radial speed blur (taps toward the screen centre, faded in from speedBlurStart so the centre stays sharp), then
+ * grade (tint, saturation, pivot-power contrast, toe lift) + vignette, all in linear HDR before OutputPass.
+ */
 const GRADE_FRAG = /* glsl */ `
+const int SPEED_BLUR_TAPS = ${SPEED_BLUR_TAPS};
 uniform sampler2D tDiffuse;
 uniform vec3 tint;
 uniform float saturation;
@@ -47,16 +60,30 @@ uniform float pivot;
 uniform float vignette;
 uniform float vignetteStart;
 uniform float aspect;
+uniform float speedBlur;
+uniform float speedBlurStart;
 varying vec2 vUv;
 void main() {
   vec4 src = texture2D(tDiffuse, vUv);
-  vec3 c = max(src.rgb, vec3(0.0)) * tint;
+  vec2 d = (vUv - 0.5) * vec2(aspect, 1.0);
+  float r = length(d) / (0.5 * length(vec2(aspect, 1.0)));
+  vec3 c = max(src.rgb, vec3(0.0));
+  float blur = speedBlur * smoothstep(speedBlurStart, 1.0, r);
+  if (blur > 1e-4) {
+    // stratified taps over (0, blur] of the way to the centre; per-pixel jitter hides the banding
+    float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    vec2 toCentre = (0.5 - vUv) * blur;
+    for (int i = 1; i < SPEED_BLUR_TAPS; i++) {
+      float t = (float(i) - jitter) / float(SPEED_BLUR_TAPS - 1);
+      c += max(texture2D(tDiffuse, vUv + toCentre * t).rgb, vec3(0.0));
+    }
+    c /= float(SPEED_BLUR_TAPS);
+  }
+  c *= tint;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
   c = max(mix(vec3(l), c, saturation), vec3(0.0));
   c = pivot * pow(max(c / pivot, vec3(1e-6)), vec3(contrast));
   c += lift * (1.0 - smoothstep(vec3(0.0), vec3(liftRange), c));
-  vec2 d = (vUv - 0.5) * vec2(aspect, 1.0);
-  float r = length(d) / (0.5 * length(vec2(aspect, 1.0)));
   c *= 1.0 - vignette * smoothstep(vignetteStart, 1.0, r);
   gl_FragColor = vec4(c, src.a);
 }`;
@@ -73,6 +100,8 @@ interface GradeUniforms {
   vignette: THREE.IUniform<number>;
   vignetteStart: THREE.IUniform<number>;
   aspect: THREE.IUniform<number>;
+  speedBlur: THREE.IUniform<number>;
+  speedBlurStart: THREE.IUniform<number>;
 }
 
 /** UnrealBloomPass with the brightest-channel soft-knee bright pass and a resolution scale. */
@@ -161,6 +190,8 @@ export class PostPipeline {
       vignette: { value: 0 },
       vignetteStart: { value: VIGNETTE_START },
       aspect: { value: 16 / 9 },
+      speedBlur: { value: 0 },
+      speedBlurStart: { value: SPEED_BLUR_START },
     };
     this.grade = new ShaderPass(
       new THREE.ShaderMaterial({
@@ -206,6 +237,7 @@ export class PostPipeline {
     u.contrast.value = g.contrast;
     u.lift.value = g.lift;
     u.vignette.value = clamp(look.vignette, 0, 1);
+    u.speedBlur.value = Number.isFinite(look.speedBlur) ? clamp(look.speedBlur, 0, 1) : 0;
     this.renderPass.scene = scene;
     this.renderPass.camera = camera;
     // the scene always lands in the multisampled target, whatever the swap parity left by the previous frame

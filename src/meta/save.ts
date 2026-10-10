@@ -76,6 +76,8 @@ export function sanitizeSettings(v: unknown): Settings {
     units: oneOf(r.units, ['kmh', 'mph'] as const, d.units),
     defaultCamera: oneOf(r.defaultCamera, CAMERAS, d.defaultCamera),
     cameraShake: bool(r.cameraShake, d.cameraShake),
+    // `false` = the earlier on/off toggle switched off
+    speedBlur: r.speedBlur === false ? 0 : num(r.speedBlur, 0, 1, d.speedBlur),
     steeringSensitivity: num(r.steeringSensitivity, 0.5, 1.5, d.steeringSensitivity),
     deadzone: num(r.deadzone, 0, 0.3, d.deadzone),
     vibration: bool(r.vibration, d.vibration),

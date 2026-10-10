@@ -209,6 +209,7 @@ export const DEFAULT_SETTINGS: Settings = {
   units: 'kmh',
   defaultCamera: 'chase',
   cameraShake: true,
+  speedBlur: 0.5,
   steeringSensitivity: 1,
   deadzone: 0.08,
   vibration: true,

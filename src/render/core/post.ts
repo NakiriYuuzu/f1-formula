@@ -1,6 +1,6 @@
 /**
  * Post-processing look + adaptive resolution: every tunable of the post chain (selective bloom, colour grade,
- * vignette) and of the frame-time controller as named constants, plus the pure helpers that turn time of day /
+ * vignette, speed blur) and of the frame-time controller as named constants, plus the pure helpers that turn time of day /
  * biome / weather / quality into a PostLook (no three.js, no DOM: unit-tested headless). postPipeline.ts applies a
  * PostLook to the GPU passes; GameRenderer drives AdaptiveResolution.
  *
@@ -10,7 +10,7 @@
  * The bright pass therefore tests the brightest channel (red lamps qualify) against a per-time-of-day threshold.
  */
 import type { Biome, QualityLevel, TimeOfDay } from '../../core/types';
-import { clamp, clamp01, lerp } from '../../core/math';
+import { clamp, clamp01, lerp, smoothstep } from '../../core/math';
 
 export type Rgb = [number, number, number];
 
@@ -39,6 +39,8 @@ export interface PostLook {
   grade: GradeParams;
   /** corner darkening 0..1 (0 = off) */
   vignette: number;
+  /** radial speed blur 0..SPEED_BLUR_MAX (0 = off), see speedBlurAmount */
+  speedBlur: number;
 }
 
 // ───────────────────────────── pipeline ─────────────────────────────
@@ -103,6 +105,19 @@ export const VIGNETTE_STRENGTH = 0.22;
 /** Normalised radius where the vignette starts (1 = screen corner; 16:9 edge centres sit at ~0.49 / ~0.87). */
 export const VIGNETTE_START = 0.45;
 
+// ───────────────────────────── speed blur ─────────────────────────────
+
+/** Followed car's speed (m/s, ≈ 162 km/h) where the radial speed blur starts: slow corners stay sharp. */
+export const SPEED_BLUR_MIN_SPEED = 45;
+/** Speed (m/s, ≈ 324 km/h) of the full speed blur. */
+export const SPEED_BLUR_FULL_SPEED = 90;
+/** Blur length at full speed and 100 % strength, as a fraction of each pixel's distance to the screen centre. */
+export const SPEED_BLUR_MAX = 0.09;
+/** Normalised radius (as VIGNETTE_START) where the blur fades in: the centre (car, apex) stays sharp. */
+export const SPEED_BLUR_START = 0.3;
+/** Texture taps along the blur (jittered per pixel against banding). */
+export const SPEED_BLUR_TAPS = 12;
+
 // ───────────────────────────── showroom ─────────────────────────────
 
 /** Menu showroom: bloom for the turntable rim and paint glints only (rim is pushed above it by the gain below). */
@@ -150,7 +165,17 @@ export function createPostLook(): PostLook {
     bloom: { strength: 0, radius: 0, threshold: 1 },
     grade: { tint: [1, 1, 1], saturation: 1, contrast: 1, lift: 0 },
     vignette: 0,
+    speedBlur: 0,
   };
+}
+
+/**
+ * Radial speed blur for the followed car's speed (m/s) and the user's strength 0..1 (Settings.speedBlur, 0 = off):
+ * 0 below SPEED_BLUR_MIN_SPEED, SPEED_BLUR_MAX * strength at full speed.
+ */
+export function speedBlurAmount(speed: number, strength: number): number {
+  if (!Number.isFinite(speed) || !Number.isFinite(strength)) return 0;
+  return SPEED_BLUR_MAX * clamp01(strength) * smoothstep(SPEED_BLUR_MIN_SPEED, SPEED_BLUR_FULL_SPEED, speed);
 }
 
 /** Race bloom for a time of day, quality, smoothed cloud cover 0..1 and rain 0..1 (written into `out`). */
@@ -196,6 +221,7 @@ export function showroomLook(quality: QualityLevel, vignette: boolean, out: Post
   out.grade.contrast = SHOWROOM_GRADE.contrast;
   out.grade.lift = SHOWROOM_GRADE.lift;
   out.vignette = vignette ? SHOWROOM_VIGNETTE : 0;
+  out.speedBlur = 0;
   return out;
 }
 

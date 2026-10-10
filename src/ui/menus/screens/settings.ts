@@ -209,6 +209,16 @@ export class SettingsScreen extends Screen {
           onChange: (v) => this.patch({ defaultCamera: v }),
         }).el,
         toggle('鏡頭震動', s.cameraShake, (v) => this.patch({ cameraShake: v })).el,
+        slider({
+          label: '速度模糊',
+          min: 0,
+          max: 1,
+          step: 0.05,
+          value: s.speedBlur,
+          format: (v) => (v > 0 ? pct(v) : '關閉'),
+          onChange: (v) => this.patch({ speedBlur: v }),
+          description: '速度越快，畫面周圍越模糊；0% 為關閉（需「中」以上畫質；分割畫面不套用）',
+        }).el,
       ),
     );
   }
