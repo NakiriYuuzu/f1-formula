@@ -4,8 +4,9 @@
  * - every fixed step it quantises the local input into a record (cumulative one-shot counters), predicts its own car
  *   with the same per-car step the host runs (race predictHumanStep) and sends the last INPUT_REDUNDANCY records
  *   every other step;
- * - snapshots carry the own car's authoritative state with the last applied input seq: the state is taken and the
- *   unacknowledged inputs replayed on top; the visual jump is smoothed out (beyond TELEPORT m: shown at once);
+ * - snapshots carry the own car's authoritative state right after the last input the host's state is final for (its
+ *   seq and host time; inputs the host still guesses are replayed on its side once they arrive): the state is taken and
+ *   the unacknowledged inputs replayed on top; the visual jump is smoothed out (beyond TELEPORT m: shown at once);
  * - the other cars are shown on the own car's timeline: its prediction stands for the host time of the newest
  *   snapshot plus the unacknowledged inputs, so they are extrapolated along the track that far past the newest
  *   snapshot (at most MAX_EXTRAPOLATION s; the jump a new snapshot makes is smoothed out). While the host drives the
@@ -500,7 +501,7 @@ export class ClientSession {
     if (!s.own || !car || s.own.carId !== this.carId) return;
     const wasPredicting = this.ownPredicted;
     const before = { x: car.phys.x, y: car.phys.y, z: car.phys.z };
-    this.ownSnapTime = s.time;
+    this.ownSnapTime = s.own.time ?? s.time;
     assignDeep(car.phys as unknown as Record<string, unknown>, s.own.phys as unknown as Record<string, unknown>);
     if (s.ack !== null) {
       const ack = s.ack;

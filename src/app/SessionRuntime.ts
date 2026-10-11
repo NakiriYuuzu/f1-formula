@@ -138,7 +138,7 @@ export class SessionRuntime {
   private readonly views: ViewSpec[];
   private readonly hudViews: HudView[];
   private readonly humans: number[];
-  private readonly clock = new FixedStepClock(SIM_DT, MAX_SUBSTEPS);
+  private readonly clock: FixedStepClock;
   private readonly flashbacks = new FlashbackBuffer();
   private readonly recorder = new ReplayRecorder();
   private pending: (ControlInput | null)[] = [null, null];
@@ -161,6 +161,8 @@ export class SessionRuntime {
     this.ctx = ctx;
     this.track = track;
     this.online = net ? net.role : null;
+    // a guest catches up a slow frame in full (a step is only its own car): time it dropped, the host would guess
+    this.clock = new FixedStepClock(SIM_DT, this.online === 'client' ? Math.ceil(MAX_FRAME_DT / SIM_DT) : MAX_SUBSTEPS);
     if (net?.role === 'client') {
       this.client = net.client;
       this.world = net.client.world;

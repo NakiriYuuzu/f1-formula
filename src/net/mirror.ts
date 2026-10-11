@@ -188,7 +188,8 @@ export function applyMirrorToWorld(world: WorldState, state: Record<string, unkn
   });
 }
 
-function assignDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
+/** Copy `src` into `target` (nested objects in place, the rest cloned). */
+export function assignDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
   for (const [k, v] of Object.entries(src)) {
     const cur = target[k];
     if (isObj(v) && isObj(cur)) assignDeep(cur, v);

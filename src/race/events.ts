@@ -14,7 +14,7 @@ export function emit(world: WorldState, event: GameEvent): void {
 
 export const fin = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
 
-export const isHuman = (car: CarEntry): boolean => car.playerIndex === 0 || car.playerIndex === 1;
+export const isHuman = (car: CarEntry): boolean => car.playerIndex >= 0;
 
 /** Practice / qualifying: an AI car that has finished its run is back in the garage (parked, not drawn). */
 export const inGarage = (world: WorldState, car: CarEntry): boolean =>

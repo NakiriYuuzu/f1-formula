@@ -1,27 +1,38 @@
 /**
  * HostSession (docs/plans/phase3-online.md §2): the host side of one online session. The host runs the full world
  * (every car, AI included); this class only connects it to the remote players:
- * - per remote player an input buffer (records by seq; one applied per world step, the next in sequence or the oldest
- *   newer one after a gap, the last input held when none arrived; one-shots fire on counter changes);
- * - snapshots at SNAPSHOT_HZ (the packed render frame + the receiver's car and last applied input seq), the HUD mirror
- *   at MIRROR_HZ (patches), game events as they happen, pings;
+ * - per remote player an input timeline: record seq q is played at host step q + delay, the delay being the earliest
+ *   arrival of the last AGE_WINDOW steps plus PLAYOUT_MARGIN (re-anchored when the records keep arriving later,
+ *   shortened a step at a time when they arrive earlier); one-shots fire on counter changes. A record not there in
+ *   time is guessed (the last one held); when it arrives the car is put back to before that step and every step since
+ *   replayed with the inputs known now, by the per-car step the client predicts with (race predictHumanStep): a lag
+ *   spike leaves no trace on the car. Only on the open road, never across a car-to-car contact, a completed lap or a
+ *   command, at most REWIND_STEPS back. A guessed step reports no contact and no track limits (race netGuess); more
+ *   than GHOST_AFTER in a row and the car is a ghost to the other cars (netGhost), more than REWIND_STEPS (nothing
+ *   left to replay: a frozen tab) and the AI controller drives it. A sender whose records keep arriving behind what
+ *   was played (it lost time) is taken back on its own timeline at once;
+ * - snapshots at SNAPSHOT_HZ (the packed render frame + the receiver's car before its first guess still open to a
+ *   replay, the seq before it and the host time of that state), the HUD mirror at MIRROR_HZ (patches), game events as
+ *   they happen, pings;
  * - commands (pit request / cancel, ERS mode, retire) for the sender's own car only;
  * - a player whose link closes hands its car to the AI controller (name marked 「AI 代駕」) and the race goes on.
  * Pure logic over NetTransport (tests: loopback).
  */
-import type { BuiltTrack, ControlInput, GameEvent, PlayerIndex, SessionResult, WorldState } from '../core/types';
+import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, PlayerIndex, SessionResult, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
-import { buildRenderFrame, cancelPit, getPlayerCarId, requestPit, retireCar, setErsMode } from '../race/index';
-import { diffMirror, mirrorView } from './mirror';
+import { computeAIInput } from '../ai/index';
+import { isCarHeld } from '../physics/index';
+import { COAST_INPUT, buildRenderFrame, cancelPit, getPlayerCarId, predictHumanStep, requestPit, retireCar, setErsMode } from '../race/index';
+import { assignDeep, diffMirror, mirrorView } from './mirror';
 import {
   ONE_SHOTS,
+  SEQ_MOD,
   decodeInputPacket,
   decodeMessage,
   encodeMessage,
   encodeSnapshot,
   oneShotsBetween,
   recordToInput,
-  seqNewer,
   type InputRecord,
   type NetMessage,
 } from './protocol';
@@ -29,21 +40,83 @@ import type { NetTransport } from './transport';
 
 export const SNAPSHOT_HZ = 30;
 export const MIRROR_HZ = 5;
-/** Input records buffered beyond this many steps are dropped (oldest first): bounds the input delay. */
-const MAX_BUFFER = 12;
 /** Ping cadence (s of simulation time). */
 const PING_EVERY = 1;
 /** Suffix of a car whose player left. */
 export const AI_TAKEOVER_SUFFIX = '（AI 代駕）';
+/** Input timeline: steps played behind the earliest arrival of the last AGE_WINDOW steps. */
+const PLAYOUT_MARGIN = 2;
+const AGE_WINDOW = 240;
+/** Arrivals later than the delay allows by more than LATE_TOLERANCE steps, LATE_STREAK steps in a row: re-anchor. */
+const LATE_TOLERANCE = 6;
+const LATE_STREAK = 8;
+/** A too long delay shrinks one step every SHRINK_EVERY steps; more than SHRINK_JUMP steps too long, at once. */
+const SHRINK_EVERY = 4;
+const SHRINK_JUMP = 30;
+/** Steps a late input can still be replayed (0.75 s). */
+export const REWIND_STEPS = 90;
+/** Guessed steps in a row after which the car is a ghost on the host (race netGhost) until a real input is back. */
+const GHOST_AFTER = 6;
+/** Steps the delay may grow by holding; the sender further behind what was played is re-anchored at once. */
+const HOLD_STEPS = 2;
+/** Records further ahead of the newest one (steps) are ignored. */
+const MAX_AHEAD = 1200;
+
+/** The car before a step: what predictHumanStep reads and writes. */
+interface SavedCar {
+  phys: CarPhysicsState;
+  prevX: number;
+  prevY: number;
+  prevZ: number;
+  prevYaw: number;
+  collisionCooldown: number;
+  impactPeak: number;
+  reportedDamage: number[];
+  wake: CarEntry['race']['wake'];
+}
+
+/** One step of a remote car that can still be replayed. */
+interface Slot {
+  /** unwrapped seq played (null: a step held while the delay grew) */
+  seq: number | null;
+  /** the record played (null: guessed / held) */
+  rec: InputRecord | null;
+  /** world time before the step and the car then */
+  time: number;
+  car: SavedCar;
+  /** one-shot counters and held input before the step */
+  counters: number[];
+  last: ControlInput | null;
+}
 
 interface Remote {
   playerIndex: PlayerIndex;
   name: string;
   transport: NetTransport;
-  buffer: InputRecord[];
-  lastSeq: number | null;
+  /** received records by unwrapped seq: not played yet, or late for a guessed step */
+  records: Map<number, InputRecord>;
+  /** newest unwrapped seq received / next to play / last played (null: none yet) */
+  newest: number | null;
+  playSeq: number | null;
+  played: number | null;
+  /** playout delay (steps): step k plays seq k − delay */
+  delay: number;
+  /** earliest arrival age (steps) before each step of the window; the one since the last step */
+  ages: { step: number; age: number }[];
+  arrival: number | null;
+  late: number[];
+  shrinkAt: number;
+  /** a late record waits for its guessed step */
+  rewind: boolean;
   lastCounters: number[];
+  /** continuous part of the last record played (what a guess holds) */
   last: ControlInput | null;
+  /** steps in a row without a real input */
+  guessRun: number;
+  /** replayable steps, oldest first (cleared by a contact, a lap completed, a command or off the open road) */
+  slots: Slot[];
+  touchAt: number | null;
+  laps: number;
   /** last mirror state sent (diff base) */
   mirror: unknown;
   mirrorSeq: number;
@@ -68,6 +141,8 @@ export class HostSession {
   private readonly mirrorEvery = Math.max(1, Math.round(1 / (MIRROR_HZ * SIM_DT)));
   private pingAt = 0;
   private disposed = false;
+  /** statistics: steps replayed after late inputs */
+  replayed = 0;
 
   constructor(
     private world: WorldState,
@@ -82,10 +157,22 @@ export class HostSession {
         playerIndex: p.playerIndex,
         name: p.name,
         transport: p.transport,
-        buffer: [],
-        lastSeq: null,
+        records: new Map(),
+        newest: null,
+        playSeq: null,
+        played: null,
+        delay: 0,
+        ages: [],
+        arrival: null,
+        late: [],
+        shrinkAt: 0,
+        rewind: false,
         lastCounters: ONE_SHOTS.map(() => 0),
         last: null,
+        guessRun: 0,
+        slots: [],
+        touchAt: null,
+        laps: 0,
         mirror: undefined,
         mirrorSeq: 0,
         eventSeq: 0,
@@ -102,7 +189,10 @@ export class HostSession {
   /** The world after a restart / flashback swap (not used online, kept for safety). */
   setWorld(world: WorldState): void {
     this.world = world;
-    for (const r of this.remotes.values()) r.mirror = undefined;
+    for (const r of this.remotes.values()) {
+      r.mirror = undefined;
+      r.slots = [];
+    }
   }
 
   get connectedPlayers(): PlayerIndex[] {
@@ -111,6 +201,11 @@ export class HostSession {
 
   pingOf(playerIndex: PlayerIndex): number {
     return this.remotes.get(playerIndex)?.ping ?? 0;
+  }
+
+  /** Playout delay of a remote player's inputs (steps). */
+  inputDelayOf(playerIndex: PlayerIndex): number {
+    return this.remotes.get(playerIndex)?.delay ?? 0;
   }
 
   /** The connected remote players in seat order with their last round trip (ms; null: not measured yet). */
@@ -129,10 +224,21 @@ export class HostSession {
     }
   }
 
-  /** After each world step: snapshots, mirror, pings on their cadence. */
+  /** After each world step: replay windows closed by contacts, snapshots, mirror, pings on their cadence. */
   afterStep(): void {
     if (this.disposed) return;
     this.steps++;
+    for (const r of this.remotes.values()) {
+      if (!r.connected) continue;
+      // a car-to-car contact, a lap completed (per-lap tyre / ERS counters) or a step off the open road: the steps so
+      // far are final
+      const car = this.carOf(r);
+      const touch = car?.race.touchAt ?? null;
+      const laps = car?.timing.lapsCompleted ?? 0;
+      if (!car || touch !== r.touchAt || laps !== r.laps || !openRoad(this.world, car)) r.slots = [];
+      r.touchAt = touch;
+      r.laps = laps;
+    }
     if (this.steps % this.snapshotEvery === 0) this.sendSnapshots();
     if (this.steps % this.mirrorEvery === 0) this.sendMirror();
     if (this.world.time >= this.pingAt) {
@@ -181,25 +287,129 @@ export class HostSession {
     return this.cb.now ? this.cb.now() : this.world.time * 1000;
   }
 
+  private carOf(r: Remote): CarEntry | undefined {
+    const carId = getPlayerCarId(this.world, r.playerIndex);
+    return carId >= 0 ? this.world.cars[carId] : undefined;
+  }
+
   private nextInput(r: Remote): ControlInput | null {
-    // the next record in sequence, else (a record lost for good) the oldest newer one
-    let rec: InputRecord | undefined;
-    if (r.buffer.length > 0) {
-      const want = r.lastSeq === null ? null : (r.lastSeq + 1) & 0xffff;
-      const i = want === null ? -1 : r.buffer.findIndex((x) => x.seq === want);
-      rec = i >= 0 ? r.buffer.splice(i, 1)[0] : r.buffer.shift();
+    const k = this.steps;
+    this.updateDelay(r, k);
+    const car = this.carOf(r);
+    if (r.rewind) {
+      r.rewind = false;
+      if (car) this.replay(r, car);
     }
-    if (!rec) {
-      // nothing new: hold the last continuous input, no one-shots
-      return r.last ? { ...r.last } : null;
+    if (r.playSeq === null) {
+      if (r.newest === null) return null;
+      r.playSeq = k - r.delay;
     }
+    // the seq due now; behind it the delay grew (a held step, no record used), ahead of it it shrank (records skipped:
+    // their one-shots fire with the next one, the counters being cumulative)
+    const due = k - r.delay;
+    if (due < r.playSeq - HOLD_STEPS) {
+      // far behind what was played (the sender lost time): its own timeline from here, the guesses so far final
+      r.playSeq = due;
+      r.slots = [];
+    }
+    let seq: number | null = null;
+    if (due >= r.playSeq) {
+      if (due - r.playSeq > SHRINK_JUMP) r.playSeq = due;
+      else if (due > r.playSeq && k >= r.shrinkAt) {
+        r.playSeq++;
+        r.shrinkAt = k + SHRINK_EVERY;
+      }
+      seq = r.playSeq++;
+      r.played = seq;
+    }
+    const rec = seq !== null ? (r.records.get(seq) ?? null) : null;
+    if (seq !== null) r.records.delete(seq);
+    const open = car !== undefined && openRoad(this.world, car);
+    const slot: Slot | null = car && open ? { seq, rec, time: this.world.time, car: saveCar(car), counters: r.lastCounters, last: r.last } : null;
+    r.guessRun = rec ? 0 : r.guessRun + 1;
+    if (car) {
+      car.race.netGuess = open && r.guessRun > 0;
+      car.race.netGhost = open && r.guessRun > GHOST_AFTER;
+    }
+    const input = car && open && r.guessRun > REWIND_STEPS ? computeAIInput(this.world, car, this.track, SIM_DT) : this.play(r, rec);
+    if (slot) {
+      r.slots.push(slot);
+      if (r.slots.length > REWIND_STEPS) r.slots.shift();
+    } else r.slots = [];
+    for (const q of r.records.keys()) if (q < r.playSeq - REWIND_STEPS) r.records.delete(q);
+    return input;
+  }
+
+  /** The input of one step: a record with its one-shots, else the last record held (no one-shots). */
+  private play(r: Remote, rec: InputRecord | null): ControlInput | null {
+    if (!rec) return r.last ? { ...r.last } : null;
     const input = recordToInput(rec);
     const fired = oneShotsBetween(r.lastCounters, rec.counters);
     for (const k of ONE_SHOTS) input[k] = fired[k];
     r.lastCounters = rec.counters.slice();
-    r.lastSeq = rec.seq;
     r.last = recordToInput(rec);
     return input;
+  }
+
+  /** Fold the arrivals since the last step into the playout delay (see the header). */
+  private updateDelay(r: Remote, k: number): void {
+    const age = r.arrival;
+    r.arrival = null;
+    if (age !== null) {
+      if (r.ages.length > 0 && age > r.delay + LATE_TOLERANCE) r.late.push(age);
+      else r.late = [];
+      r.ages.push({ step: k, age });
+      if (r.late.length >= LATE_STREAK) {
+        // later and later for a while (the sender lost time, the route got slower): anchor on these
+        r.ages = r.late.map((a) => ({ step: k, age: a }));
+        r.late = [];
+      }
+    }
+    while (r.ages.length > 0 && (r.ages[0] as { step: number }).step < k - AGE_WINDOW) r.ages.shift();
+    if (r.ages.length > 0) {
+      let min = Infinity;
+      for (const a of r.ages) min = Math.min(min, a.age);
+      r.delay = min + PLAYOUT_MARGIN;
+    }
+  }
+
+  /** Late records for guessed steps: the car back to before the first of them, every step since played again. */
+  private replay(r: Remote, car: CarEntry): void {
+    const from = r.slots.findIndex((s) => s.rec === null && s.seq !== null && r.records.has(s.seq));
+    if (from < 0 || !openRoad(this.world, car)) return;
+    const first = r.slots[from] as Slot;
+    // DRS / overtake eligibility belong to the race layer (set at its lines): each step replays with the values it
+    // had, the car ends with today's
+    const now = raceOwned(car.phys);
+    restoreCar(car, first.car);
+    r.lastCounters = first.counters;
+    r.last = first.last;
+    let run = 0;
+    for (let i = from - 1; i >= 0 && (r.slots[i] as Slot).rec === null; i--) run++;
+    for (let i = from; i < r.slots.length; i++) {
+      const s = r.slots[i] as Slot;
+      if (i > from) {
+        const was = raceOwned(s.car.phys);
+        s.car = saveCar(car);
+        setRaceOwned(s.car.phys, was);
+        setRaceOwned(car.phys, was);
+        s.counters = r.lastCounters;
+        s.last = r.last;
+      }
+      if (s.rec === null && s.seq !== null) {
+        const rec = r.records.get(s.seq);
+        if (rec) {
+          s.rec = rec;
+          r.records.delete(s.seq);
+        }
+      }
+      run = s.rec ? 0 : run + 1;
+      car.race.netGuess = run > 0;
+      predictHumanStep(this.world, this.track, car, this.play(r, s.rec) ?? COAST_INPUT, SIM_DT);
+      this.replayed++;
+    }
+    setRaceOwned(car.phys, now);
+    r.guessRun = run;
   }
 
   private receive(r: Remote, channel: string, data: ArrayBuffer | string): void {
@@ -207,19 +417,25 @@ export class HostSession {
     if (channel === 'state') {
       const records = decodeInputPacket(data);
       if (!records) return;
+      // (records come newest first: the first packet unwraps against its newest)
+      const ref = r.newest ?? (records[0] as InputRecord).seq;
+      let newest: number | null = null;
       for (const rec of records) {
-        if (r.lastSeq !== null && !seqNewer(rec.seq, r.lastSeq)) continue;
-        if (r.buffer.some((x) => x.seq === rec.seq)) continue;
-        r.buffer.push(rec);
+        const u = unwrapSeq(rec.seq, ref);
+        if (r.newest !== null && u > r.newest + MAX_AHEAD) continue;
+        if (newest === null || u > newest) newest = u;
+        if (r.records.has(u)) continue;
+        if (r.played === null || u > r.played) r.records.set(u, rec);
+        else if (r.slots.some((s) => s.seq === u && s.rec === null)) {
+          // late for a guessed step still in the window: replayed before the next step
+          r.records.set(u, rec);
+          r.rewind = true;
+        }
       }
-      // oldest first (wrap-aware), bounded
-      r.buffer.sort((a, b) => (seqNewer(a.seq, b.seq) ? 1 : seqNewer(b.seq, a.seq) ? -1 : 0));
-      if (r.buffer.length > MAX_BUFFER) {
-        const drop = r.buffer.splice(0, r.buffer.length - MAX_BUFFER);
-        // dropped records still count as applied (their one-shots fire with the next record: counters are cumulative)
-        const lastDropped = drop[drop.length - 1];
-        if (lastDropped) r.lastSeq = lastDropped.seq;
-      }
+      if (newest === null) return;
+      if (r.newest === null || newest > r.newest) r.newest = newest;
+      const age = this.steps - newest;
+      r.arrival = r.arrival === null ? age : Math.min(r.arrival, age);
       return;
     }
     const m = decodeMessage(data);
@@ -231,6 +447,8 @@ export class HostSession {
   private command(r: Remote, c: Extract<NetMessage, { t: 'cmd' }>['command']): void {
     const carId = getPlayerCarId(this.world, r.playerIndex);
     if (carId < 0) return;
+    // a replay never undoes a command (ERS mode)
+    r.slots = [];
     switch (c.cmd) {
       case 'pit':
         requestPit(this.world, carId, c.compound);
@@ -253,14 +471,16 @@ export class HostSession {
     const frame = buildRenderFrame(this.world, this.track);
     for (const r of this.remotes.values()) {
       if (!r.connected) continue;
-      const carId = getPlayerCarId(this.world, r.playerIndex);
-      const car = carId >= 0 ? this.world.cars[carId] : undefined;
+      const car = this.carOf(r);
+      // the car before its first guess still open to a replay (the steps after it are the client's to predict)
+      const guess = r.slots.find((s) => s.rec === null && s.seq !== null);
+      const ack = guess && guess.seq !== null ? guess.seq - 1 : r.played;
       const buf = encodeSnapshot({
         tick: this.world.tick,
         time: this.world.time,
-        ack: r.lastSeq,
+        ack: ack === null ? null : ((ack % SEQ_MOD) + SEQ_MOD) % SEQ_MOD,
         frame,
-        own: car ? { carId: car.id, phys: car.phys } : null,
+        own: car ? { carId: car.id, phys: guess ? guess.car.phys : car.phys, time: guess ? guess.time : this.world.time } : null,
       });
       r.transport.send('state', buf);
     }
@@ -280,12 +500,14 @@ export class HostSession {
   private dropPlayer(r: Remote): void {
     if (!r.connected) return;
     r.connected = false;
-    r.buffer = [];
+    r.records.clear();
+    r.slots = [];
     // its car is driven by the AI from now on
-    const carId = getPlayerCarId(this.world, r.playerIndex);
-    const car = carId >= 0 ? this.world.cars[carId] : undefined;
+    const car = this.carOf(r);
     if (car) {
       car.playerIndex = -1;
+      car.race.netGuess = false;
+      car.race.netGhost = false;
       if (!car.displayName.endsWith(AI_TAKEOVER_SUFFIX)) car.displayName += AI_TAKEOVER_SUFFIX;
     }
     this.broadcast({ t: 'left', playerIndex: r.playerIndex, name: r.name });
@@ -299,4 +521,56 @@ export class HostSession {
   private send(r: Remote, m: NetMessage): void {
     if (r.transport.open) r.transport.send('reliable', encodeMessage(m));
   }
+}
+
+/** A uint16 seq as the unwrapped one nearest `ref`. */
+function unwrapSeq(seq: number, ref: number): number {
+  const half = SEQ_MOD / 2;
+  return ref + ((((seq - ref + half) % SEQ_MOD) + SEQ_MOD) % SEQ_MOD) - half;
+}
+
+/** The host drives this step from the player's input alone, as the client predicts it: a running car on track. */
+function openRoad(world: WorldState, car: CarEntry): boolean {
+  const phase = world.session.phase;
+  if (phase !== 'running' && phase !== 'chequered') return false;
+  const r = car.race;
+  return car.playerIndex >= 0 && car.status === 'running' && car.pit.phase === 'none' && !r.parking && !r.formationAuto && !isCarHeld(car.phys);
+}
+
+type RaceOwned = { eligible: boolean; available: boolean; overtake: boolean };
+
+const raceOwned = (p: CarPhysicsState): RaceOwned => ({ eligible: p.drs.eligible, available: p.drs.available, overtake: p.ers.overtakeAvailable });
+
+function setRaceOwned(p: CarPhysicsState, v: RaceOwned): void {
+  p.drs.eligible = v.eligible;
+  p.drs.available = v.available;
+  p.ers.overtakeAvailable = v.overtake;
+}
+
+function saveCar(car: CarEntry): SavedCar {
+  const r = car.race;
+  return {
+    phys: structuredClone(car.phys),
+    prevX: r.prevX,
+    prevY: r.prevY,
+    prevZ: r.prevZ,
+    prevYaw: r.prevYaw,
+    collisionCooldown: r.collisionCooldown,
+    impactPeak: r.impactPeak,
+    reportedDamage: r.reportedDamage.slice(),
+    wake: r.wake,
+  };
+}
+
+function restoreCar(car: CarEntry, s: SavedCar): void {
+  assignDeep(car.phys as unknown as Record<string, unknown>, s.phys as unknown as Record<string, unknown>);
+  const r = car.race;
+  r.prevX = s.prevX;
+  r.prevY = s.prevY;
+  r.prevZ = s.prevZ;
+  r.prevYaw = s.prevYaw;
+  r.collisionCooldown = s.collisionCooldown;
+  r.impactPeak = s.impactPeak;
+  r.reportedDamage = s.reportedDamage.slice();
+  r.wake = s.wake;
 }

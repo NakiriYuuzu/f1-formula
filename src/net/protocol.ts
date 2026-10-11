@@ -4,8 +4,9 @@
  *   quantised (throttle / brake uint8, steer int8) with cumulative one-shot counters (a lost or repeated packet never
  *   drops or repeats a gear shift: the host fires on a counter change);
  * - snapshots (host → client, 'state'): the packed render frame of every car (src/app/replay.ts encoding) plus ground
- *   pitch, safety car pose, marshal panels, the receiver's last processed input seq and (some snapshots) its own car's
- *   authoritative physics state as JSON;
+ *   pitch, safety car pose, marshal panels, the receiver's last input seq the host's state is final for (later ones may
+ *   still be replayed) and (some snapshots) its own car's authoritative physics state right after it (with its host
+ *   time) as JSON;
  * - reliable messages (JSON): lobby, session start, events, commands, HUD mirror patches, results, pause, departures.
  * Every decoder returns null for a malformed payload (wrong length / type, non-finite numbers).
  */
@@ -19,11 +20,12 @@ import type {
   RenderFrame,
   SessionConfig,
   SessionResult,
+  SessionRules,
   TireCompound,
 } from '../core/types';
 import { decodeFrame, encodeFrame } from '../app/replay';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -152,7 +154,7 @@ const SC_FIELDS = 8;
 export interface Snapshot {
   tick: number;
   time: number;
-  /** last input seq of the receiver the host applied (null: none yet) */
+  /** receiver's last input seq the host's car state is final for (null: none yet); `own` is the car right after it */
   ack: number | null;
   frame: RenderFrame;
   /** the receiver's own car, authoritative (JSON-safe subset of CarPhysicsState), when included */
@@ -163,6 +165,8 @@ export interface Snapshot {
 export interface OwnCarState {
   carId: number;
   phys: CarPhysicsState;
+  /** host time of this state (absent: the snapshot's; earlier while the host still guesses later inputs) */
+  time?: number;
 }
 
 const finiteOr = (v: number, d = 0): number => (Number.isFinite(v) ? v : d);
@@ -262,7 +266,7 @@ export function decodeSnapshot(data: unknown): Snapshot | null {
 }
 
 function isOwnCar(v: unknown): v is OwnCarState {
-  if (!isObj(v) || !isInt(v.carId) || !isObj(v.phys)) return false;
+  if (!isObj(v) || !isInt(v.carId) || !isObj(v.phys) || (v.time !== undefined && !isNum(v.time))) return false;
   const p = v.phys;
   for (const k of ['x', 'y', 'z', 'yaw', 'vx', 'vz', 'speed', 'gear', 'rpm', 'fuelKg']) if (!isNum(p[k])) return false;
   return isObj(p.tire) && isObj(p.ers) && isObj(p.drs) && isObj(p.damage) && isObj(p.internal);
@@ -292,7 +296,11 @@ export interface LobbySettings {
   aiDifficulty: number;
   regulation: string;
   format: string;
+  rules: LobbyRules;
 }
+
+/** Race-control rules the host picks in the lobby (the other session rules stay at their defaults online). */
+export type LobbyRules = Required<Pick<SessionRules, 'safetyCar' | 'redFlags' | 'formationLap' | 'aeroWake'>>;
 
 /** The host's roster as the lobby lists it (the session config carries the full definitions). */
 export interface LobbyRoster {
@@ -418,7 +426,7 @@ function isLobby(v: unknown): v is LobbyState {
   if (!isObj(v) || typeof v.code !== 'string' || !Array.isArray(v.players) || !isObj(v.settings) || !isObj(v.roster)) return false;
   if (!Array.isArray(v.roster.teams) || !Array.isArray(v.roster.drivers)) return false;
   const s = v.settings;
-  if (typeof s.layoutId !== 'string' || !isNum(s.laps) || !isNum(s.aiCount) || !isNum(s.aiDifficulty)) return false;
+  if (typeof s.layoutId !== 'string' || !isNum(s.laps) || !isNum(s.aiCount) || !isNum(s.aiDifficulty) || !isObj(s.rules)) return false;
   return v.players.every(
     (p) => isObj(p) && isSeat(p.playerIndex) && typeof p.name === 'string' && typeof p.teamId === 'string' && typeof p.driverId === 'string' && typeof p.ready === 'boolean',
   );

@@ -169,7 +169,7 @@ describe('online session (loopback)', () => {
       // frame's time; own-car prediction close to the host
       const mean = (xs: number[]): number => xs.reduce((x, y) => x + y, 0) / xs.length;
       const p95 = (xs: number[]): number => [...xs].sort((x, y) => x - y)[Math.floor(xs.length * 0.95)]!;
-      // (measured 0.45 / 0.85 m own, 0.38 / 1.38 m others; drawing the others interpolated 0.1 s behind the clock
+      // (measured 0.45 / 0.85 m own, 0.29 / 1.06 m others; drawing the others interpolated 0.1 s behind the clock
       // left the own car 18 m ahead of them on average)
       expect(ownErr.length).toBeGreaterThan(100);
       expect(othersErr.length).toBeGreaterThan(500);

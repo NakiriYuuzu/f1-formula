@@ -159,7 +159,7 @@ function normalizeRoster(roster: Roster, playerDriverIds: readonly string[]): Ro
 /** Resolve human players against the roster: valid, distinct drivers; P1 always present. */
 function resolvePlayers(choices: readonly PlayerChoice[], roster: Roster): PlayerChoice[] {
   const sorted = [...choices]
-    .filter((c) => c && (c.playerIndex === 0 || c.playerIndex === 1))
+    .filter((c) => c && (c.playerIndex === 0 || c.playerIndex === 1 || c.playerIndex === 2 || c.playerIndex === 3))
     .sort((a, b) => a.playerIndex - b.playerIndex);
   const used = new Set<string>();
   const out: PlayerChoice[] = [];

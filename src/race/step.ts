@@ -26,7 +26,7 @@ import { updateCarTiming } from './timing';
 import { stepWeather } from './weather';
 
 /** Input used for a human car without input this step: coast with a light brake. */
-const COAST_INPUT: Readonly<ControlInput> = Object.freeze({
+export const COAST_INPUT: Readonly<ControlInput> = Object.freeze({
   throttle: 0,
   brake: 0.15,
   steer: 0,

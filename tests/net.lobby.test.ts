@@ -10,7 +10,16 @@ import { GuestLobby, HostLobby } from '../src/net/lobby';
 import { LoopbackNetwork } from '../src/net/loopback';
 import { encodeMessage } from '../src/net/protocol';
 
-const settings = { layoutId: 'monza', laps: 5, weather: 'clear', aiCount: 8, aiDifficulty: 80, regulation: '2025', format: 'raceOnly' };
+const settings = {
+  layoutId: 'monza',
+  laps: 5,
+  weather: 'clear',
+  aiCount: 8,
+  aiDifficulty: 80,
+  regulation: '2025',
+  format: 'raceOnly',
+  rules: { safetyCar: 'standard', redFlags: true, formationLap: false, aeroWake: true },
+} as const;
 
 function setup(guests: number) {
   const net = new LoopbackNetwork({ delayMs: 20 });
@@ -58,6 +67,10 @@ describe('online lobby', () => {
     g1.pick(other.teamId === free.teamId ? 'x' : free.teamId, other.id);
     net.advance(100);
     expect(host.state.players[1]!.driverId).toBe(free.id);
+    // the host's race-control rules reach every guest (safety car off)
+    host.setSettings({ rules: { ...host.state.settings.rules, safetyCar: 'off' } });
+    net.advance(100);
+    for (const l of lobbies) expect(l.state?.settings.rules.safetyCar).toBe('off');
   });
 
   test('start needs every guest ready; the start message reaches everyone; links leave the lobby during a session', () => {

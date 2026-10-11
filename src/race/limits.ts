@@ -27,7 +27,7 @@ export function updateTrackLimits(world: WorldState, track: BuiltTrack, car: Car
     r.limitFlagged = false;
     return;
   }
-  if (s.phase !== 'running' && s.phase !== 'chequered') return;
+  if ((s.phase !== 'running' && s.phase !== 'chequered') || r.netGuess) return;
   const p = car.phys;
   const lat = p.lateral;
   const side = lat >= 0 ? 1 : -1;

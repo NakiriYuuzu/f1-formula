@@ -39,7 +39,7 @@ export { DRS_GAP, DRS_WET_LIMIT } from './drs';
 export { GRID_FRONT, GRID_GAP, GRID_LATERAL, FLYING_START, BOX_SPACING, BOX_SLOTS } from './world';
 export { RAIN_LEVEL } from './weather';
 export { COLLISION_EVENT_IMPULSE } from './contact';
-export { predictHumanStep } from './step';
+export { COAST_INPUT, predictHumanStep } from './step';
 export { estimatePitLoss, pitLossFactor, PIT_LOSS_FALLBACK, SC_ENDING_PIT_LOSS_FACTOR, SC_PIT_LOSS_FACTOR, VSC_PIT_LOSS_FACTOR } from './pitlane';
 
 const ERS_MODES: readonly ErsMode[] = ['none', 'medium', 'hotlap', 'overtake'];

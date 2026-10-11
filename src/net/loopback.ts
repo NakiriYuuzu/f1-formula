@@ -1,7 +1,8 @@
 /**
  * In-memory NetTransport pairs on a manual clock (tests): every message is delivered after `delayMs` (+ up to
  * `jitterMs`, which reorders the 'state' channel). The 'state' channel also drops (`loss`) and duplicates
- * (`duplicate`) messages; the 'reliable' channel is delayed but in order and complete. Deterministic (seeded).
+ * (`duplicate`) messages; the 'reliable' channel is delayed but in order and complete. `stall(ms)` holds everything
+ * sent for a while and lets it through in a burst (a lag spike). Deterministic (seeded).
  */
 import type { NetChannel, NetPayload, NetTransport } from './transport';
 
@@ -73,6 +74,8 @@ export class LoopbackNetwork {
   /** messages sent / dropped on the 'state' channel (statistics) */
   sentState = 0;
   droppedState = 0;
+  /** until then (ms) messages leave only at that time */
+  private stallUntil = 0;
 
   constructor(opts: LoopbackOptions = {}) {
     this.delay = Math.max(0, opts.delayMs ?? 0);
@@ -116,18 +119,24 @@ export class LoopbackNetwork {
     return this.queue.length;
   }
 
+  /** A lag spike: what is sent in the next `ms` (both ways, both channels) leaves only when it ends. */
+  stall(ms: number): void {
+    this.stallUntil = Math.max(this.stallUntil, this.now + Math.max(0, ms));
+  }
+
   enqueue(to: LoopbackEnd, channel: NetChannel, data: NetPayload): void {
+    const from = Math.max(this.now, this.stallUntil);
     if (channel === 'state') {
       this.sentState++;
       if (this.random() < this.loss) {
         this.droppedState++;
         return;
       }
-      this.push(to, channel, data, this.now + this.delay + this.random() * this.jitter);
-      if (this.random() < this.duplicate) this.push(to, channel, data, this.now + this.delay + this.random() * this.jitter);
+      this.push(to, channel, data, from + this.delay + this.random() * this.jitter);
+      if (this.random() < this.duplicate) this.push(to, channel, data, from + this.delay + this.random() * this.jitter);
       return;
     }
-    const at = Math.max(this.now + this.delay + this.random() * this.jitter, to.lastReliable);
+    const at = Math.max(from + this.delay + this.random() * this.jitter, to.lastReliable);
     to.lastReliable = at;
     this.push(to, channel, data, at);
   }

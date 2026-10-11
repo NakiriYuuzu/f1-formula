@@ -112,6 +112,13 @@ export interface CarRaceInternal {
   scAheadTime: number;
   /** aero wake the car ran in at its last physics step (HUD) */
   wake: AeroWake;
+  /** online host: this step drives the car on a guess (the player's input is late; replayed once it arrives): no
+   * contact reports, no track limits; guessed for a while (netGhost) no car-vs-car contacts either — a guess leaves
+   * nothing that a replay cannot undo */
+  netGuess?: boolean;
+  netGhost?: boolean;
+  /** world time of the last car-vs-car overlap handled, whatever its impulse (online host: ends a replay window) */
+  touchAt?: number;
 }
 
 export type IncidentKind = 'crash' | 'failure' | 'debris' | 'stopped';

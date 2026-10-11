@@ -6,16 +6,16 @@
  *   (unique) and assists, ready / start / leave. The host starts the weekend through the usual briefing flow; the App
  *   hands every session to the guests.
  */
-import type { Assists, Regulation } from '../../../core/types';
+import type { Assists, Regulation, SessionRules } from '../../../core/types';
 import { DEFAULT_RULES } from '../../../core/defaults';
-import { FORMAT_LABEL, WEATHER_LABEL, difficultyLabel, lapsLabel } from '../labels';
+import { FORMAT_LABEL, SAFETY_CAR_LABEL, WEATHER_LABEL, difficultyLabel, lapsLabel } from '../labels';
 import { LAPS_CHOICES, WEATHER_CHOICES, findLayout, listLayouts, resolveLaps, weekendSessions, type LapsChoice, type WeatherChoice, type WeekendFormat } from '../../../meta/options';
 import { loadProfile, loadSetup, saveProfile } from '../../../meta/save';
 import { standardRoster } from '../../../meta/roster';
 import { MAX_SPLIT_AI, type PlayerChoice, type SessionRequest } from '../../../meta/sessionBuilder';
-import type { LobbySettings } from '../../../net/protocol';
+import type { LobbyRules, LobbySettings } from '../../../net/protocol';
 import type { OnlineRoom } from '../../../net/room';
-import { assistPresetCycler, REGULATION_OPTIONS } from '../components/editors';
+import { aeroWakeRow, assistPresetCycler, raceControlRows, REGULATION_OPTIONS } from '../components/editors';
 import { h } from '../dom';
 import { launchWeekend } from '../flow';
 import { minimapCanvas } from '../minimap';
@@ -170,6 +170,7 @@ export class LobbyScreen extends Screen {
   readonly title = '線上大廳';
   private readonly playersEl: HTMLElement;
   private readonly settingsEl: HTMLElement;
+  private readonly rulesEl: HTMLElement;
   private readonly mineEl: HTMLElement;
   private readonly mapBox: HTMLElement;
   private readonly actionBtn: HTMLButtonElement;
@@ -185,6 +186,7 @@ export class LobbyScreen extends Screen {
     this.assists = { ...loadProfile().assists };
     this.playersEl = h('div', { class: 'nvm-stack' });
     this.settingsEl = h('div', { class: 'nvm-stack' });
+    this.rulesEl = h('div', { class: 'nvm-stack' });
     this.mineEl = h('div', { class: 'nvm-stack' });
     this.mapBox = h('div', { class: 'nvm-split__map' });
     const room = this.room;
@@ -213,7 +215,7 @@ export class LobbyScreen extends Screen {
           'div',
           { class: 'nvm-columns nvm-columns--side' },
           h('div', { class: 'nvm-stack' }, panel('房間', copy, this.playersEl), panel('我的車手', this.mineEl)),
-          h('div', { class: 'nvm-stack' }, panel('賽事設定', this.settingsEl), panel('賽道預覽', this.mapBox)),
+          h('div', { class: 'nvm-stack' }, panel('賽事設定', this.settingsEl), panel('規則', this.rulesEl), panel('賽道預覽', this.mapBox)),
         ),
         h('div', { class: 'nvm-actions nvm-actions--bar' }, button({ label: '離開房間', back: true, onClick: () => this.leave() }), this.actionBtn),
       ),
@@ -328,6 +330,9 @@ export class LobbyScreen extends Screen {
       onChange: (v) => set({ aiDifficulty: v }),
     });
     this.settingsEl.replaceChildren(track.el, laps.el, weather.el, format.el, reg.el, ai.el, diff.el);
+    const setRule = <K extends keyof LobbyRules>(key: K) => (v: SessionRules[K]): void => set({ rules: { ...s.rules, [key]: v } });
+    const rules: SessionRules = { ...DEFAULT_RULES, ...s.rules };
+    this.rulesEl.replaceChildren(aeroWakeRow(rules, setRule), ...raceControlRows(rules, setRule));
   }
 
   private render(): void {
@@ -389,6 +394,11 @@ export class LobbyScreen extends Screen {
         h('p', { class: 'nvm-note', text: `賽制：${FORMAT_LABEL[s.format as WeekendFormat] ?? s.format}・規則 ${s.regulation}` }),
         h('p', { class: 'nvm-note', text: `AI：${s.aiCount} 台・難度 ${s.aiDifficulty}` }),
       );
+      const r = s.rules;
+      this.rulesEl.replaceChildren(
+        h('p', { class: 'nvm-note', text: `安全車：${SAFETY_CAR_LABEL[r.safetyCar] ?? r.safetyCar}・紅旗：${r.redFlags ? '開' : '關'}・暖胎圈：${r.formationLap ? '開' : '關'}` }),
+        h('p', { class: 'nvm-note', text: `空氣動力尾流：${r.aeroWake ? '擬真' : '關閉'}` }),
+      );
       const label = this.actionBtn.querySelector('.nvm-btn__label');
       if (label) label.textContent = this.ready ? '取消準備' : '準備';
     } else {
@@ -442,7 +452,7 @@ export class LobbyScreen extends Screen {
       regulation: s.regulation === '2026' ? '2026' : '2025',
       aiDifficulty: s.aiDifficulty,
       qualifying: 'oneShot',
-      rules: { ...DEFAULT_RULES },
+      rules: { ...DEFAULT_RULES, ...s.rules },
       seed: Date.now() >>> 0,
       players,
       roster: standardRoster(),
@@ -468,5 +478,11 @@ export function defaultLobbySettings(): LobbySettings {
     aiDifficulty: 80,
     regulation: '2025',
     format: 'raceOnly',
+    rules: {
+      safetyCar: DEFAULT_RULES.safetyCar ?? 'standard',
+      redFlags: DEFAULT_RULES.redFlags ?? true,
+      formationLap: DEFAULT_RULES.formationLap ?? false,
+      aeroWake: DEFAULT_RULES.aeroWake ?? true,
+    },
   };
 }

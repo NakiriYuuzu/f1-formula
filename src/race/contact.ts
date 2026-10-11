@@ -25,6 +25,7 @@ export function damageMultiplier(world: WorldState): number {
 
 function reportContact(world: WorldState, car: CarEntry, other: number | null, impulse: number): void {
   const r = car.race;
+  if (r.netGuess) return;
   r.impactPeak = Math.max(r.impactPeak, impulse);
   if (other !== null && impulse > COLLISION_EVENT_IMPULSE) r.carContactAt = world.time;
   if (impulse > COLLISION_EVENT_IMPULSE && r.collisionCooldown <= 0) {
@@ -87,7 +88,7 @@ export function barrierContact(world: WorldState, track: BuiltTrack, car: CarEnt
   return projectToTrack(track, p.x, p.z, proj.index);
 }
 
-const collidable = (car: CarEntry): boolean => (car.status !== 'retired' || car.race.hazard) && car.pit.phase === 'none';
+const collidable = (car: CarEntry): boolean => (car.status !== 'retired' || car.race.hazard) && car.pit.phase === 'none' && !car.race.netGhost;
 
 /** Car-vs-car contacts for all close pairs (deterministic id order). */
 export function carContacts(world: WorldState, track: BuiltTrack): void {
@@ -105,6 +106,8 @@ export function carContacts(world: WorldState, track: BuiltTrack): void {
       const reach = (a.spec.length + b.spec.length) * 0.5;
       if (dx * dx + dz * dz >= reach * reach) continue;
       if (!sameLevel(track, a.phys.s, b.phys.s)) continue;
+      a.race.touchAt = world.time;
+      b.race.touchAt = world.time;
       const ax = a.phys.x;
       const az = a.phys.z;
       const bx = b.phys.x;
