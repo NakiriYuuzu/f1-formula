@@ -37,6 +37,8 @@ import {
   WEATHER_LABEL,
   fin,
   formatClock,
+  NoticeGate,
+  pauseKeyOutcome,
   pingLevel,
   pingText,
   safeColor,
@@ -49,6 +51,7 @@ import { PauseMenu } from './pauseMenu';
 import type { MenuDirection, PauseItem } from './pauseMenu';
 import { RaceControlStrip, sectorFlagLabel } from './raceControl';
 import { ReplayBar } from './replayBar';
+import type { PadMenuInput } from '../../input/gamepad';
 import { StartLights } from './startLights';
 import { TimingTower } from './tower';
 import { keyLabel } from '../menus/labels';
@@ -131,6 +134,7 @@ export class HudLayer {
   private readonly pause: PauseMenu;
   private readonly help: ControlsHelp;
   private readonly replayBar: ReplayBar;
+  private readonly notices = new NoticeGate();
   private readonly fpsText: TextSlot;
   private readonly fpsShow: ShowSlot;
   /** online only: round trip(s) beside the FPS counter */
@@ -236,6 +240,7 @@ export class HudLayer {
     this.replayBar.update(replay);
     this.banner.update(step);
     for (const v of this.views) v.tickFeeds(step);
+    this.notices.tick(step);
     if (!replay) this.updateSession(world, step);
     if (this.pause.isVisible()) this.pause.refresh();
   }
@@ -274,6 +279,26 @@ export class HudLayer {
     mfd.toggle();
     this.mfdOrder = this.mfdOrder.filter((i) => i !== idx);
     if (mfd.isOpen()) this.mfdOrder.push(idx);
+  }
+
+  /** Gamepad D-pad left/right for a player's open MFD: previous / next tyre compound. True when consumed. */
+  stepMfdCompound(playerIndex: 0 | 1, step: 1 | -1): boolean {
+    if (this.destroyed) return false;
+    const v = this.views.find((x) => x.view.playerIndex === playerIndex);
+    return v ? v.mfd.padStep(step) : false;
+  }
+
+  /** The ERS-cycle key does nothing while the ERS assist is on: say so (rate-limited per player). */
+  notifyErsAssist(playerIndex: 0 | 1): void {
+    if (this.destroyed || !this.notices.fire(playerIndex)) return;
+    const v = this.views.find((x) => x.view.playerIndex === playerIndex);
+    if (v) v.toast('ERS 輔助開啟中', '模式自動切換', 'info', 2.4);
+  }
+
+  /** Gamepad in a replay (A play/pause, D-pad seek / speed). True when consumed. */
+  handleReplayPad(input: PadMenuInput): boolean {
+    if (this.destroyed || !this.replayActive || this.hidden) return false;
+    return this.replayBar.handlePad(input);
   }
 
   toggleVisible(): void {
@@ -347,6 +372,11 @@ export class HudLayer {
     if (this.destroyed || !this.help.isOpen()) return false;
     this.closeHelp();
     return true;
+  }
+
+  /** The pause key / pad B: 'pause' when running, otherwise 'stay' (the 操作說明 panel just closed) or 'resume'. */
+  onPauseKey(paused: boolean): 'pause' | 'resume' | 'stay' {
+    return pauseKeyOutcome(paused, () => this.handleBack());
   }
 
   /** Call when the settings overlay opened from the pause menu closes: the pause menu takes input again. */

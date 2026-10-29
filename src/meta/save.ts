@@ -55,6 +55,16 @@ export function sanitizeSettings(v: unknown): Settings {
       const raw = r.keyBindingsP2[action];
       if (Array.isArray(raw)) keyBindingsP2[action] = stringArray(raw, MAX_KEYS_PER_ACTION, []);
     }
+    // actions added after the save was written: default codes, unless another P2 action or P1 already uses them
+    const taken = new Set<string>();
+    for (const action of KEY_ACTIONS) for (const code of [...(keyBindingsP2[action] ?? []), ...keyBindings[action]]) taken.add(code);
+    for (const action of KEY_ACTIONS) {
+      if (keyBindingsP2[action] !== undefined) continue;
+      const codes = (d.keyBindingsP2[action] ?? []).filter((c) => !taken.has(c));
+      if (codes.length === 0) continue;
+      keyBindingsP2[action] = codes;
+      for (const c of codes) taken.add(c);
+    }
   } else {
     keyBindingsP2 = cloneSettings(d).keyBindingsP2;
   }

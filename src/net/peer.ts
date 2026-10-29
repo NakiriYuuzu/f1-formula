@@ -70,6 +70,11 @@ class PeerTransport implements NetTransport {
     return !this.closed && this.reliable.readyState === 'open';
   }
 
+  buffered(channel: NetChannel): number {
+    if (this.closed) return 0;
+    return (channel === 'state' ? this.state : this.reliable).bufferedAmount;
+  }
+
   send(channel: NetChannel, data: NetPayload): void {
     const ch = channel === 'state' ? this.state : this.reliable;
     if (this.closed || ch.readyState !== 'open') return;

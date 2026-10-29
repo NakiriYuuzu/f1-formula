@@ -139,6 +139,7 @@ function padSections(): HelpSection[] {
       })
       .filter((row) => row.keys.length > 0),
   }));
+  sections.find((s) => s.title === '動力與策略')?.rows.push({ label: 'MFD：換胎配方', keys: ['十字鍵 ←→'] });
   sections.push({
     title: '暫停選單',
     rows: [

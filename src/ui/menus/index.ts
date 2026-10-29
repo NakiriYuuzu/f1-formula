@@ -32,6 +32,7 @@ import { MainMenuScreen } from './screens/mainMenu';
 import { TitleScreen } from './screens/title';
 import { ResultsScreen } from './screens/results';
 import { SettingsScreen } from './screens/settings';
+import { markPadEvent } from './keyCapture';
 import { ConfirmScreen } from './screens/confirm';
 import type { MenuCallbacks, ShowroomCar } from './types';
 
@@ -207,7 +208,9 @@ export class MenuSystem implements Host {
   navigate(input: PadMenuInput): boolean {
     if (!this.visible || !this.loadingEl.hidden) return false;
     const key = PAD_KEYS[input];
-    this.onKeyDown(new KeyboardEvent('keydown', { key: key.key, code: key.code, cancelable: true }));
+    const e = new KeyboardEvent('keydown', { key: key.key, code: key.code, cancelable: true });
+    markPadEvent(e);
+    this.onKeyDown(e);
     return true;
   }
 

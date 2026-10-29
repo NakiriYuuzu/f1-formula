@@ -9,6 +9,7 @@ import { bundledTrack, bundledTrackNow } from '../../../audio/bundledMusic';
 import { clearMusicFile, getMusicError, MAX_MUSIC_BYTES, readMusicInfo, saveMusicFile, subscribeMusic } from '../../../audio/musicStore';
 import { cloneSettings, defaultSettings, KEY_ACTIONS } from '../../../meta/save';
 import { h, setChildren } from '../dom';
+import { captureStep, clashesWithP1Pause, isPadEvent } from '../keyCapture';
 import { focusElement } from '../nav';
 import { CAMERA_LABEL, KEY_ACTION_LABEL, keyLabel, QUALITY_LABEL } from '../labels';
 import { Screen, type Host } from '../screen';
@@ -121,20 +122,13 @@ export class SettingsScreen extends Screen {
 
   override onKey(e: KeyboardEvent): boolean {
     if (!this.capture) return false;
-    if (e.repeat) return true;
     const { player, action, slot } = this.capture;
-    // Esc cancels the capture, except on 暫停 where it is the natural key (otherwise it could never be bound back)
-    if (e.code === 'Escape' && action !== 'pause') {
+    const step = captureStep(e, action, isPadEvent(e));
+    if (step.kind === 'cancel') {
       this.cancelCapture();
       this.host.sound('back');
-      return true;
-    }
-    if (e.code === 'Backspace' || e.code === 'Delete') {
-      this.setKey(player, action, slot, null);
-      return true;
-    }
-    if (!e.code) return true;
-    this.setKey(player, action, slot, e.code);
+    } else if (step.kind === 'clear') this.setKey(player, action, slot, null);
+    else if (step.kind === 'bind') this.setKey(player, action, slot, step.code);
     return true;
   }
 
@@ -454,6 +448,12 @@ export class SettingsScreen extends Screen {
   }
 
   private setKey(player: Player, action: KeyAction, slot: number, code: string | null): void {
+    if (code && clashesWithP1Pause(player, this.s.keyBindings.pause, code)) {
+      this.cancelCapture();
+      this.host.sound('error');
+      this.host.toast(`「${keyLabel(code)}」是 P1 的「暫停」鍵，P2 不能綁定（否則分割畫面時無法用鍵盤暫停）`, 'bad');
+      return;
+    }
     const map = this.bindings(player);
     const next: Partial<Record<KeyAction, string[]>> = {};
     for (const a of KEY_ACTIONS) {

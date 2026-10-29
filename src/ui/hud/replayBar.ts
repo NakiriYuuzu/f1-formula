@@ -1,8 +1,9 @@
 /**
  * Replay control bar: play/pause, draggable scrubber, time readout, playback speed (0.25×–4×), camera switch and
- * exit. Keyboard while visible: Space play/pause, ←/→ seek ∓5 s, ↑/↓ faster/slower.
+ * exit. Keyboard while visible: Space play/pause, ←/→ seek ∓5 s, ↑/↓ faster/slower; gamepad: A play/pause, D-pad the same.
  */
 import { clamp01 } from '../../core/math';
+import type { PadMenuInput } from '../../input/gamepad';
 import { AttrSlot, ScaleSlot, StyleSlot, TextSlot, clickable, el, svgEl } from './dom';
 import { REPLAY_SPEEDS, fin, formatClock } from './labels';
 
@@ -101,32 +102,59 @@ export class ReplayBar {
     const info = this.info;
     const h = this.handlers;
     if (!info || !h) return false;
-    const duration = fin(info.duration);
     switch (e.code) {
       case 'Space':
         if (!e.repeat) h.toggle();
         return true;
       case 'ArrowLeft':
-      case 'ArrowRight': {
-        if (!(duration > 0)) return true;
-        const dir = e.code === 'ArrowLeft' ? -1 : 1;
-        h.seek(clamp01((fin(info.time) + dir * SEEK_STEP) / duration));
+      case 'ArrowRight':
+        this.seekBy(e.code === 'ArrowLeft' ? -1 : 1);
         return true;
-      }
       case 'ArrowUp':
-      case 'ArrowDown': {
-        const cur = fin(info.speed, 1);
-        let idx = 0;
-        for (let i = 0; i < REPLAY_SPEEDS.length; i++) {
-          if (Math.abs(REPLAY_SPEEDS[i] - cur) < Math.abs(REPLAY_SPEEDS[idx] - cur)) idx = i;
-        }
-        const next = Math.max(0, Math.min(REPLAY_SPEEDS.length - 1, idx + (e.code === 'ArrowUp' ? 1 : -1)));
-        if (!e.repeat) h.speed(REPLAY_SPEEDS[next]);
+      case 'ArrowDown':
+        if (!e.repeat) this.stepSpeed(e.code === 'ArrowUp' ? 1 : -1);
         return true;
-      }
       default:
         return false;
     }
+  }
+
+  /** Gamepad while the bar is visible: A play/pause, D-pad left/right seek, up/down speed. True if consumed. */
+  handlePad(input: PadMenuInput): boolean {
+    if (!this.info || !this.handlers) return false;
+    switch (input) {
+      case 'confirm':
+        this.handlers.toggle();
+        return true;
+      case 'left':
+      case 'right':
+        this.seekBy(input === 'left' ? -1 : 1);
+        return true;
+      case 'up':
+      case 'down':
+        this.stepSpeed(input === 'up' ? 1 : -1);
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private seekBy(dir: -1 | 1): void {
+    const info = this.info;
+    const duration = info ? fin(info.duration) : 0;
+    if (!info || !this.handlers || !(duration > 0)) return;
+    this.handlers.seek(clamp01((fin(info.time) + dir * SEEK_STEP) / duration));
+  }
+
+  private stepSpeed(dir: -1 | 1): void {
+    const info = this.info;
+    if (!info || !this.handlers) return;
+    const cur = fin(info.speed, 1);
+    let idx = 0;
+    for (let i = 0; i < REPLAY_SPEEDS.length; i++) {
+      if (Math.abs(REPLAY_SPEEDS[i] - cur) < Math.abs(REPLAY_SPEEDS[idx] - cur)) idx = i;
+    }
+    this.handlers.speed(REPLAY_SPEEDS[Math.max(0, Math.min(REPLAY_SPEEDS.length - 1, idx + dir))]);
   }
 
   private setProgress(frac: number): void {

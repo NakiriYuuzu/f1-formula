@@ -2,7 +2,10 @@
  * In-memory NetTransport pairs on a manual clock (tests): every message is delivered after `delayMs` (+ up to
  * `jitterMs`, which reorders the 'state' channel). The 'state' channel also drops (`loss`) and duplicates
  * (`duplicate`) messages; the 'reliable' channel is delayed but in order and complete. `stall(ms)` holds everything
- * sent for a while and lets it through in a burst (a lag spike). Deterministic (seeded).
+ * sent for a while and lets it through in a burst (a lag spike). With a `bandwidth` each direction is a serial link
+ * of that many bytes per second: messages queue behind each other (both channels, like one SCTP association) and
+ * `buffered()` reports what has not left yet; `setBandwidth` changes it for what is sent from then on (a congested
+ * link). Deterministic (seeded).
  */
 import type { NetChannel, NetPayload, NetTransport } from './transport';
 
@@ -13,6 +16,8 @@ export interface LoopbackOptions {
   loss?: number;
   duplicate?: number;
   seed?: number;
+  /** bytes per second each way (0 / absent: unlimited) */
+  bandwidth?: number;
 }
 
 interface Pending {
@@ -30,6 +35,9 @@ class LoopbackEnd implements NetTransport {
   private closed = false;
   /** last reliable delivery time on this end (keeps the reliable channel in order under jitter) */
   lastReliable = 0;
+  /** outgoing link: busy until (ms), and what is still leaving (time it has left, bytes, channel) */
+  linkFreeAt = 0;
+  outgoing: { leftAt: number; bytes: number; channel: NetChannel }[] = [];
 
   constructor(private readonly net: LoopbackNetwork) {}
 
@@ -41,7 +49,15 @@ class LoopbackEnd implements NetTransport {
     if (this.closed || !this.other || this.other.closed) return;
     // copy binary payloads: the sender may reuse its buffer
     const copy = typeof data === 'string' ? data : data.slice(0);
-    this.net.enqueue(this.other, channel, copy);
+    this.net.enqueue(this, this.other, channel, copy);
+  }
+
+  buffered(channel: NetChannel): number {
+    const now = this.net.now;
+    this.outgoing = this.outgoing.filter((o) => o.leftAt > now);
+    let n = 0;
+    for (const o of this.outgoing) if (o.channel === channel) n += o.bytes;
+    return n;
   }
 
   close(): void {
@@ -69,6 +85,7 @@ export class LoopbackNetwork {
   private rng: number;
   private readonly delay: number;
   private readonly jitter: number;
+  private bandwidth: number;
   private readonly loss: number;
   private readonly duplicate: number;
   /** messages sent / dropped on the 'state' channel (statistics) */
@@ -83,6 +100,12 @@ export class LoopbackNetwork {
     this.loss = Math.min(1, Math.max(0, opts.loss ?? 0));
     this.duplicate = Math.min(1, Math.max(0, opts.duplicate ?? 0));
     this.rng = (opts.seed ?? 1) >>> 0 || 1;
+    this.bandwidth = Math.max(0, opts.bandwidth ?? 0);
+  }
+
+  /** Bytes per second each way for what is sent from now on (0: unlimited). */
+  setBandwidth(bytesPerSecond: number): void {
+    this.bandwidth = Math.max(0, bytesPerSecond);
   }
 
   /** A connected pair of transports (a ↔ b). */
@@ -124,8 +147,16 @@ export class LoopbackNetwork {
     this.stallUntil = Math.max(this.stallUntil, this.now + Math.max(0, ms));
   }
 
-  enqueue(to: LoopbackEnd, channel: NetChannel, data: NetPayload): void {
-    const from = Math.max(this.now, this.stallUntil);
+  enqueue(sender: LoopbackEnd, to: LoopbackEnd, channel: NetChannel, data: NetPayload): void {
+    let from = Math.max(this.now, this.stallUntil);
+    if (this.bandwidth > 0) {
+      // the sender's link: behind what it is still sending (a lost message used the link all the same)
+      const bytes = typeof data === 'string' ? utf8Length(data) : data.byteLength;
+      from = Math.max(from, sender.linkFreeAt) + (bytes * 1000) / this.bandwidth;
+      sender.linkFreeAt = from;
+      sender.outgoing = sender.outgoing.filter((o) => o.leftAt > this.now);
+      sender.outgoing.push({ leftAt: from, bytes, channel });
+    }
     if (channel === 'state') {
       this.sentState++;
       if (this.random() < this.loss) {
@@ -160,6 +191,19 @@ export class LoopbackNetwork {
     this.rng = x >>> 0;
     return this.rng / 4294967296;
   }
+}
+
+function utf8Length(s: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      // a surrogate pair: one 4-byte character
+      n += 4;
+      i++;
+    } else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+  }
+  return n;
 }
 
 /** Internal close marker on the reliable queue. */

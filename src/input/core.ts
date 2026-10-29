@@ -4,7 +4,7 @@
  */
 import type { ControlInput, KeyAction, Settings } from '../core/types';
 import { buildBindingTable, resolveKey, type BindingTable, type InputAction } from './bindings';
-import { PAD_MENU_BUTTONS, buttonPressed, padsForPlayer, readPad, type GamepadLike, type PadMenuInput } from './gamepad';
+import { PAD_MENU_BUTTONS, buttonPressed, padsForPlayer, readPad, readPadSteps, type GamepadLike, type PadMenuInput } from './gamepad';
 import { digitalSteerTarget, stepDigitalSteer, stepPedal, steerRampRate } from './smoothing';
 
 /** Driving one-shots: key action → ControlInput flag. */
@@ -81,6 +81,9 @@ export class InputCore {
   /** menu-navigation presses from any pad (D-pad / A / B) and the previous held set per pad */
   private menuQueue: PadMenuInput[] = [];
   private menuPrev = new Map<number, Set<PadMenuInput>>();
+  /** D-pad left/right presses per player (tyre compound in the MFD) and the previous held set per pad */
+  private stepQueue: { playerIndex: 0 | 1; step: -1 | 1 }[] = [];
+  private stepPrev = new Map<number, Set<-1 | 1>>();
 
   constructor(settings: InputCoreSettings) {
     this.table = buildBindingTable(settings);
@@ -189,6 +192,13 @@ export class InputCore {
     return out;
   }
 
+  /** D-pad left/right presses (-1 / +1) per player since the last call; the player's pad only. */
+  consumePadSteps(): { playerIndex: 0 | 1; step: -1 | 1 }[] {
+    const out = this.stepQueue;
+    this.stepQueue = [];
+    return out;
+  }
+
   isHeld(action: KeyAction, playerIndex: 0 | 1): boolean {
     if (this.isKeyHeld(action, playerIndex)) return true;
     const pad = this.players[playerIndex].pad;
@@ -207,9 +217,16 @@ export class InputCore {
     }
   }
 
-  reset(): void {
-    this.activeKeys.clear();
+  /**
+   * Drop latches, queues, smoothing and pad history. `keepKeyboard`: keep the held keys (a pause: keyups are still
+   * tracked meanwhile, and the OS stops auto-repeating a held key once another key is pressed, so a key held
+   * through the pause would otherwise stay dead after resume).
+   */
+  reset(keepKeyboard = false): void {
+    if (!keepKeyboard) this.activeKeys.clear();
     this.queue = [];
+    this.stepQueue = [];
+    this.stepPrev.clear();
     // Dropping the pad history makes still-held buttons count as "already down" on the next poll (no fake presses).
     this.padPrev.clear();
     this.menuQueue = [];
@@ -265,8 +282,12 @@ export class InputCore {
 
   private pollPads(pads: readonly (GamepadLike | null | undefined)[]): void {
     const nextPrev = new Map<number, Set<KeyAction>>();
+    const nextStepPrev = new Map<number, Set<-1 | 1>>();
     for (const playerIndex of [0, 1] as const) {
       const merged = emptyPad();
+      // two pads pressing the same action in one poll count once
+      const pressed = new Set<KeyAction>();
+      const stepped = new Set<-1 | 1>();
       for (const pad of padsForPlayer(pads, playerIndex, this.splitScreen)) {
         const reading = readPad(pad, this.deadzone, this.sensitivity);
         merged.throttle = Math.max(merged.throttle, reading.throttle);
@@ -278,12 +299,25 @@ export class InputCore {
         for (const action of held) {
           merged.held.add(action);
           // First sighting of a pad: buttons already down are not presses.
-          if (prev && !prev.has(action)) this.press(action, playerIndex);
+          if (prev && !prev.has(action) && !pressed.has(action)) {
+            pressed.add(action);
+            this.press(action, playerIndex);
+          }
         }
         nextPrev.set(key, held);
+        const prevSteps = this.stepPrev.get(key);
+        const heldSteps = new Set(readPadSteps(pad));
+        for (const step of heldSteps) {
+          if (prevSteps && !prevSteps.has(step) && !stepped.has(step) && this.stepQueue.length < MAX_QUEUED_ACTIONS) {
+            stepped.add(step);
+            this.stepQueue.push({ playerIndex, step });
+          }
+        }
+        nextStepPrev.set(key, heldSteps);
       }
       this.players[playerIndex].pad = merged;
     }
     this.padPrev = nextPrev;
+    this.stepPrev = nextStepPrev;
   }
 }

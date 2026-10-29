@@ -44,7 +44,7 @@ import { computeAIInput } from '../ai/index';
 import { RaceScene, type RaceSceneOptions } from '../render/RaceScene';
 import type { GameRenderer } from '../render/GameRenderer';
 import { HudLayer, type HudCallbacks, type HudFrameInfo, type HudView } from '../ui/hud/index';
-import { FixedStepClock, MAX_FRAME_DT, MAX_SUBSTEPS } from './clock';
+import { FixedStepClock, MAX_FRAME_DT, MAX_SUBSTEPS, ONLINE_MAX_BACKLOG, ONLINE_MAX_FRAME_DT, ONLINE_MAX_SUBSTEPS } from './clock';
 import { substepInputs, withPendingOneShots } from './controls';
 import { FlashbackBuffer, REWIND_SECONDS, flashbacksLeft } from './flashback';
 import { ReplayRecorder, type ReplayClip } from './replay';
@@ -100,6 +100,14 @@ export interface SessionOutcome {
 
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** How a frame's real time is used (SessionRuntime.frame). */
+export interface FrameTiming {
+  /** real time (s) for the simulation clock (online: a slow frame is caught up over the next frames); default `dt` */
+  simDt?: number;
+  /** the page is hidden (an online host kept running by a background timer): simulate and send, draw nothing */
+  background?: boolean;
+}
+
 /** Online client with no control this step (pause menu open): coast. */
 const COAST: ControlInput = {
   throttle: 0,
@@ -154,6 +162,8 @@ export class SessionRuntime {
   readonly host: HostSession | null = null;
   readonly client: ClientSession | null = null;
   private readonly online: 'host' | 'client' | null;
+  /** online host whose page is hidden: its own car is AI-driven meanwhile (see setAway) */
+  private away = false;
 
   constructor(deps: SessionDeps, config: SessionConfig, ctx: SessionContext, track: BuiltTrack, net: SessionNet | null = null) {
     this.deps = deps;
@@ -161,8 +171,11 @@ export class SessionRuntime {
     this.ctx = ctx;
     this.track = track;
     this.online = net ? net.role : null;
-    // a guest catches up a slow frame in full (a step is only its own car): time it dropped, the host would guess
-    this.clock = new FixedStepClock(SIM_DT, this.online === 'client' ? Math.ceil(MAX_FRAME_DT / SIM_DT) : MAX_SUBSTEPS);
+    // online, a slow frame is caught up instead of dropped (see clock.ts): the host's world is everyone's clock (time
+    // it dropped, it would skip a guest's inputs) and a guest's steps are its inputs (time it dropped, the host guesses)
+    this.clock = this.online
+      ? new FixedStepClock(SIM_DT, ONLINE_MAX_SUBSTEPS, { maxFrameDt: ONLINE_MAX_FRAME_DT, maxBacklog: ONLINE_MAX_BACKLOG })
+      : new FixedStepClock(SIM_DT, MAX_SUBSTEPS);
     if (net?.role === 'client') {
       this.client = net.client;
       this.world = net.client.world;
@@ -171,6 +184,7 @@ export class SessionRuntime {
       this.host = new HostSession(this.world, track, net.session, net.players, {
         playerLeft: (_pi, name) => (this.hud as HudLayer | undefined)?.notify(`${name} 已離線`, '改由 AI 代駕', 'warn', 4),
         now: () => performance.now(),
+        owed: (sinceLastStep) => this.clock.owed(sinceLastStep),
       });
     }
     this.humans = playerCarIds(this.world);
@@ -212,8 +226,11 @@ export class SessionRuntime {
 
   // ───────────────────────────── per frame ─────────────────────────────
 
-  /** One rendered frame of real time `dt` (already clamped by the App). `menuInputs` = pad pause-menu navigation. */
-  frame(dt: number, fps: number, actions: readonly InputAction[], menuInputs: readonly PadMenuInput[] = []): void {
+  /**
+   * One rendered frame of real time `dt` (already clamped by the App). `menuInputs` = pad pause-menu navigation;
+   * `timing` = the real time for the simulation clock and whether to draw (see FrameTiming).
+   */
+  frame(dt: number, fps: number, actions: readonly InputAction[], menuInputs: readonly PadMenuInput[] = [], timing: FrameTiming = {}): void {
     if (this.disposed) return;
     if (this.fastForward) {
       this.runFastForward();
@@ -221,7 +238,7 @@ export class SessionRuntime {
     }
     // a guest's pause menu does not stop the race (that player just coasts); the host's stops it for everyone
     if (!this.pausedFlag || this.online === 'client') {
-      const steps = this.clock.advance(dt);
+      const steps = this.clock.advance(timing.simDt ?? dt);
       const controls = this.pausedFlag ? [null, null] : this.readControls();
       if (steps > 0) this.simulate(steps, controls);
       else this.holdOneShots(controls);
@@ -236,7 +253,7 @@ export class SessionRuntime {
       this.handleMenuInput(m);
     }
     if (this.disposed) return;
-    this.present(this.pausedFlag ? 0 : dt, fps);
+    if (!timing.background) this.present(this.pausedFlag ? 0 : dt, fps);
     this.watchFinish();
   }
 
@@ -308,11 +325,24 @@ export class SessionRuntime {
     this.pausedFlag = paused;
     if (this.online !== 'client') this.clock.reset();
     this.pending = [null, null];
-    this.deps.input.reset();
+    // keys physically held stay held: keyups are tracked during the pause (blur / hidden tab reset them on their own)
+    this.deps.input.reset(true);
     if (this.online !== 'client') this.deps.audio.setPaused(paused);
     this.hud.setPaused(paused, this.world);
     // the host's pause menu stops the race for everyone
     this.host?.setPaused(paused);
+  }
+
+  /**
+   * Online host: its page is hidden (true) / shown again (false). The race goes on for everyone (the App keeps it
+   * running on a background timer); meanwhile the host's own car is driven by the AI controller, as a guest's car is
+   * once its inputs stop, and the session sounds fade out.
+   */
+  setAway(away: boolean): void {
+    if (this.disposed || this.online !== 'host' || away === this.away) return;
+    this.away = away;
+    this.deps.audio.setPaused(away || this.pausedFlag || this.fastForward);
+    if (!away) this.hud.notify('已回到比賽', '離開畫面期間由 AI 代駕', 'info', 3);
   }
 
   /** Settings overlay (opened from the pause menu) closed: the pause menu takes input again. */
@@ -459,10 +489,18 @@ export class SessionRuntime {
   /** Current controls of every human player, indexed by playerIndex (null = no such player). */
   private readControls(): (ControlInput | null)[] {
     const out: (ControlInput | null)[] = [null, null];
+    // D-pad left/right on a pad steps the tyre compound of that player's open MFD
+    for (const s of this.deps.input.consumePadSteps()) this.hud.stepMfdCompound(s.playerIndex, s.step);
     for (const v of this.hudViews) {
       if (!this.humans.includes(v.carId)) continue;
       const pi = v.playerIndex;
-      out[pi] = withPendingOneShots(this.deps.input.getControl(pi), this.pending[pi] ?? null);
+      const raw = this.deps.input.getControl(pi);
+      if (raw.ersCycle) {
+        // the ERS assist picks the mode itself, so the key does nothing: tell the player
+        const car = this.client ? this.client.car : this.world.cars[getPlayerCarId(this.world, pi)];
+        if (car?.assists.ersAssist) this.hud.notifyErsAssist(pi);
+      }
+      out[pi] = withPendingOneShots(raw, this.pending[pi] ?? null);
     }
     return out;
   }
@@ -493,6 +531,7 @@ export class SessionRuntime {
         inputs = [local[0] ?? null, null, null, null];
         this.host.fillInputs(inputs);
         if (this.autopilot) for (const id of this.humans) this.autopilotFor(id, inputs, true);
+        else if (this.away) this.autopilotFor(getPlayerCarId(this.world, 0), inputs, false);
       }
       stepWorld(this.world, this.track, inputs, SIM_DT);
       this.afterStep();
@@ -551,9 +590,12 @@ export class SessionRuntime {
   private handleAction(a: InputAction): void {
     const pi = a.playerIndex;
     switch (a.action) {
-      case 'pause':
-        this.setPaused(!this.pausedFlag);
+      case 'pause': {
+        // with the 操作說明 panel open the pause key closes it and the race stays paused
+        const outcome = this.hud.onPauseKey(this.pausedFlag);
+        if (outcome !== 'stay') this.setPaused(outcome === 'pause');
         return;
+      }
       case 'fullscreen':
         this.deps.toggleFullscreen();
         return;
@@ -586,8 +628,9 @@ export class SessionRuntime {
 
   /** Gamepad in the pause menu: D-pad moves / changes values, A confirms, B resumes (menu callbacks may dispose us). */
   private handleMenuInput(m: PadMenuInput): void {
-    if (m === 'back') this.setPaused(false);
-    else if (m === 'confirm') this.hud.activateMenu();
+    if (m === 'back') {
+      if (this.hud.onPauseKey(true) === 'resume') this.setPaused(false);
+    } else if (m === 'confirm') this.hud.activateMenu();
     else this.hud.navigateMenu(m);
   }
 

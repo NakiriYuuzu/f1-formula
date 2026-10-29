@@ -5,7 +5,7 @@
  */
 import type { CameraMode, Settings, ViewSpec, WorldState } from '../core/types';
 import type { AudioEngine } from '../audio/index';
-import type { InputAction } from '../input/index';
+import type { InputAction, PadMenuInput } from '../input/index';
 import { RaceScene } from '../render/RaceScene';
 import type { GameRenderer } from '../render/GameRenderer';
 import { HudLayer, type HudCallbacks } from '../ui/hud/index';
@@ -95,8 +95,10 @@ export class ReplayRuntime {
     return { time: this.t, duration: this.duration, playing: this.playing, speed: this.speed };
   }
 
-  frame(dt: number, fps: number, actions: readonly InputAction[]): void {
+  /** `menuInputs` = gamepad presses: A play/pause, D-pad left/right seek, up/down speed (the replay bar's own actions). */
+  frame(dt: number, fps: number, actions: readonly InputAction[], menuInputs: readonly PadMenuInput[] = []): void {
     if (this.disposed) return;
+    for (const m of menuInputs) this.hud.handleReplayPad(m);
     for (const a of actions) {
       if (a.action === 'pause') this.exitRequested = true;
       else if (a.action === 'camera') this.cycleCamera();

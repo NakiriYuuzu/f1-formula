@@ -194,3 +194,33 @@ export function cycle<T>(list: readonly T[], current: T, step: 1 | -1): T {
   if (i < 0) return list[0];
   return list[(((i + step) % n) + n) % n];
 }
+
+/** Seconds between two repeats of the same HUD notice (a key held / mashed must not spam toasts). */
+export const NOTICE_GAP = 3;
+
+/** Per-key rate limiter driven by frame time: `fire(key)` is true at most once per `gap` seconds of `tick`ed time. */
+export class NoticeGate {
+  private readonly wait = new Map<number, number>();
+  constructor(private readonly gap = NOTICE_GAP) {}
+  tick(dt: number): void {
+    const step = Number.isFinite(dt) && dt > 0 ? dt : 0;
+    for (const [key, left] of this.wait) {
+      if (left <= step) this.wait.delete(key);
+      else this.wait.set(key, left - step);
+    }
+  }
+  fire(key: number): boolean {
+    if (this.wait.has(key)) return false;
+    this.wait.set(key, this.gap);
+    return true;
+  }
+}
+
+/**
+ * What the pause key / pad B does: while paused it first closes the 操作說明 panel (`closeHelp` true = something
+ * was closed) and only resumes when nothing was.
+ */
+export function pauseKeyOutcome(paused: boolean, closeHelp: () => boolean): 'pause' | 'resume' | 'stay' {
+  if (!paused) return 'pause';
+  return closeHelp() ? 'stay' : 'resume';
+}

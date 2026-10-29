@@ -12,6 +12,11 @@ export interface NetTransport {
   /** false once closed (locally or by the other side) */
   readonly open: boolean;
   send(channel: NetChannel, data: NetPayload): void;
+  /**
+   * Bytes sent on `channel` that have not left yet (WebRTC `bufferedAmount`): what is queued behind a congested link.
+   * Real-time state is sent only while this stays small, so it never waits behind stale state.
+   */
+  buffered(channel: NetChannel): number;
   onMessage: ((channel: NetChannel, data: NetPayload) => void) | null;
   onClose: (() => void) | null;
   close(): void;

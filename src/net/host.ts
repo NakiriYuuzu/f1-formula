@@ -3,7 +3,10 @@
  * (every car, AI included); this class only connects it to the remote players:
  * - per remote player an input timeline: record seq q is played at host step q + delay, the delay being the earliest
  *   arrival of the last AGE_WINDOW steps plus PLAYOUT_MARGIN (re-anchored when the records keep arriving later,
- *   shortened a step at a time when they arrive earlier); one-shots fire on counter changes. A record not there in
+ *   shortened a step at a time when they arrive earlier); one-shots fire on counter changes. An arrival's age counts
+ *   the steps the host still has to run (what its clock still simulates given the wall-clock time since its last
+ *   step: HostCallbacks.owed): records that arrive while the host's frame stalls are not early, and the delay stays
+ *   the link's. A record not there in
  *   time is guessed (the last one held); when it arrives the car is put back to before that step and every step since
  *   replayed with the inputs known now, by the per-car step the client predicts with (race predictHumanStep): a lag
  *   spike leaves no trace on the car. Only on the open road, never across a car-to-car contact, a completed lap or a
@@ -13,12 +16,16 @@
  *   was played (it lost time) is taken back on its own timeline at once;
  * - snapshots at SNAPSHOT_HZ (the packed render frame + the receiver's car before its first guess still open to a
  *   replay, the seq before it and the host time of that state), the HUD mirror at MIRROR_HZ (patches), game events as
- *   they happen, pings;
+ *   they happen, pings. Newest wins: a snapshot or patch that is due waits (the next step tries again) while the link
+ *   still has more than LINK_BACKLOG bytes queued, so a link slower than what the host sends gets fewer, fresh
+ *   snapshots instead of a queue of stale ones that every message waits behind. Snapshots go first; a mirror patch
+ *   (the diff since the last one sent) takes the link when it is clear, after MIRROR_MAX_WAIT also past queued
+ *   snapshots, never behind a reliable message still queued (on a very slow link patches would pile up);
  * - commands (pit request / cancel, ERS mode, retire) for the sender's own car only;
  * - a player whose link closes hands its car to the AI controller (name marked 「AI 代駕」) and the race goes on.
  * Pure logic over NetTransport (tests: loopback).
  */
-import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, PlayerIndex, SessionResult, WorldState } from '../core/types';
+import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, PlayerIndex, RenderFrame, SessionResult, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
 import { computeAIInput } from '../ai/index';
 import { isCarHeld } from '../physics/index';
@@ -61,6 +68,12 @@ const GHOST_AFTER = 6;
 const HOLD_STEPS = 2;
 /** Records further ahead of the newest one (steps) are ignored. */
 const MAX_AHEAD = 1200;
+/** Without HostCallbacks.owed: the wall-clock time since the last step counts, at most this many steps. */
+const MAX_BEHIND = 60;
+/** A due snapshot / mirror patch waits while more than this (bytes) is queued on the link (nothing but what is leaving). */
+const LINK_BACKLOG = 1024;
+/** Steps a due mirror patch waits for a clear link at most (then it goes behind queued snapshots, not patches). */
+const MIRROR_MAX_WAIT = 60;
 
 /** The car before a step: what predictHumanStep reads and writes. */
 interface SavedCar {
@@ -120,6 +133,9 @@ interface Remote {
   /** last mirror state sent (diff base) */
   mirror: unknown;
   mirrorSeq: number;
+  /** a snapshot is due / the step a mirror patch became due (null: none) */
+  snapshotDue: boolean;
+  mirrorDueAt: number | null;
   eventSeq: number;
   /** last round trip (ms), null before the first answer */
   ping: number | null;
@@ -131,6 +147,11 @@ export interface HostCallbacks {
   playerLeft?(playerIndex: PlayerIndex, name: string): void;
   /** wall clock (ms) the round trips are measured with; default the simulation time (tests: loopback time) */
   now?(): number;
+  /**
+   * Real time (s) the host still simulates if a frame came `sinceLastStep` s after its last step: its clock's backlog
+   * plus that frame, as the clock keeps them (FixedStepClock.owed). Default: `sinceLastStep` (at most MAX_BEHIND steps).
+   */
+  owed?(sinceLastStep: number): number;
 }
 
 export class HostSession {
@@ -140,6 +161,8 @@ export class HostSession {
   private readonly snapshotEvery = Math.max(1, Math.round(1 / (SNAPSHOT_HZ * SIM_DT)));
   private readonly mirrorEvery = Math.max(1, Math.round(1 / (MIRROR_HZ * SIM_DT)));
   private pingAt = 0;
+  /** wall clock (ms, see clock()) of the last step; null before the first / after a pause */
+  private lastStepAt: number | null = null;
   private disposed = false;
   /** statistics: steps replayed after late inputs */
   replayed = 0;
@@ -175,6 +198,8 @@ export class HostSession {
         laps: 0,
         mirror: undefined,
         mirrorSeq: 0,
+        snapshotDue: false,
+        mirrorDueAt: null,
         eventSeq: 0,
         ping: null,
         connected: true,
@@ -228,6 +253,7 @@ export class HostSession {
   afterStep(): void {
     if (this.disposed) return;
     this.steps++;
+    this.lastStepAt = this.clock();
     for (const r of this.remotes.values()) {
       if (!r.connected) continue;
       // a car-to-car contact, a lap completed (per-lap tyre / ERS counters) or a step off the open road: the steps so
@@ -239,8 +265,14 @@ export class HostSession {
       r.touchAt = touch;
       r.laps = laps;
     }
-    if (this.steps % this.snapshotEvery === 0) this.sendSnapshots();
-    if (this.steps % this.mirrorEvery === 0) this.sendMirror();
+    const snapshot = this.steps % this.snapshotEvery === 0;
+    const mirror = this.steps % this.mirrorEvery === 0;
+    for (const r of this.remotes.values()) {
+      if (snapshot) r.snapshotDue = true;
+      if (mirror && r.mirrorDueAt === null) r.mirrorDueAt = this.steps;
+    }
+    this.sendSnapshots();
+    this.sendMirror(false);
     if (this.world.time >= this.pingAt) {
       this.pingAt = this.world.time + PING_EVERY;
       // every player's last round trip rides along (each client shows its own)
@@ -262,11 +294,12 @@ export class HostSession {
 
   /** Session over: the classification for everyone (a last mirror first, so HUD and results agree). */
   sendResult(result: SessionResult, final: boolean): void {
-    this.sendMirror();
+    this.sendMirror(true);
     this.broadcast({ t: 'result', session: this.session, result, final });
   }
 
   setPaused(paused: boolean): void {
+    this.lastStepAt = null;
     this.broadcast({ t: 'pause', paused });
   }
 
@@ -434,7 +467,8 @@ export class HostSession {
       }
       if (newest === null) return;
       if (r.newest === null || newest > r.newest) r.newest = newest;
-      const age = this.steps - newest;
+      // steps the host has not run yet (a stall it is catching up) do not make the records look early
+      const age = this.steps + this.behind() - newest;
       r.arrival = r.arrival === null ? age : Math.min(r.arrival, age);
       return;
     }
@@ -467,10 +501,27 @@ export class HostSession {
     }
   }
 
+  /** Steps the host still has to run now (its clock's owed time for the wall-clock time since the last step). */
+  private behind(): number {
+    if (this.lastStepAt === null) return 0;
+    const since = Math.max(0, (this.clock() - this.lastStepAt) / 1000);
+    const owed = this.cb.owed ? this.cb.owed(since) : Math.min(since, MAX_BEHIND * SIM_DT);
+    // (whole steps; the epsilon keeps an exact multiple from rounding down: one step short shrinks the delay)
+    return Number.isFinite(owed) ? Math.max(0, Math.floor(owed / SIM_DT + 1e-6)) : 0;
+  }
+
+  /** Bytes still queued on a remote's link (both channels share it). */
+  private backlog(r: Remote): number {
+    return r.transport.buffered('state') + r.transport.buffered('reliable');
+  }
+
+  /** Due snapshots to the remotes whose link is clear (see the header: newest wins). */
   private sendSnapshots(): void {
-    const frame = buildRenderFrame(this.world, this.track);
+    let frame: RenderFrame | null = null;
     for (const r of this.remotes.values()) {
-      if (!r.connected) continue;
+      if (!r.connected || !r.snapshotDue || this.backlog(r) > LINK_BACKLOG) continue;
+      r.snapshotDue = false;
+      frame ??= buildRenderFrame(this.world, this.track);
       const car = this.carOf(r);
       // the car before its first guess still open to a replay (the steps after it are the client's to predict)
       const guess = r.slots.find((s) => s.rec === null && s.seq !== null);
@@ -486,10 +537,14 @@ export class HostSession {
     }
   }
 
-  private sendMirror(): void {
-    const view = mirrorView(this.world);
+  /** Due mirror patches (`force`: every remote now, e.g. before the result) to the remotes whose link is clear. */
+  private sendMirror(force: boolean): void {
+    let view: ReturnType<typeof mirrorView> | null = null;
     for (const r of this.remotes.values()) {
       if (!r.connected) continue;
+      if (!force && (r.mirrorDueAt === null || (this.backlog(r) > LINK_BACKLOG && (this.steps - r.mirrorDueAt < MIRROR_MAX_WAIT || r.transport.buffered('reliable') > LINK_BACKLOG)))) continue;
+      r.mirrorDueAt = null;
+      view ??= mirrorView(this.world);
       const patch = diffMirror(r.mirror as never, view);
       r.mirror = view;
       if (patch === undefined) continue;

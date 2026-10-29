@@ -19,12 +19,13 @@ import { buildQuickStart } from '../meta/sessionBuilder';
 import { GameRenderer } from '../render/GameRenderer';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
+import { BackgroundTicker } from './backgroundTicker';
 import { FpsMeter, MAX_FRAME_DT, clampFrameDt } from './clock';
 import { reportError } from './errorOverlay';
 import { parseQuickStart } from './quickStart';
 import { ReplayRuntime, type ReplayDeps } from './ReplayRuntime';
 import { forceIncident } from '../race/index';
-import { SessionRuntime, type SessionDeps, type SessionNet, type SessionOutcome } from './SessionRuntime';
+import { SessionRuntime, type FrameTiming, type SessionDeps, type SessionNet, type SessionOutcome } from './SessionRuntime';
 import { OnlineController } from './online';
 import { setOnlineHooks } from '../ui/menus/onlineHooks';
 import { ClientSession } from '../net/client';
@@ -90,6 +91,8 @@ export class App {
   private manualStepped = false;
   /** the next animation frame starts fresh (after a blocking load) */
   private skipDt = false;
+  /** online host with its page hidden: frames from a worker timer instead of animation frames (see backgroundTicker) */
+  private readonly background = new BackgroundTicker(() => this.backgroundFrame());
   private errorStreak = 0;
   private started = false;
   private destroyed = false;
@@ -197,6 +200,7 @@ export class App {
     if (this.destroyed) return;
     this.destroyed = true;
     cancelAnimationFrame(this.rafId);
+    this.background.stop();
     this.loadToken++;
     for (const type of ['pointerdown', 'keydown', 'touchstart'] as const) {
       window.removeEventListener(type, this.onGesture, { capture: true });
@@ -231,16 +235,49 @@ export class App {
     this.lastFrameAt = t;
     this.fps.tick(raw);
     let dt = clampFrameDt(raw);
+    // the simulation clock gets the frame's real time (an online session catches up a slow frame, offline drops it)
+    let simDt = raw;
     if (this.manualStepped || this.skipDt) {
       this.manualStepped = false;
       this.skipDt = false;
       dt = 0;
+      simDt = 0;
     }
-    this.tick(dt, null);
+    this.tick(dt, null, { simDt });
   };
 
-  /** One frame: real-time (`manualSteps` null) or a test-hook step of exactly `manualSteps` simulation steps. */
-  private tick(dt: number, manualSteps: number | null): void {
+  /** A worker-timer frame while the online host's page is hidden: the race runs on for everyone, nothing is drawn. */
+  private backgroundFrame(): void {
+    if (this.destroyed || !this.syncAway()) return;
+    const t = performance.now();
+    let raw = this.lastFrameAt === null ? 0 : (t - this.lastFrameAt) / 1000;
+    this.lastFrameAt = t;
+    if (this.skipDt) {
+      // (a session that finished loading while hidden starts fresh, as on an animation frame)
+      this.skipDt = false;
+      raw = 0;
+    }
+    this.tick(clampFrameDt(raw), null, { simDt: raw, background: true });
+  }
+
+  /**
+   * The online host's page hidden ⇄ shown: its car on the AI and the background timer on, or both off. Returns whether
+   * the host is away now.
+   */
+  private syncAway(): boolean {
+    const s = this.state === 'session' ? this.session : null;
+    const away = !this.destroyed && s !== null && s.onlineRole === 'host' && document.visibilityState === 'hidden';
+    s?.setAway(away);
+    if (away) this.background.start();
+    else this.background.stop();
+    return away;
+  }
+
+  /**
+   * One frame: real-time (`manualSteps` null) or a test-hook step of exactly `manualSteps` simulation steps.
+   * `timing`: the simulation clock's real time and whether to draw (SessionRuntime.frame).
+   */
+  private tick(dt: number, manualSteps: number | null, timing: FrameTiming = {}): void {
     try {
       this.online.room()?.tick();
       this.input.update(dt);
@@ -255,13 +292,13 @@ export class App {
           // menus open above the session (settings overlay, fast-forward card): driving actions are void
           const acts = this.menus.isOpen() ? [] : actions;
           this.feedVehicleSpeeds(s);
-          if (manualSteps === null) s.frame(dt, this.fps.fps, acts, this.menus.isOpen() ? [] : menuInputs);
+          if (manualSteps === null) s.frame(dt, this.fps.fps, acts, this.menus.isOpen() ? [] : menuInputs, timing);
           else s.advanceManual(manualSteps, this.fps.fps, acts);
           if (this.session === s && s.isOver()) this.finishSession();
           break;
         }
         case 'replay':
-          this.replay?.frame(dt, this.fps.fps, actions);
+          this.replay?.frame(dt, this.fps.fps, actions, menuInputs);
           break;
         default:
           this.renderBackdrop(dt);
@@ -423,6 +460,7 @@ export class App {
     // the tab was hidden / the window lost focus while loading: start paused like a running session would be
     // (online the race runs for everyone regardless)
     if (!session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
+    this.syncAway();
   }
 
   private finishSession(): void {
@@ -669,6 +707,9 @@ export class App {
   private readonly onVisibility = (): void => {
     this.audio.setMusicHidden(document.hidden);
     if (document.visibilityState === 'hidden') this.autoPause();
+    // back: the hidden time is not a slow frame to catch up (the online host's ran on the background timer)
+    else this.skipDt = true;
+    this.syncAway();
   };
 
   private readonly onWindowBlur = (): void => {

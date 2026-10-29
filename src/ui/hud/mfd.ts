@@ -1,7 +1,8 @@
 /**
  * Multi-function display (pit strategy): next tyre compound, "Box 本圈" / cancel, ERS mode buttons, current tyre
  * summary and the estimated pit-stop time loss. Mouse, plus keyboard shortcuts while open
- * (1–4 ERS mode, 5 next compound, 6 box / cancel; split-screen: P1 top-row digits, P2 numpad digits).
+ * (1–4 ERS mode, 5 next compound, 6 box / cancel; split-screen: P1 top-row digits, P2 numpad digits); the player's
+ * gamepad D-pad left/right steps the compound (see padStep).
  */
 import type { CarEntry, ErsMode, TireCompound, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
@@ -101,7 +102,7 @@ export class MfdPanel {
     this.pitRows.push(new ShowSlot(loss));
     this.lossInfo = new TextSlot(loss);
     this.lossInfo.set(`預估進站損失 ≈ ${fin(pitLoss, PIT_LOSS_FALLBACK).toFixed(1)} 秒`);
-    el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消');
+    el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方');
   }
 
   isOpen(): boolean {
@@ -172,6 +173,13 @@ export class MfdPanel {
     if (n <= 4) this.actions.setErsMode(ERS_MODES[n - 1]);
     else if (n === 5) this.stepCompound(1);
     else this.toggleBox();
+    return true;
+  }
+
+  /** Gamepad D-pad left/right while open: previous / next compound. Returns true when consumed. */
+  padStep(step: 1 | -1): boolean {
+    if (!this.open) return false;
+    this.stepCompound(step);
     return true;
   }
 

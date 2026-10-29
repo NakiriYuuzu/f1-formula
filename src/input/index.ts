@@ -18,9 +18,11 @@ export { ALL_KEY_ACTIONS, buildBindingTable, resolveKey, type BindingTable } fro
 export { InputCore, MAX_QUEUED_ACTIONS, QUEUED_ACTIONS } from './core';
 export {
   PAD_BUTTON_ACTIONS,
+  PAD_COMPOUND_BUTTONS,
   PAD_MENU_BUTTONS,
   padsForPlayer,
   readPad,
+  readPadSteps,
   stickToSteer,
   triggerToPedal,
   type GamepadButtonLike,
@@ -154,14 +156,19 @@ export class InputManager {
     return this.core.consumeMenuInputs();
   }
 
+  /** D-pad left/right presses per player (tyre compound in an open MFD) since the last call. */
+  consumePadSteps(): { playerIndex: 0 | 1; step: -1 | 1 }[] {
+    return this.core.consumePadSteps();
+  }
+
   /** Held state of an action (e.g. lookBack). */
   isHeld(action: KeyAction, playerIndex: 0 | 1): boolean {
     return this.core.isHeld(action, playerIndex);
   }
 
-  /** Clear all held/latched state (on pause, blur, session change). */
-  reset(): void {
-    this.core.reset();
+  /** Clear all held/latched state (on pause, blur, session change). `keepKeyboard`: keys physically held stay held. */
+  reset(keepKeyboard = false): void {
+    this.core.reset(keepKeyboard);
   }
 
   rumble(playerIndex: 0 | 1, strength: number, durationMs: number): void {
@@ -221,6 +228,8 @@ export class InputManager {
 
   private readonly onKeyUp = (e: KeyboardEvent): void => {
     if (!e.code) return;
+    // macOS sends no keyup for other keys while Cmd is down: a driving key released under Cmd would stay stuck
+    if (e.code === 'MetaLeft' || e.code === 'MetaRight') this.core.releaseKeyboard();
     const bound = this.core.keyUp(e.code);
     if (bound && e.cancelable && this.isDriving() && !isTextEntryTarget(e.target)) e.preventDefault();
   };

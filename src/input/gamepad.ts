@@ -46,6 +46,12 @@ export const PAD_MENU_BUTTONS: readonly (readonly [number, PadMenuInput])[] = [
   [1, 'back'],
 ];
 
+/** D-pad left/right (unused while driving): step the tyre compound in an open MFD, per player. */
+export const PAD_COMPOUND_BUTTONS: readonly (readonly [number, -1 | 1])[] = [
+  [14, -1],
+  [15, 1],
+];
+
 export const PAD_BUTTON_BRAKE = 6;
 export const PAD_BUTTON_THROTTLE = 7;
 export const PAD_AXIS_STEER = 0;
@@ -113,6 +119,13 @@ export function readPad(pad: GamepadLike, deadzone: number, sensitivity: number)
     steer: stickToSteer(pad.axes[PAD_AXIS_STEER] ?? 0, deadzone, sensitivity),
     held,
   };
+}
+
+/** Compound-step buttons currently down on a pad. */
+export function readPadSteps(pad: GamepadLike): (-1 | 1)[] {
+  const down: (-1 | 1)[] = [];
+  for (const [index, step] of PAD_COMPOUND_BUTTONS) if (buttonPressed(pad, index)) down.push(step);
+  return down;
 }
 
 /**
