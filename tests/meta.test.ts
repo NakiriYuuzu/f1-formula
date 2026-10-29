@@ -82,6 +82,7 @@ import {
   type SessionRequest,
 } from '../src/meta/sessionBuilder';
 import { MemoryStore, setStore, storageKey, type KeyValueStore } from '../src/meta/storage';
+import { useFictionalRoster } from './rosterFixture';
 import {
   evaluateObjective,
   isChapterUnlocked,
@@ -238,6 +239,7 @@ function singleRowResult(kind: SessionKind, mode: SessionResult['mode'], row: Pa
 
 beforeEach(() => {
   setStore(new MemoryStore());
+  useFictionalRoster();
 });
 
 // ───────────────────────────── session building ─────────────────────────────

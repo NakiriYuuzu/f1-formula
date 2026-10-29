@@ -34,6 +34,7 @@ import {
 } from '../src/meta/sessionBuilder';
 import { MemoryStore, setStore } from '../src/meta/storage';
 import { LOADING_TIPS } from '../src/meta/tips';
+import { useFictionalRoster } from './rosterFixture';
 
 const LAYOUT: LayoutMeta = {
   id: 'test-loop',
@@ -123,6 +124,7 @@ function raceResult(config: SessionConfig, order: string[], table: readonly numb
 
 beforeEach(() => {
   setStore(new MemoryStore());
+  useFictionalRoster();
 });
 
 describe('race-control rules', () => {

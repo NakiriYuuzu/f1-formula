@@ -2,7 +2,7 @@
  * Meta layer: real-circuit support (fake defs / layouts, independent of the registered track data):
  * real / original / random season calendars, sprint venues, old-save sanitising, track filter, real facts, credits list.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { RealCircuitInfo } from '../src/core/types';
 import { createCareer, isSeasonComplete, sanitizeCareer, startNextCareerSeason } from '../src/meta/career';
 import { circuitCredits, directionLabel, featureLabels, filterLayouts, formatKm, realFacts } from '../src/meta/circuits';
@@ -21,6 +21,7 @@ import {
   SEASON_ROUNDS,
 } from '../src/meta/season';
 import type { PlayerIdentity } from '../src/meta/roster';
+import { useFictionalRoster } from './rosterFixture';
 
 const REAL = { length: 5412, turns: 16, direction: 'clockwise', firstGrandPrix: 1950, source: 'Test source' } as const;
 
@@ -41,6 +42,9 @@ const IDENTITY: PlayerIdentity = {
   nationality: 'TWN',
   helmet: { primary: '#ff5a1f', secondary: '#ffffff', accent: '#111111' },
 };
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('real calendar', () => {
   test('forward layouts of registered real circuits in 2025 order; unregistered ids are skipped', () => {

@@ -205,6 +205,7 @@ export const DEFAULT_SETTINGS: Settings = {
   musicVolume: 0.6,
   // the player's bundled track (public/music/) when installed; without one the original track plays
   musicSource: 'bundled',
+  musicYoutube: '',
   musicInRace: false,
   units: 'kmh',
   defaultCamera: 'chase',

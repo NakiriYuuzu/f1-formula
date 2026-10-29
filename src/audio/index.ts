@@ -5,6 +5,7 @@
  *        ambience / session one-shots → sfx bus ┴→ session (pause fade) → master → compressor → limiter → out
  *        UI one-shots → ui bus → master
  *        background music (music.ts) → music bus → master (outside the session gate: pausing a session keeps it playing)
+ * The YouTube music source (youtube.ts) plays outside the graph, following the music bus level, scene and tab.
  * The AudioContext is created lazily inside resume() (user gesture); until it runs, every method is a no-op.
  */
 import { clamp, clamp01, damp, yawFromDir } from '../core/math';
@@ -12,7 +13,9 @@ import type { CameraMode, CarRenderState, GameEvent, RenderFrame, Settings } fro
 import { ListenerAmbience } from './ambience';
 import { CarVoice } from './carVoice';
 import { createAudioContext, createSharedAudio, glide, releaseNodes, snap, type SharedAudio } from './context';
-import { MusicPlayer, musicSceneFactor } from './music';
+import { MusicPlayer, musicSceneFactor, musicSceneOf } from './music';
+import { reportMusicError } from './musicStore';
+import { YouTubeMusic } from './youtube';
 import {
   ONBOARD_CAMERAS,
   carVelocity,
@@ -84,6 +87,9 @@ interface CarTrack {
   lastThump: number;
 }
 
+/** Creates the YouTube mini player (tests inject a fake; null = no page to show it in). */
+type YouTubeFactory = (onStatus: (message: string | null) => void) => Pick<YouTubeMusic, 'update' | 'dispose'>;
+
 const volume = (v: number, fallback: number): number => {
   const x = Number.isFinite(v) ? clamp01(v) : fallback;
   return x * x;
@@ -101,6 +107,12 @@ export class AudioEngine {
   /** App state last passed to setMusicScene() */
   private musicScene = 'boot';
   private musicHidden = false;
+  private readonly youtubeFactory: YouTubeFactory | null;
+  private youtube: Pick<YouTubeMusic, 'update' | 'dispose'> | null = null;
+  /** the YouTube link fails (or cannot play here): the original music plays instead */
+  private youtubeFailed = false;
+  private youtubeMessage: string | null = null;
+  private syncingMusic = false;
   private uiShots: OneShotPool | null = null;
   private paused = false;
   private disposed = false;
@@ -128,8 +140,10 @@ export class AudioEngine {
   /** player cars that already completed a valid lap (first lap is a trivial PB in races) */
   private readonly playerLapSeen = new Set<number>();
 
-  constructor(settings: Settings) {
+  constructor(settings: Settings, options: { youtube?: YouTubeFactory | null } = {}) {
     this.settings = settings;
+    this.youtubeFactory =
+      options.youtube !== undefined ? options.youtube : typeof document !== 'undefined' ? (onStatus) => new YouTubeMusic(onStatus) : null;
   }
 
   /** Must be called from a user gesture handler before any sound plays (autoplay policy). Safe to call repeatedly. */
@@ -390,6 +404,8 @@ export class AudioEngine {
     this.stopSession();
     this.uiShots?.stopAll();
     this.teardownContext();
+    this.youtube?.dispose();
+    this.youtube = null;
     this.disposed = true;
   }
 
@@ -460,8 +476,44 @@ export class AudioEngine {
     if (!ctx || !b) return;
     const target = this.musicTarget();
     glide(b.music.gain, target, ctx.currentTime, tau);
-    this.music?.setSource(this.settings.musicSource);
+    const youtube = this.settings.musicSource === 'youtube';
+    this.syncingMusic = true;
+    try {
+      this.syncYouTube(youtube, target);
+    } finally {
+      this.syncingMusic = false;
+    }
+    this.music?.setSource(youtube ? (this.youtubeFailed ? 'original' : 'off') : this.settings.musicSource);
+    this.music?.setScene(musicSceneOf(this.musicScene));
     this.music?.setActive(target > 0);
+  }
+
+  /** The YouTube mini player follows the music bus: its scenes, its level (times the master volume), the hidden tab. */
+  private syncYouTube(on: boolean, target: number): void {
+    if (!on) {
+      this.youtube?.dispose();
+      this.youtube = null;
+      this.youtubeFailed = false;
+      if (this.youtubeMessage !== null) reportMusicError(null);
+      this.youtubeMessage = null;
+      return;
+    }
+    if (!this.youtube) {
+      if (!this.youtubeFactory) {
+        // no page to show a player in: the original music
+        this.youtubeFailed = true;
+        return;
+      }
+      this.youtube = this.youtubeFactory((message) => {
+        this.youtubeMessage = message;
+        reportMusicError(message);
+        if (this.youtubeFailed === (message !== null)) return;
+        this.youtubeFailed = message !== null;
+        if (!this.syncingMusic) this.syncMusic(0.05);
+      });
+    }
+    const placement = musicSceneOf(this.musicScene) === 'race' ? 'race' : 'menu';
+    this.youtube.update(this.settings.musicYoutube, target > 0, target * volume(this.settings.masterVolume, 0.8), placement);
   }
 
   private teardownContext(): void {

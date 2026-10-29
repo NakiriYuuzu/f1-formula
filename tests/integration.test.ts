@@ -4,7 +4,7 @@
  * sub-step, events drained per frame, flashback snapshots, replay recording) → render frame / standings →
  * end of session → results. Also checks flashback determinism and replay fidelity.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { BuiltTrack, ControlInput, GameEvent, RenderFrame, SessionConfig, SessionKind, WorldState } from '../src/core/types';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
 import { computeAIInput } from '../src/ai/index';
@@ -40,6 +40,7 @@ import { ReplayRecorder, sampleClip } from '../src/app/replay';
 import { sceneCarsFor } from '../src/app/sceneCars';
 import { buildTextState } from '../src/app/textState';
 import { buildViews } from '../src/app/views';
+import { useRealGrid } from './rosterFixture';
 
 const FRAME_DT = 1 / 60;
 const PLAYER = { assists: { ...DEFAULT_ASSISTS }, setup: { ...DEFAULT_SETUP }, startCompound: null };
@@ -220,9 +221,11 @@ function endAndClassify(world: WorldState, track: BuiltTrack, kind: SessionKind)
 }
 
 describe('every mode / kind runs through the App flow', () => {
-  test('grand prix race (20 cars): lights, launch with scripted throttle, standings, mid-race and final results', () => {
+  beforeEach(useRealGrid);
+
+  test('grand prix race (22 cars of the default 2026 grid): lights, launch with scripted throttle, standings, mid-race and final results', () => {
     const config = buildSessionConfig(gpRequest('race', 'porto-lumen'));
-    expect(config.grid.length).toBe(20);
+    expect(config.grid.length).toBe(22);
     const { world, track, events } = exerciseSession(config);
     const types = new Set(events.map((e) => e.type));
     expect(types.has('lightsOn')).toBe(true);
@@ -242,7 +245,7 @@ describe('every mode / kind runs through the App flow', () => {
     expect(isSessionOver(world)).toBe(true);
     const result = buildSessionResult(world);
     expect(result.rows.find((r) => r.carId === player.id)?.status).toBe('retired');
-    expect(result.rows.filter((r) => r.status === 'finished').length).toBe(19);
+    expect(result.rows.filter((r) => r.status === 'finished').length).toBe(21);
   });
 
   test('grand prix qualifying (2026 rules, reverse layout)', () => {
@@ -284,28 +287,29 @@ describe('every mode / kind runs through the App flow', () => {
   });
 
   test('driver career round (race) with season development on the player team and an AI team', () => {
-    const fresh = createCareer(IDENTITY, 'kestrel', DEFAULT_SEASON_SETTINGS, 11, LAYOUTS);
-    const teams = { ...fresh.development.teams, kestrel: developmentFromRd({ aero: 2, power: 1, chassis: 1, reliability: 1 }), vanta: developmentFromRd({ aero: 3, power: 3, chassis: 2, reliability: 2 }) };
+    const fresh = createCareer(IDENTITY, 'ferrari', DEFAULT_SEASON_SETTINGS, 11, LAYOUTS);
+    expect(fresh.teamId).toBe('ferrari');
+    const teams = { ...fresh.development.teams, ferrari: developmentFromRd({ aero: 2, power: 1, chassis: 1, reliability: 1 }), mercedes: developmentFromRd({ aero: 3, power: 3, chassis: 2, reliability: 2 }) };
     const career = { ...fresh, development: { ...fresh.development, teams } };
     const round = careerRequest(career, 'race', 50, PLAYER, null);
     expect(round).not.toBeNull();
     const config = buildSessionConfig(round!);
     expect(config.mode).toBe('career');
     expect(config.drivers.some((d) => d.id === 'player')).toBe(true);
-    expect(config.development?.kestrel?.frontWing).toBe(2);
-    expect(config.development?.vanta?.powerUnit).toBe(3);
+    expect(config.development?.ferrari?.frontWing).toBe(2);
+    expect(config.development?.mercedes?.powerUnit).toBe(3);
     const { world } = exerciseSession(config);
     expectResult(world, 'race');
   });
 
-  test('my team weekend: qualifying then race with the 11th team', () => {
+  test('my team weekend: qualifying then race with the 12th team', () => {
     const mate = reserveDrivers()[0]!;
     const team = createMyTeam(
       {
         name: '新星測試車隊',
         shortName: 'NTS',
         livery: { primary: '#2266ff', secondary: '#ffffff', accent: '#ff3300', pattern: 'chevron' },
-        powerUnit: 'Helion',
+        powerUnit: 'Ferrari',
         identity: IDENTITY,
         teammateId: mate.id,
         settings: DEFAULT_SEASON_SETTINGS,
@@ -317,10 +321,10 @@ describe('every mode / kind runs through the App flow', () => {
     const q = exerciseSession(quali);
     endAndClassify(q.world, q.track, 'qualifying');
     const race = buildSessionConfig(myTeamRequest(team, 'race', 50, PLAYER, null)!);
-    expect(race.teams.length).toBe(11);
-    expect(race.grid.length).toBe(22);
+    expect(race.teams.length).toBe(12);
+    expect(race.grid.length).toBe(24);
     const { world } = exerciseSession(race);
-    expect(new Set(world.cars.map((c) => c.pit.boxS)).size).toBe(11);
+    expect(new Set(world.cars.map((c) => c.pit.boxS)).size).toBe(12);
     expectResult(world, 'race');
   });
 

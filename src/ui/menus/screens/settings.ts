@@ -5,7 +5,7 @@
  * paused session.
  */
 import type { CameraMode, KeyAction, QualityLevel, Settings, SpeedUnit } from '../../../core/types';
-import { bundledTrack, bundledTrackNow } from '../../../audio/bundledMusic';
+import { bundledPlaylist, bundledPlaylistNow } from '../../../audio/bundledMusic';
 import { clearMusicFile, getMusicError, MAX_MUSIC_BYTES, readMusicInfo, saveMusicFile, subscribeMusic } from '../../../audio/musicStore';
 import { cloneSettings, defaultSettings, KEY_ACTIONS } from '../../../meta/save';
 import { h, setChildren } from '../dom';
@@ -13,7 +13,7 @@ import { captureStep, clashesWithP1Pause, isPadEvent } from '../keyCapture';
 import { focusElement } from '../nav';
 import { CAMERA_LABEL, KEY_ACTION_LABEL, keyLabel, QUALITY_LABEL } from '../labels';
 import { Screen, type Host } from '../screen';
-import { button, cycler, heading, panel, slider, tabs, toggle } from '../widgets';
+import { button, cycler, heading, panel, slider, tabs, textField, toggle } from '../widgets';
 import { ExperienceScreen } from './onboarding';
 import { rosterTab } from './rosterSettings';
 
@@ -221,25 +221,27 @@ export class SettingsScreen extends Screen {
     const s = this.s;
     const vol = (label: string, key: 'masterVolume' | 'engineVolume' | 'sfxVolume' | 'uiVolume' | 'musicVolume'): HTMLElement =>
       slider({ label, min: 0, max: 1, step: 0.05, value: s[key], format: pct, onChange: (v) => this.patch({ [key]: v }) }).el;
-    // the bundled track's manifest is read once; redraw the tab when it arrives
-    const track = bundledTrackNow();
-    if (track === undefined) {
-      void bundledTrack().then(() => {
+    // the local playlist's manifest is read once; redraw the tab when it arrives
+    const tracks = bundledPlaylistNow();
+    if (tracks === undefined) {
+      void bundledPlaylist().then(() => {
         if (this.tab === 'audio' && this.el.isConnected) this.render();
       });
     }
-    const bundledLabel = track ? track.title : track === undefined ? '內建曲目' : '內建曲目（找不到檔案）';
+    const bundledLabel =
+      tracks === undefined ? '本機播放清單' : tracks === null ? '本機播放清單（找不到檔案）' : tracks.length === 1 ? (tracks[0]?.title ?? '') : `本機播放清單（${tracks.length} 首）`;
     const source = cycler<Settings['musicSource']>({
       label: '音樂來源',
       options: [
         { value: 'original', label: '原創' },
-        ...(track || s.musicSource === 'bundled' ? [{ value: 'bundled' as const, label: bundledLabel }] : []),
+        ...(tracks || s.musicSource === 'bundled' ? [{ value: 'bundled' as const, label: bundledLabel }] : []),
         { value: 'custom', label: '自選檔案' },
+        { value: 'youtube', label: 'YouTube' },
         { value: 'off', label: '關閉' },
       ],
       value: s.musicSource,
       onChange: (v) => this.patch({ musicSource: v }),
-      description: '「原創」是遊戲即時合成的配樂，不含任何音訊檔',
+      description: '「原創」是遊戲即時合成的配樂（選單、比賽、頒獎台各一首），不含任何音訊檔',
     });
     return h(
       'div',
@@ -260,6 +262,38 @@ export class SettingsScreen extends Screen {
         }).el,
         ...this.musicFile(source),
       ),
+      this.youtubeLink(source),
+    );
+  }
+
+  /** YouTube link field: 「套用連結」 stores the link and switches the source to YouTube (Enter in the field moves to it). */
+  private youtubeLink(source: { set(v: Settings['musicSource']): void }): HTMLElement {
+    const apply = (): void => {
+      const link = field.get().trim();
+      field.set(link);
+      this.patch({ musicYoutube: link, musicSource: 'youtube' });
+      source.set('youtube');
+      this.host.toast(link ? '已改用 YouTube 音樂' : '已清除 YouTube 連結', link ? 'good' : undefined);
+    };
+    const field = textField({
+      label: '影片或播放清單連結',
+      value: this.s.musicYoutube,
+      maxLength: 300,
+      placeholder: 'https://www.youtube.com/watch?v=…',
+      onInput: () => undefined,
+    });
+    return panel(
+      'YouTube 音樂',
+      field.el,
+      h('div', { class: 'nvm-actions' }, button({ label: '套用連結', onClick: apply })),
+      h('p', {
+        class: 'nvm-note',
+        text: '貼上 YouTube 影片或播放清單的連結，音樂來源會改為「YouTube」。需要網路連線；有些影片的上傳者不允許嵌入播放，這時會改播原創音樂。',
+      }),
+      h('p', {
+        class: 'nvm-note',
+        text: '依 YouTube 的使用規範，播放時會顯示小播放器（選單在左下角，賽事中在畫面右側中段），不能隱藏；音樂靜音的場景（例如關閉「比賽中播放」時的賽事）與背景分頁會自動暫停並收起播放器。',
+      }),
     );
   }
 

@@ -27,6 +27,7 @@ import { createMyTeam, myTeamDevelopment, startMyTeamProject, type MyTeamSave } 
 import { MY_TEAM_ID, type PlayerIdentity } from '../src/meta/roster';
 import { DEFAULT_SEASON_SETTINGS } from '../src/meta/season';
 import { MemoryStore, setStore } from '../src/meta/storage';
+import { useFictionalRoster } from './rosterFixture';
 import { PART_EFFECT, PART_GROUP_LABEL, PART_LABEL } from '../src/ui/menus/labels';
 import {
   costLabel,
@@ -66,6 +67,7 @@ function team(parts: Partial<Record<CarPartId, [number, number]>> = {}, projects
 
 beforeEach(() => {
   setStore(new MemoryStore());
+  useFictionalRoster();
 });
 
 describe('labels', () => {

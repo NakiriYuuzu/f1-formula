@@ -1,6 +1,6 @@
 /**
- * Rosters: which teams and drivers take part in an event. Builds the standard field (the built-in 10 fictional
- * teams, or an imported roster pack — see rosterPack.ts), the career field (custom 'player' driver replaces a team's
+ * Rosters: which teams and drivers take part in an event. Builds the standard field (the active roster pack — by
+ * default the 2026 F1 grid — or the 10 fictional teams; see rosterPack.ts), the career field (custom 'player' driver replaces a team's
  * second driver) and the My Team field (extra team 'myteam').
  * All functions return fresh deep copies so persisted / static data is never aliased.
  */
@@ -57,7 +57,7 @@ export function cloneRoster(r: Roster): Roster {
   return { teams: r.teams.map(cloneTeam), drivers: r.drivers.map(cloneDriver) };
 }
 
-/** Teams of the active roster (imported pack, else built-in). Read-only: clone before changing. */
+/** Teams of the active roster (roster pack, else the fictional teams). Read-only: clone before changing. */
 export function rosterTeams(): readonly TeamDef[] {
   return activeRosterPack()?.teams ?? TEAMS;
 }

@@ -2,7 +2,7 @@
  * Race control: safety car, VSC, red flag, formation lap, blue flags, illegal overtakes, random incident budget,
  * sprint points and determinism (headless 20-car races driven by the AI; the player car is on autopilot).
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { SIM_DT, SPRINT_POINTS } from '../src/core/defaults';
 import type { BuiltTrack, ControlInput, DamageLevel, SafetyCarSetting, WorldState } from '../src/core/types';
 import { computeAIInput } from '../src/ai/index';
@@ -21,6 +21,7 @@ import { HEAVY_IMPACT } from '../src/race/control';
 import { GIVE_BACK_SEC, notePass, stepGiveBack } from '../src/race/legality';
 import type { Incident } from '../src/race/types';
 import { forwardDistance, poseAt, sampleAt, signedDeltaS, wrapS } from '../src/track/track';
+import { useFictionalRoster } from './rosterFixture';
 
 interface RaceOptions {
   layout?: string;
@@ -73,6 +74,9 @@ function run(world: WorldState, track: BuiltTrack, maxSec: number, until?: (w: W
 }
 
 const finite = (w: WorldState): boolean => w.cars.every((c) => Number.isFinite(c.phys.x) && Number.isFinite(c.phys.z) && Number.isFinite(c.phys.speed));
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('safety car', () => {
   test('leaves the pit lane in front of the leader, queues the field without position changes, comes in with a lap of notice, restarts green with DRS locked for two laps', () => {

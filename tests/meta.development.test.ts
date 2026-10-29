@@ -4,7 +4,7 @@
  * save validation, old My Team department migration, career R&D points, and the SessionConfig.development path into
  * the world's car specs and simulated qualifying (also through the career / My Team round requests).
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { CarPartGains, CarPartId } from '../src/core/types';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../src/core/defaults';
 import { TEAMS } from '../src/data/teams';
@@ -63,6 +63,7 @@ import { layoutOrDefault } from '../src/meta/options';
 import { MY_TEAM_ID, PLAYER_DRIVER_ID, standardRoster, teamStrength, type PlayerIdentity } from '../src/meta/roster';
 import { DEFAULT_SEASON_SETTINGS, roundRequest } from '../src/meta/season';
 import { buildSessionConfig, requestFromConfig, type SessionRequest } from '../src/meta/sessionBuilder';
+import { useFictionalRoster } from './rosterFixture';
 
 const IDS = TEAMS.map((t) => t.id);
 const PLAYER = 'nordlys';
@@ -74,6 +75,9 @@ function withTeam(dev: SeasonDevelopment, id: string, team: TeamDevelopment): Se
 function advance(dev: SeasonDevelopment, seed: number, standings: readonly string[] = IDS): SeasonDevelopment {
   return advanceDevelopment(dev, { seed, playerTeamIds: [PLAYER], standings });
 }
+
+// written against the fictional teams (data/teams.ts)
+beforeEach(useFictionalRoster);
 
 describe('tables', () => {
   test('parts, groups, projects and costs', () => {

@@ -384,9 +384,11 @@ export interface Settings {
   uiVolume: number;
   /** background music level 0..1 */
   musicVolume: number;
-  /** original synthesized track, the optional bundled track (public/music/, git-ignored), a user-selected local file
-   * (kept in IndexedDB), or silence */
-  musicSource: 'original' | 'bundled' | 'custom' | 'off';
+  /** original synthesized tracks, the optional local playlist (public/music/, git-ignored), a user-selected local file
+   * (kept in IndexedDB), a YouTube video / playlist (`musicYoutube`), or silence */
+  musicSource: 'original' | 'bundled' | 'custom' | 'youtube' | 'off';
+  /** YouTube link pasted by the player for musicSource 'youtube' ('' = none) */
+  musicYoutube: string;
   /** keep playing (ducked) during sessions and replays */
   musicInRace: boolean;
   units: SpeedUnit;

@@ -2,12 +2,16 @@
  * Practice and qualifying run the whole field on track (time trial stays solo): AI cars start spread over the lap,
  * set real lap times, and in qualifying return to the garage (parked, hidden) once their run is done.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { SIM_DT } from '../src/core/defaults';
 import { getLayout } from '../src/data/tracks/index';
 import { computeAIInput } from '../src/ai/index';
 import { buildQuickStart } from '../src/meta/sessionBuilder';
 import { buildRenderFrame, buildSessionResult, createWorld, isSessionOver, stepWorld } from '../src/race/index';
+import { useFictionalRoster } from './rosterFixture';
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('practice / qualifying field', () => {
   test('time trial stays solo', () => {

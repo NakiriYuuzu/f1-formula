@@ -21,6 +21,8 @@ export const KEY_ACTIONS: readonly KeyAction[] = Object.keys(DEFAULT_KEY_BINDING
 const QUALITY = ['low', 'medium', 'high', 'ultra'] as const;
 const CAMERAS: readonly CameraMode[] = ['chase', 'chaseFar', 'tcam', 'cockpit', 'nose', 'tv'];
 const MAX_KEYS_PER_ACTION = 4;
+/** a pasted YouTube link (watch / playlist URLs stay far below this) */
+const MAX_LINK = 300;
 
 /** Deep copy of the default settings (never hand out the shared default objects). */
 export function defaultSettings(): Settings {
@@ -81,7 +83,8 @@ export function sanitizeSettings(v: unknown): Settings {
     sfxVolume: num(r.sfxVolume, 0, 1, d.sfxVolume),
     uiVolume: num(r.uiVolume, 0, 1, d.uiVolume),
     musicVolume: num(r.musicVolume, 0, 1, d.musicVolume),
-    musicSource: oneOf(r.musicSource, ['original', 'bundled', 'custom', 'off'] as const, d.musicSource),
+    musicSource: oneOf(r.musicSource, ['original', 'bundled', 'custom', 'youtube', 'off'] as const, d.musicSource),
+    musicYoutube: typeof r.musicYoutube === 'string' ? r.musicYoutube.trim().slice(0, MAX_LINK) : d.musicYoutube,
     musicInRace: bool(r.musicInRace, d.musicInRace),
     units: oneOf(r.units, ['kmh', 'mph'] as const, d.units),
     defaultCamera: oneOf(r.defaultCamera, CAMERAS, d.defaultCamera),

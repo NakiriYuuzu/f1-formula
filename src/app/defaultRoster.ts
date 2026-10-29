@@ -1,7 +1,7 @@
 /**
- * Optional default roster pack: `public/rosters/default.json`, the player's own file (git-ignored, not part of the
- * game). Read once at boot before the menus start; it applies while no pack was imported and the built-in roster
- * was not chosen (meta/rosterPack.ts). Missing or invalid → the built-in roster, the game starts anyway.
+ * Optional personal default roster pack: `public/rosters/default.json`, the player's own file (git-ignored). Read once
+ * at boot before the menus start; it replaces the built-in 2026 F1 grid as the default pack (meta/rosterPack.ts).
+ * Missing or invalid → the built-in 2026 F1 grid, the game starts anyway.
  */
 import { parseRosterPackText, setDefaultRosterPack } from '../meta/rosterPack';
 

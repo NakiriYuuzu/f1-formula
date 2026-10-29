@@ -1,12 +1,14 @@
 /**
- * Local roster pack (meta/rosterPack.ts): validation, the active-roster switch for every mode except the story,
- * persistence, separate career / My Team save slots, and an 11-team pack + My Team = 12 teams / 24 cars with
- * 12 distinct pit boxes. The personal default pack (public/rosters/default.json, not part of the game) is checked when present.
+ * Roster packs (meta/rosterPack.ts): validation, the built-in 2026 F1 grid as the default pack, the active-roster switch
+ * for every mode except the story, persistence, separate career / My Team save slots, and an 11-team pack + My Team =
+ * 12 teams / 24 cars with 12 distinct pit boxes. The personal default pack (public/rosters/default.json, git-ignored) is
+ * checked when present.
  */
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import type { DriverDef, TeamDef } from '../src/core/types';
 import { DEFAULT_ASSISTS, DEFAULT_SETUP } from '../src/core/defaults';
+import { REAL_GRID } from '../src/data/realGrid';
 import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout, LAYOUTS } from '../src/data/tracks/index';
 import { careerTeammateId, createCareer, sanitizeCareer } from '../src/meta/career';
@@ -143,11 +145,32 @@ describe('parseRosterPack', () => {
   });
 });
 
+describe('built-in 2026 grid', () => {
+  test('is a valid pack: 11 teams, 22 race drivers with unique numbers, reserves for My Team', () => {
+    const r = parseRosterPack({ format: ROSTER_PACK_FORMAT, ...REAL_GRID });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.pack.teams).toEqual(REAL_GRID.teams);
+    // the parser only fills in the default helmet pattern
+    expect(r.pack.drivers).toEqual(REAL_GRID.drivers.map((d) => ({ ...d, helmet: { pattern: 'classic', ...d.helmet } })));
+    expect(r.pack.powerUnits).toEqual(REAL_GRID.powerUnits);
+    expect(REAL_GRID.teams.length).toBe(MAX_PACK_TEAMS);
+    const race = REAL_GRID.drivers.filter((d) => d.teamId !== '');
+    expect(race.length).toBe(22);
+    expect(new Set(REAL_GRID.drivers.map((d) => d.number)).size).toBe(REAL_GRID.drivers.length);
+    expect(REAL_GRID.drivers.length - race.length).toBeGreaterThanOrEqual(1);
+    // every team's power unit is one My Team can also buy
+    for (const t of REAL_GRID.teams) expect(REAL_GRID.powerUnits.some((p) => p.id === t.powerUnit)).toBe(true);
+  });
+});
+
 describe('active roster', () => {
-  test('built-in by default; a pack replaces the standard field, reserves and power units', () => {
-    expect(activeRosterPack()).toBeNull();
-    expect(standardRoster().teams.map((t) => t.id)).toEqual(TEAMS.map((t) => t.id));
-    expect(powerUnitOption('').id).toBe('Orion');
+  test('the 2026 grid by default; a pack replaces the standard field, reserves and power units; fictional on request', () => {
+    expect(rosterSource()).toBe('default');
+    expect(activeRosterPack()).toBe(REAL_GRID);
+    expect(standardRoster().teams.map((t) => t.id)).toEqual(REAL_GRID.teams.map((t) => t.id));
+    expect(standardRoster().drivers.length).toBe(22);
+    expect(powerUnitOptions().map((p) => p.id)).toEqual(REAL_GRID.powerUnits.map((p) => p.id));
 
     const pack = okPack(11);
     setRosterPack(pack);
@@ -161,7 +184,9 @@ describe('active roster', () => {
     expect(storyRoster(STORY_TEAM_ID).teams.map((t) => t.id)).toEqual(TEAMS.map((t) => t.id));
 
     setRosterPack(null);
+    expect(rosterSource()).toBe('builtin');
     expect(standardRoster().teams.map((t) => t.id)).toEqual(TEAMS.map((t) => t.id));
+    expect(powerUnitOption('').id).toBe('Orion');
   });
 
   test('default pack: active until a pack is imported or the built-in roster is chosen (remembered)', () => {
@@ -186,6 +211,9 @@ describe('active roster', () => {
     // a default pack shares the roster-pack save slot
     saveCareer(createCareer(IDENTITY, 'team-4', DEFAULT_SEASON_SETTINGS, 4, LAYOUTS));
     expect(loadCareer()?.teamId).toBe('team-4');
+    // without the player's own file the default is the built-in 2026 grid again
+    setDefaultRosterPack(null);
+    expect(activeRosterPack()).toBe(REAL_GRID);
   });
 
   test('the pack persists and is read back after a reload', () => {
@@ -195,16 +223,17 @@ describe('active roster', () => {
     expect(activeRosterPack()).toEqual(pack);
   });
 
-  test('a corrupt stored pack falls back to the built-in roster', () => {
+  test('a corrupt stored pack falls back to the default pack', () => {
     setRosterPack(okPack(3));
     // a later version that no longer validates (here: tampered team count)
     setRosterPack({ ...okPack(3), teams: [] });
     resetRosterPackCache();
-    expect(activeRosterPack()).toBeNull();
-    expect(rosterTeams()).toBe(TEAMS);
+    expect(activeRosterPack()).toBe(REAL_GRID);
+    expect(rosterTeams()).toBe(REAL_GRID.teams);
   });
 
-  test('careers of the built-in roster and of a pack are kept in separate slots', () => {
+  test('careers of the fictional roster and of a pack are kept in separate slots', () => {
+    setRosterPack(null);
     const builtin = createCareer(IDENTITY, 'kestrel', DEFAULT_SEASON_SETTINGS, 1, LAYOUTS);
     saveCareer(builtin);
     setRosterPack(okPack(4));

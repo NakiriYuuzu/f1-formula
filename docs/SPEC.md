@@ -1,13 +1,19 @@
 # FORMULA NOVA 25（新星方程式 25）— 實作規格
 
-> F1 風格的非商業同人瀏覽器賽車遊戲。功能架構對標商業作品 F1 25 的「玩法類型」；車隊、車手、塗裝、劇情、模型與音效皆原創，
-> 賽道包含 5 條原創賽道與 13 條依真實佈局重現的賽道（2026-10-04 使用者決定；含昔日分站雪邦）。
+> F1 風格的非商業同人瀏覽器賽車遊戲。功能架構對標商業作品 F1 25 的「玩法類型」；劇情、模型、音效與音樂皆原創，
+> 賽道包含 5 條原創賽道與 13 條依真實佈局重現的賽道（2026-10-04 使用者決定；含昔日分站雪邦），
+> 預設名單為 2026 F1 賽季的真實車隊與車手（2026-10-29 使用者決定），另保留原創虛構名單。
 > 本文件 + `src/core/types.ts` + 各模組 stub 檔即為跨模組契約。
 
 ## 0. 原創性與智慧財產規則（所有代理必須遵守）
 
-- **禁止**使用或仿製：F1 / FIA / Formula 1 / Grand Prix 官方商標與標誌、EA / Codemasters 名稱、真實車隊名稱與塗裝、
-  真實車手姓名與肖像、贊助商品牌、F1 25 的 UI 版面、音效、音樂、劇情（Braking Point、Konnersport、APXGP 等名稱亦禁止）。
+- **真實車隊與車手**（2026-10-29 使用者決定：本作非商業、純娛樂，使用者承擔商標風險）：預設名單 `src/data/realGrid.ts` 收錄
+  2026 F1 賽季的真實車隊名稱、車手姓名、車號與國籍（事實資訊），塗裝只以部位顏色近似（`livery.parts`／`finish`）。
+  仍然**禁止**：F1 / FIA / Formula 1 / Grand Prix 與各車隊的官方標誌圖樣、贊助商品牌與標誌、車手肖像／照片、
+  EA / Codemasters 名稱、F1 25 的 UI 版面、音效、音樂、劇情（Braking Point、Konnersport、APXGP 等名稱亦禁止）。
+  製作名單須保留「與 Formula 1、FIA、車隊、車手無關聯、未獲授權」的聲明。
+- **有版權的音樂**（官方主題曲、任何商業歌曲）**不得**放進 repo、`src/` 或公開部署的 `dist/`，也不得由程式從網路下載；
+  非商業並不構成使用授權。遊戲內建的背景音樂只用原創曲。
 - **真實賽道**（`TrackDef.real` 有值）：依真實佈局重現（中心線取自 OpenStreetMap、高程取自公開 DEM，皆為事實性地理資料），
   以地名命名（例：摩納哥市街賽道、鈴鹿賽道），**不得**使用賽道或賽事的官方標誌、贊助商名稱或品牌地標名稱
   （地標一律泛稱，例如「巨型 LED 球體」「飯店橋」）；介面文字不使用真實人物姓名（以人名命名的彎道名稱只可出現在程式註解）。
@@ -15,14 +21,20 @@
 - **原創賽道**（5 條）維持原創虛構，不可「微調後」重現任何真實賽道。
 - 所有 3D 模型、貼圖、音效皆以程式生成（three.js geometry、canvas 貼圖、WebAudio 合成）。**執行期不得下載任何外部資產**，
   不得從網路載入字型 / CDN；真實賽道的幾何以 `tools/import-circuit.ts` 離線匯入成 `src/data/tracks/real/*.ts` 原始碼。
-  遊戲內建的車隊與車手只用 `src/data/teams.ts` 的虛構資料；背景音樂為原創曲，以 WebAudio 即時合成（`src/audio/musicScore.ts`）。
+  唯一例外（2026-10-29 使用者決定）：玩家在「設定 → 音效」選擇 YouTube 音樂來源並貼上連結後，才從 youtube.com 載入 IFrame Player API
+  並以 youtube-nocookie.com 播放器播放（`src/audio/youtube.ts`）。依 YouTube API 政策，播放器必須可見（≥ 200×200 px、不得被任何元素遮住）、
+  不得背景播放：播放時顯示在最上層（選單左下角 356×200、賽事與重播時在右側中段 200×200，避開 HUD），音樂靜音的場景與背景分頁時暫停並收起。
+  內建名單：預設為 `src/data/realGrid.ts`（2026 F1 真實陣容），原創虛構名單為 `src/data/teams.ts`（「新星之路」固定使用，也可在設定選用）。
+  背景音樂為原創曲，以 WebAudio 即時合成，依場景各一首：選單〈Lights Out〉、比賽〈Pole Position Anthem〉、頒獎台〈Champagne〉
+  （`src/audio/musicThemes.ts`、`src/audio/musicScore.ts`）。
 - **玩家自備內容**（2026-10-07 使用者決定，個人使用）：玩家可在「設定 → 名單」匯入本機名單檔（`src/meta/rosterPack.ts` 驗證，
-  存在瀏覽器 localStorage），在「設定 → 音效」選擇本機音樂檔（存在 IndexedDB）。這些是玩家自己的檔案，**不屬於遊戲內容**：
-  不得打包進 `src/` 或 `dist/`，原始碼與介面文字也不得寫入真實車隊／車手名稱。劇情「新星之路」固定使用內建名單。
-  例外（2026-10-07 使用者決定，個人使用）：玩家自己的檔案可放在 `public/` 下兩個已列入 `.gitignore` 的資料夾，從同源讀取：
-  `public/rosters/default.json` 是**預設名單**（開機時由 `src/app/defaultRoster.ts` 讀取；沒有匯入名單、也沒有選擇內建名單時生效），
-  `public/music/` + `bundled.json`（`title`、`file`）是**預設背景音樂**「內建曲目」（`src/audio/bundledMusic.ts`；`musicSource` 預設 `bundled`，
-  沒有檔案時安靜地改播原創曲）。真實名稱只寫在這些檔案裡，不寫進原始碼；`bun run build` 會把它們複製進 `dist/`，這樣的 `dist/` 不得公開散佈。
+  存在瀏覽器 localStorage），在「設定 → 音效」選擇本機音樂檔（存在 IndexedDB）或貼上 YouTube 連結（存在設定）。這些是玩家自己的內容，
+  **不屬於遊戲內容**，不得打包進 `src/` 或公開的 `dist/`。劇情「新星之路」固定使用原創名單。
+  玩家自己的檔案可放在 `public/` 下兩個已列入 `.gitignore` 的資料夾，從同源讀取：
+  `public/rosters/default.json` 是**個人預設名單**（開機時由 `src/app/defaultRoster.ts` 讀取，取代內建的 2026 陣容成為預設名單；
+  沒有匯入名單、也沒有選擇原創名單時生效），`public/music/` + `bundled.json` 是**本機播放清單**（`src/audio/bundledMusic.ts`；
+  單曲 `{ title, file }` 或 `{ tracks: [{ title, file, scenes? }] }`，`scenes` 為 `menu`／`race`／`results`；`musicSource` 預設 `bundled`，
+  沒有檔案時安靜地改播原創曲）。`bun run build` 會把它們複製進 `dist/`，含有版權音樂的 `dist/` 不得公開散佈（CI 部署不含這兩個資料夾）。
 - 賽車外形依 FIA 2025／2026 技術規則的公開尺寸重現通用的現代 F1 賽車（不仿製任何車隊的特定車款）。
 - 通用賽車術語與規則（DRS、ERS、輪胎配方顏色慣例、積分表 25-18-15…、計時紫/綠/黃色慣例）屬一般知識，可以使用。
 - 遊戲名稱：`FORMULA NOVA 25` / `新星方程式 25`（`core/defaults.ts` 的 GAME_TITLE）。
@@ -52,7 +64,7 @@
 
 | F1 25 功能 | 本作對應 | 負責 |
 |---|---|---|
-| 2025 賽季賽車、10 隊 20 車手 | 10 支原創車隊、20 位原創車手 + 6 位候補 | 已提供 data/teams.ts |
+| 2025 賽季賽車、10 隊 20 車手 | 預設 2026 F1 真實陣容 11 隊 22 位車手 + 6 位候補（data/realGrid.ts）；原創名單 10 支虛構車隊、20 位車手 + 6 位候補（data/teams.ts） | 已提供 |
 | 2026 賽季包：較小較輕的新車、主動空力、Overtake 模式 | `regulation: '2026'`：尺寸/重量/動力分配改變；直線模式（主動空力，前後翼同時開）取代 DRS；1 秒內可用 Overtake 加力 | physics / race / render |
 | 新物理與操控 | 動態自行車模型 + 簡化 Pacejka 輪胎、空力下壓、重量轉移近似 | physics |
 | 賽道（含 LiDAR 掃描重建） | 5 條原創賽道，程式化建模（高度起伏、路緣石、碎石區、護欄、看台、維修區） | track / render |

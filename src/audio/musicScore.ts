@@ -1,7 +1,8 @@
 /**
- * Original background-music score (pure data + a tiny sequencer, no WebAudio): "Pole Position Anthem", an upbeat
- * electronic stadium-anthem piece in D minor at 132 BPM. 40 bars in six sections that loop seamlessly
- * (the last chorus ends on the A major dominant, which resolves into the intro's D minor):
+ * Original background-music scores (pure data + a tiny sequencer, no WebAudio). A `Score` is a loop of 16th-note
+ * steps; musicThemes.ts holds the menu / podium themes, this file the shared helpers, the sequencer and the race
+ * track "Pole Position Anthem", an upbeat electronic stadium-anthem piece in D minor at 132 BPM. 40 bars in six
+ * sections that loop seamlessly (the last chorus ends on the A major dominant, which resolves into the intro's D minor):
  *
  *   intro (4)  verse (8)  chorus (8)  break (4)  verse 2 (8)  final chorus (8)
  *
@@ -14,7 +15,23 @@ export const STEPS_PER_BAR = 16;
 /** seconds per 16th note */
 export const STEP_SECONDS = 60 / BPM / 4;
 
-export type MusicVoice = 'kick' | 'snare' | 'hat' | 'openHat' | 'bass' | 'stab' | 'pad' | 'lead' | 'arp';
+export type MusicVoice =
+  | 'kick'
+  | 'snare'
+  | 'hat'
+  | 'openHat'
+  | 'bass'
+  | 'stab'
+  | 'pad'
+  | 'lead'
+  | 'arp'
+  /** detuned-saw section with a filter swell: chords or an octave-doubled horn line */
+  | 'brass'
+  /** short bowed-saw 16th / 8th ostinato note */
+  | 'strings'
+  /** pitched drum (toms, timpani) */
+  | 'tom'
+  | 'crash';
 
 export interface MusicEvent {
   voice: MusicVoice;
@@ -26,42 +43,70 @@ export interface MusicEvent {
   vel: number;
 }
 
+/** Where music plays: menus (and loading), sessions / replays, the results screen. */
+export type MusicScene = 'menu' | 'race' | 'results';
+
+/** A looping piece: `at(step)` = the events starting on that step (any integer, wraps every `totalSteps`). */
+export interface Score {
+  /** the scene it is written for */
+  id: MusicScene;
+  /** shown to the player */
+  title: string;
+  bpm: number;
+  /** seconds per 16th note */
+  stepSeconds: number;
+  totalSteps: number;
+  layout: readonly { name: string; startBar: number; bars: number }[];
+  at(step: number): readonly MusicEvent[];
+}
+
 export type SectionName = 'intro' | 'verse' | 'chorus' | 'break' | 'verse2' | 'chorus2';
 
 const NOTE_PC: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 
 /** 'C#5' / 'Bb4' → MIDI note number */
-function note(name: string): number {
+export function note(name: string): number {
   const m = /^([A-G])([#b]?)(-?\d)$/.exec(name);
   if (!m) throw new Error(`bad note ${name}`);
   const pc = (NOTE_PC[m[1] as string] as number) + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
   return (Number(m[3]) + 1) * 12 + pc;
 }
 
-type ChordName = 'Dm' | 'Bb' | 'Gm' | 'A' | 'C' | 'F';
-const CHORD_ROOT: Record<ChordName, { pc: number; minor: boolean }> = {
-  Dm: { pc: 2, minor: true },
-  Bb: { pc: 10, minor: false },
-  Gm: { pc: 7, minor: true },
-  A: { pc: 9, minor: false },
-  C: { pc: 0, minor: false },
-  F: { pc: 5, minor: false },
-};
-
-interface Chord {
+export interface Chord {
   bass: number;
   triad: readonly [number, number, number];
 }
 
-/** Bass root in A1..G#2, triad in root position inside A3..G#4. */
-function chord(name: ChordName): Chord {
-  const { pc, minor } = CHORD_ROOT[name];
+/** 'Dm' / 'Bb' / 'F#m' → bass root in A1..G#2, triad in root position inside A3..G#4. */
+export function chord(name: string): Chord {
+  const m = /^([A-G])([#b]?)(m?)$/.exec(name);
+  if (!m) throw new Error(`bad chord ${name}`);
+  const pc = (NOTE_PC[m[1] as string] as number) + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+  const minor = m[3] === 'm';
   const base = 57 + ((((pc - 57) % 12) + 12) % 12);
   return { bass: 33 + ((((pc - 33) % 12) + 12) % 12), triad: [base, base + (minor ? 3 : 4), base + 7] };
 }
 
 /** [step in bar, note, length in steps] */
-type Phrase = readonly (readonly [number, string, number])[];
+export type Phrase = readonly (readonly [number, string, number])[];
+
+/** Section list (name + first bar + bar count) of sections given as [name, bar count]. */
+export function sectionLayout(sections: readonly { name: string; bars: number }[]): Score['layout'] {
+  let bar = 0;
+  return sections.map((s) => {
+    const entry = { name: s.name, startBar: bar, bars: s.bars };
+    bar += s.bars;
+    return entry;
+  });
+}
+
+/** Precompute every step of a loop; `at` wraps any integer step into it. */
+export function loopEvents(totalSteps: number, build: (step: number) => MusicEvent[]): (step: number) => readonly MusicEvent[] {
+  const events: readonly (readonly MusicEvent[])[] = Array.from({ length: totalSteps }, (_, step) => build(step));
+  return (step) => events[((Math.floor(step) % totalSteps) + totalSteps) % totalSteps] as readonly MusicEvent[];
+}
+
+type ChordName = 'Dm' | 'Bb' | 'Gm' | 'A' | 'C' | 'F';
 
 const VERSE_CHORDS: ChordName[] = ['Dm', 'Dm', 'Bb', 'Bb', 'Gm', 'Gm', 'A', 'A'];
 const CHORUS_CHORDS: ChordName[] = ['Bb', 'C', 'Dm', 'F', 'Bb', 'C', 'A', 'A'];
@@ -124,14 +169,7 @@ export const TOTAL_BARS = SECTIONS.reduce((n, s) => n + s.chords.length, 0);
 export const TOTAL_STEPS = TOTAL_BARS * STEPS_PER_BAR;
 
 /** Section list for tests / documentation: name + first bar + bar count. */
-export const SECTION_LAYOUT: readonly { name: SectionName; startBar: number; bars: number }[] = (() => {
-  let bar = 0;
-  return SECTIONS.map((s) => {
-    const entry = { name: s.name, startBar: bar, bars: s.chords.length };
-    bar += s.chords.length;
-    return entry;
-  });
-})();
+export const SECTION_LAYOUT = sectionLayout(SECTIONS.map((s) => ({ name: s.name, bars: s.chords.length })));
 
 const ARP_PATTERN = [0, 1, 2, 3, 2, 1, 2, 3, 0, 1, 2, 3, 2, 1, 2, 3];
 const STAB_STEPS: readonly (readonly [number, number])[] = [[0, 0.9], [3, 0.6], [6, 0.7], [10, 0.7]];
@@ -217,13 +255,19 @@ function buildEvents(step: number): MusicEvent[] {
   return out;
 }
 
-const EVENTS: readonly (readonly MusicEvent[])[] = Array.from({ length: TOTAL_STEPS }, (_, step) => buildEvents(step));
+/** Events of "Pole Position Anthem" starting on `step` (any integer; the score loops every TOTAL_STEPS). */
+export const eventsAtStep = loopEvents(TOTAL_STEPS, buildEvents);
 
-/** Events starting on `step` (any integer; the score loops every TOTAL_STEPS). */
-export function eventsAtStep(step: number): readonly MusicEvent[] {
-  const s = ((Math.floor(step) % TOTAL_STEPS) + TOTAL_STEPS) % TOTAL_STEPS;
-  return EVENTS[s] as readonly MusicEvent[];
-}
+/** The race track (plays during sessions / replays when 比賽中播放 is on). */
+export const POLE_POSITION: Score = {
+  id: 'race',
+  title: 'Pole Position Anthem',
+  bpm: BPM,
+  stepSeconds: STEP_SECONDS,
+  totalSteps: TOTAL_STEPS,
+  layout: SECTION_LAYOUT,
+  at: eventsAtStep,
+};
 
 /**
  * Look-ahead sequencer: `advance(now, lookahead, emit)` emits every step that starts in [now, now + lookahead)
@@ -233,9 +277,22 @@ export class MusicSequencer {
   private step = 0;
   private nextTime = 0;
 
+  constructor(private current: Score = POLE_POSITION) {}
+
+  get score(): Score {
+    return this.current;
+  }
+
+  /** Switch pieces: the next start() begins the new one from its first bar. */
+  setScore(score: Score): void {
+    if (score === this.current) return;
+    this.current = score;
+    this.step = 0;
+  }
+
   /** Begin (or resume) at the next bar line at or after the stored position, first step at `time`. */
   start(time: number): void {
-    this.step = (Math.ceil(this.step / STEPS_PER_BAR) * STEPS_PER_BAR) % TOTAL_STEPS;
+    this.step = (Math.ceil(this.step / STEPS_PER_BAR) * STEPS_PER_BAR) % this.current.totalSteps;
     this.nextTime = time;
   }
 
@@ -244,11 +301,12 @@ export class MusicSequencer {
   }
 
   advance(now: number, lookahead: number, emit: (event: MusicEvent, time: number) => void): void {
+    const score = this.current;
     if (this.nextTime < now) this.nextTime = now;
     while (this.nextTime < now + lookahead) {
-      for (const e of eventsAtStep(this.step)) emit(e, this.nextTime);
-      this.step = (this.step + 1) % TOTAL_STEPS;
-      this.nextTime += STEP_SECONDS;
+      for (const e of score.at(this.step)) emit(e, this.nextTime);
+      this.step = (this.step + 1) % score.totalSteps;
+      this.nextTime += score.stepSeconds;
     }
   }
 }

@@ -3,7 +3,7 @@
  * large layouts, and grade separation (figure-8 crossover: deck flags, roadside, terrain, projection, contact).
  * Real circuit defs in TRACK_DEFS are validated here too; the synthetic fixtures cover the code paths until then.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { BuiltTrack, TrackControlPoint, TrackDef } from '../src/core/types';
 import { TRACK_DEFS, getLayout } from '../src/data/tracks';
 import { buildQuickStart } from '../src/meta/sessionBuilder';
@@ -23,6 +23,7 @@ import {
   validateTrackDef,
 } from '../src/track/track';
 import { figureEightDef, longDef, pinchDef, streetDef } from './trackFixtures';
+import { useFictionalRoster } from './rosterFixture';
 
 const fig8 = figureEightDef();
 const street = streetDef();
@@ -46,6 +47,9 @@ function stadium(r: number, w: number, bump = 0): TrackDef {
   for (let a = 15; a < 180; a += 15) pts.push({ x: -r * Math.sin((a * Math.PI) / 180), z: r + r * Math.cos((a * Math.PI) / 180) });
   return { ...street, id: 'bad-stadium', width: w, points: pts.map((p) => ({ ...p, y: p.y ?? 0, width: w })), real: { ...street.real!, length: 1 } };
 }
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('validator: fixtures and registered real circuits', () => {
   test.each(fixtures.map((d) => [d.id, d] as const))('%s has no problems (both directions)', (_id, def) => {

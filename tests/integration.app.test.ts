@@ -3,7 +3,7 @@
  * replay packing / interpolation / ring buffer, URL quick-start parsing, split-screen views, scene car mapping
  * and the render_game_to_text payload.
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { CarRenderState, ControlInput, RenderFrame, SessionRules } from '../src/core/types';
 import { DEFAULT_RULES, SIM_DT } from '../src/core/defaults';
 import { DRIVERS } from '../src/data/teams';
@@ -20,6 +20,7 @@ import { ReplayRecorder, clipDuration, decodeFrame, encodeFrame, sampleClip } fr
 import { sceneCarsFor } from '../src/app/sceneCars';
 import { COORDINATE_NOTE, buildTextState } from '../src/app/textState';
 import { buildViews, nextCamera } from '../src/app/views';
+import { useFictionalRoster } from './rosterFixture';
 
 const input = (patch: Partial<ControlInput> = {}): ControlInput => ({
   throttle: 0.5,
@@ -72,6 +73,9 @@ const frame = (time: number, cars: CarRenderState[]): RenderFrame => ({
   startLights: { lit: 3, out: false },
   weather: { kind: 'lightRain', rain: 0.4, wetness: 0.3 },
 });
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('FixedStepClock', () => {
   test('120 / 60 / 144 / 240 Hz frames produce exactly one SIM_DT step per 1/120 s', () => {

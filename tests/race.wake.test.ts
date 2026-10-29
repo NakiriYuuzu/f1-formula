@@ -2,7 +2,7 @@
  * Aerodynamic wake: tow and dirty air from the car ahead (race/wake.ts), the physics applying it (drag / downforce)
  * and the AI planning with it (capability).
  */
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { DEFAULT_ASSISTS, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
 import type { AeroWake, CarEntry, ControlInput, PhysicsEnv, WorldState } from '../src/core/types';
 import { capability, cornerSpeed } from '../src/ai/index';
@@ -15,6 +15,7 @@ import { sanitizeRules } from '../src/meta/guards';
 import { createWorld, stepWorld } from '../src/race/index';
 import { CLEAN_AIR, DIRTY_FRONT, TOW_DRAG, aeroWake } from '../src/race/wake';
 import { wakeIndicator } from '../src/ui/hud/telemetry';
+import { useFictionalRoster } from './rosterFixture';
 
 function world(kind: 'race' | 'quali' = 'race', aeroWake?: boolean): WorldState {
   const { config } = buildQuickStart({ kind, layoutId: 'isola-verde', laps: 3, seed: 7, safetyCar: 'off' });
@@ -38,6 +39,9 @@ function pair(w: WorldState, ds: number, lat = 0, vB = 60): { a: CarEntry; b: Ca
   }
   return { a, b };
 }
+
+// written against the fictional field (data/teams.ts); the game's default is the 2026 F1 grid
+beforeEach(useFictionalRoster);
 
 describe('aero wake', () => {
   const track = getLayout('isola-verde');

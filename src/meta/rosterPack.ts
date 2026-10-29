@@ -1,10 +1,12 @@
 /**
- * Local roster pack (user content, never bundled with the game): an imported JSON file that replaces the built-in
- * fictional teams / drivers for every mode except the story (新星之路 keeps the built-in roster). Strict validation
- * with zh-TW messages, persistence (record 'rosterPack'), the optional default pack and the active-pack switch read by
+ * Roster packs: teams / drivers that replace the built-in fictional roster for every mode except the story (新星之路
+ * keeps the fictional roster). The default pack is the built-in 2026 F1 grid (data/realGrid.ts), or the player's own
+ * public/rosters/default.json when present; the player can also import a JSON file or choose the fictional roster.
+ * Strict validation with zh-TW messages, persistence (record 'rosterPack') and the active-pack switch read by
  * meta/roster.ts.
  */
 import type { DriverDef, LiveryFinish, LiveryParts, TeamDef } from '../core/types';
+import { REAL_GRID } from '../data/realGrid';
 import { asRecord, isHexColor, isRecord, LIVERY_PATTERNS, num, oneOf, sanitizeDriver, str } from './guards';
 import type { PowerUnitOption } from './myTeam';
 import { readRecord, removeRecord, writeRecord } from './storage';
@@ -235,13 +237,13 @@ export function parseRosterPackText(text: string): RosterPackResult {
 // ───────────────────────────── active pack ─────────────────────────────
 
 const RECORD = 'rosterPack';
-/** 'builtin' once the player restored the built-in roster (wins over the default pack) */
+/** 'builtin' once the player chose the fictional roster (wins over the default pack) */
 const CHOICE_RECORD = 'rosterChoice';
 /** undefined = not read from storage yet */
 let stored: RosterPack | null | undefined;
 let builtinChosen: boolean | undefined;
-/** the optional default pack (app/defaultRoster.ts loads public/rosters/default.json at boot); never persisted */
-let fallback: RosterPack | null = null;
+/** the player's own default pack (app/defaultRoster.ts loads public/rosters/default.json at boot); never persisted */
+let localDefault: RosterPack | null = null;
 
 function loadStoredPack(): RosterPack | null {
   const raw = readRecord(RECORD);
@@ -265,25 +267,31 @@ export type RosterSource = 'imported' | 'default' | 'builtin';
 
 export function rosterSource(): RosterSource {
   if (storedPack()) return 'imported';
-  return fallback && !chosenBuiltin() ? 'default' : 'builtin';
+  return chosenBuiltin() ? 'builtin' : 'default';
 }
 
-/** The pack in use (imported, else the default one unless the built-in roster was chosen), or null for built-in. */
+/** The pack in use (imported, else the default one unless the fictional roster was chosen), or null for fictional. */
 export function activeRosterPack(): RosterPack | null {
-  return storedPack() ?? (chosenBuiltin() ? null : fallback);
+  return storedPack() ?? (chosenBuiltin() ? null : defaultRosterPack());
 }
 
-export function defaultRosterPack(): RosterPack | null {
-  return fallback;
+/** The player's public/rosters/default.json when present, else the built-in 2026 F1 grid. */
+export function defaultRosterPack(): RosterPack {
+  return localDefault ?? REAL_GRID;
 }
 
-/** Install the default pack (boot); it applies while nothing was imported and the built-in roster was not chosen. */
+/** Whether the default pack is the player's own public/rosters/default.json. */
+export function defaultRosterIsLocal(): boolean {
+  return localDefault !== null;
+}
+
+/** Install the player's own default pack (boot), or null = the built-in 2026 F1 grid. */
 export function setDefaultRosterPack(pack: RosterPack | null): void {
-  fallback = pack;
+  localDefault = pack;
 }
 
 /**
- * Import a pack (persisted), or null = choose the built-in roster (remembered, so a default pack no longer applies).
+ * Import a pack (persisted), or null = choose the fictional roster (remembered, so the default pack no longer applies).
  * Returns false if it could only be kept in memory.
  */
 export function setRosterPack(pack: RosterPack | null): boolean {
@@ -298,7 +306,7 @@ export function setRosterPack(pack: RosterPack | null): boolean {
   return writeRecord(RECORD, { format: ROSTER_PACK_FORMAT, ...pack });
 }
 
-/** Drop the imported pack and the built-in choice: back to the default pack (built-in when there is none). */
+/** Drop the imported pack and the fictional choice: back to the default pack. */
 export function useDefaultRosterPack(): void {
   stored = null;
   builtinChosen = false;
