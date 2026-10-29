@@ -11,6 +11,7 @@ import type { SceneryContext } from '../src/render/track/context';
 import type { LandmarkPlan } from '../src/render/track/landmarks';
 import { buildStaticScenery } from '../src/render/track/scenery';
 import { TrackFrame } from '../src/render/track/trackFrame';
+import { GRADE_CLEARANCE } from '../src/track/track';
 
 /** Install a minimal fake DOM (canvas with a recording-free 2D context) once. */
 export function installFakeDom(): void {
@@ -112,4 +113,47 @@ export function sceneryStats(root: THREE.Object3D): SceneryStats {
     out.triangles += tris * ((m as THREE.InstancedMesh).isInstancedMesh ? (m as THREE.InstancedMesh).count : 1);
   });
   return out;
+}
+
+/**
+ * Sight lines along the lower road of every grade-separated crossing: 10 m chords at driver (1.0 m) and chase-cam
+ * (2.2 m) height over the lower road within `range` m of where it passes under a deck. Returns "mesh @s" for every chord
+ * a scenery mesh blocks (e.g. a wall hanging from the bridge down to the lower road).
+ */
+export function underDeckBlockers(scene: StaticScenery, track: BuiltTrack, range = 60): string[] {
+  const n = track.count;
+  const near = new Uint8Array(n);
+  const reach = Math.round(range / track.spacing);
+  for (let i = 0; i < n; i++) {
+    if (track.deck[i]) continue;
+    for (let j = 0; j < n; j++) {
+      if (!track.deck[j] || track.py[j] - track.py[i] < GRADE_CLEARANCE) continue;
+      if (Math.hypot(track.px[j] - track.px[i], track.pz[j] - track.pz[i]) >= track.halfWidth[i] + track.halfWidth[j]) continue;
+      for (let k = -reach; k <= reach; k++) near[(i + k + n) % n] = 1;
+      break;
+    }
+  }
+  const meshes: THREE.Mesh[] = [];
+  scene.root.updateMatrixWorld(true);
+  scene.root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh && o.visible) meshes.push(o as THREE.Mesh);
+  });
+  const step = Math.max(1, Math.round(10 / track.spacing));
+  const ray = new THREE.Raycaster();
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const out = new Set<string>();
+  for (let i = 0; i < n; i++) {
+    const k = (i + step) % n;
+    if (!near[i] || !near[k] || track.deck[i] || track.deck[k]) continue;
+    for (const h of [1.0, 2.2]) {
+      a.set(track.px[i], track.py[i] + h, track.pz[i]);
+      b.set(track.px[k], track.py[k] + h, track.pz[k]);
+      ray.far = a.distanceTo(b);
+      ray.set(a, b.sub(a).normalize());
+      const hit = ray.intersectObjects(meshes, false)[0];
+      if (hit) out.add(`${hit.object.name} @${Math.round(track.s[i])}`);
+    }
+  }
+  return [...out];
 }

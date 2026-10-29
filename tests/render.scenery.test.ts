@@ -12,7 +12,7 @@ import { Environment } from '../src/render/environment';
 import { BRIDGE_NAMES, LANDMARK_NAMES, layoutFeatures, inSpan } from '../src/render/track/features';
 import { DECK_SLAB } from '../src/render/track/deck';
 import { BRIDGE_CLEARANCE, LEAF_MAX_DEPTH, LEAF_MIN_DOUBLE, LEAF_OPEN_DEPTH, PLANTATION_SPACING } from '../src/render/track/landmarks';
-import { buildStatic, installFakeDom, sceneryStats } from './renderHarness';
+import { buildStatic, installFakeDom, sceneryStats, underDeckBlockers } from './renderHarness';
 import { figureEightDef, longDef, pinchDef, streetDef } from './trackFixtures';
 
 const withFeatures = (def: TrackDef, features: TrackFeature[]): TrackDef => ({ ...def, real: { ...(def.real as NonNullable<TrackDef['real']>), features } });
@@ -155,6 +155,10 @@ describe('grade-separated crossing (figure-8 fixture)', () => {
 
   test('barriers on deck samples are concrete walls (no armco / tyres)', () => {
     expect(meshes(scene.root).some((m) => m.name === 'concrete')).toBe(true);
+  });
+
+  test('the lower road stays open under the deck (no parapet reaches down into its sight lines)', () => {
+    expect(underDeckBlockers(scene, track)).toEqual([]);
   });
 });
 

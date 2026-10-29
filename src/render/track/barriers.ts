@@ -8,7 +8,7 @@ import type { QualityLevel } from '../../core/types';
 import { GeoBuilder, addBox } from '../core/geometry';
 import { concreteTexture, fenceTexture, tyreWallTexture } from '../core/surfaceTextures';
 import { headingAt, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
-import { DECK_SLAB } from './deck';
+import { DECK_SLAB, deckOpenings } from './deck';
 
 const enum Kind {
   None = -1,
@@ -118,6 +118,7 @@ export function buildBarriers(ctx: SceneryContext, ground?: (x: number, z: numbe
   const tyres = new GeoBuilder();
   const tecpro = new GeoBuilder(true);
   const _c = new THREE.Color();
+  const openings = deckOpenings(ctx);
 
   for (const side of [-1, 1] as const) {
     const L = side > 0 ? f.barrierR : f.barrierL;
@@ -151,9 +152,11 @@ export function buildBarriers(ctx: SceneryContext, ground?: (x: number, z: numbe
       if (f.deck[i]) filtered[i] = Kind.Concrete;
     }
     const lat = (extra: number) => (k: number): number => side * (L[k] + extra);
-    // bottom of a wall at lateral `extra`: FOOT_Y, or lower where the terrain falls away below the road (never floating)
+    // bottom of a wall at lateral `extra`: FOOT_Y, or lower where the terrain falls away below the road (never floating).
+    // A deck parapet stops in the slab where the crossing road passes under it (the ground there is that road: following
+    // it hung a wall across the lower road), like the deck fascia.
     const foot = (extra: number) => (k: number): number => {
-      if (!ground) return FOOT_Y;
+      if (!ground || openings[k * 2 + (side > 0 ? 1 : 0)]) return FOOT_Y;
       sidePoint(t, k, side * (L[k] + extra), 0, _p);
       return Math.max(FOOT_Y - MAX_EXTRA_FOOT, Math.min(FOOT_Y, ground(_p.x, _p.z) - _p.y - 0.3));
     };

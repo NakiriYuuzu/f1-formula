@@ -2,7 +2,8 @@
  * Grade-separated crossing (BuiltTrack.deck = the upper road of a bridge / figure-8 crossover): a concrete slab under
  * the road, fascias along the parapets, abutment walls down to the ground wherever the lower road does not pass under
  * the deck, and cap walls where the deck run meets the embankment. The parapets themselves are the normal concrete
- * barriers (barriers.ts forces them on deck samples at the engine's close wall line, ≤ 2.5 m run-off). The terrain follows
+ * barriers (barriers.ts forces them on deck samples at the engine's close wall line, ≤ 2.5 m run-off) and, like the
+ * fascias, stop at the slab over the openings (`deckOpenings`). The terrain follows
  * the lower road (terrain.ts) and stays below the deck, so nothing pokes through either road.
  */
 import * as THREE from 'three';
@@ -23,36 +24,57 @@ const OWN_ROAD_LOOP = 80;
 const FOOT_BELOW_GROUND = 0.4;
 const _p = new THREE.Vector3();
 
+/** Signed lateral (m) of the fascia on `side` of deck sample k. */
+function fasciaLat(ctx: SceneryContext, k: number, side: number): number {
+  const f = ctx.frame;
+  return side * ((side > 0 ? f.barrierR[k] : f.barrierL[k]) + FASCIA_OUT);
+}
+
+/**
+ * The openings the crossing road passes through: per deck sample and side (`k * 2 + (side > 0 ? 1 : 0)`), 1 within 2
+ * samples of a fascia point over the crossing road. The fascia and the parapet (barriers.ts) stop at the slab there;
+ * everywhere else both reach down to the ground.
+ */
+export function deckOpenings(ctx: SceneryContext): Uint8Array {
+  const { track: t, frame: f } = ctx;
+  const n = t.count;
+  const open = new Uint8Array(n * 2);
+  if (!f.hasDeck) return open;
+  const over = new Uint8Array(n * 2);
+  for (let k = 0; k < n; k++) {
+    if (!f.deck[k]) continue;
+    for (const side of [-1, 1] as const) {
+      sidePoint(t, k, fasciaLat(ctx, k, side), 0, _p);
+      if (!f.isClearOfOther(_p.x, _p.z, OPENING_MARGIN, k, OWN_ROAD_LOOP)) over[k * 2 + (side > 0 ? 1 : 0)] = 1;
+    }
+  }
+  for (let k = 0; k < n; k++) {
+    if (!f.deck[k]) continue;
+    for (const s of [0, 1]) {
+      for (let d = -2; d <= 2 && !open[k * 2 + s]; d++) open[k * 2 + s] = over[wrapIndex(k + d, n) * 2 + s];
+    }
+  }
+  return open;
+}
+
 export function buildDeck(ctx: SceneryContext, heightAtXZ: (x: number, z: number) => number): THREE.Mesh | null {
   const { track: t, frame: f, disposer } = ctx;
   if (!f.hasDeck) return null;
   const n = t.count;
   const b = new GeoBuilder();
+  const open = deckOpenings(ctx);
   const runs = segmentRuns(n, (i) => f.deck[i] === 1 && f.deck[wrapIndex(i + 1, n)] === 1);
   for (const [i0, len] of runs) {
-    const outer = (k: number, side: number): number => side * ((side > 0 ? f.barrierR[k] : f.barrierL[k]) + FASCIA_OUT);
+    const outer = (k: number, side: number): number => fasciaLat(ctx, k, side);
     // fascia bottom per side and sample: down to the ground unless the lower road passes under this stretch
     const bottoms: Float64Array[] = [];
     for (const side of [-1, 1] as const) {
-      const bottom = new Float64Array(len + 1);
-      const over = new Uint8Array(len + 1);
+      const held = new Float64Array(len + 1);
       for (let j = 0; j <= len; j++) {
         const k = wrapIndex(i0 + j, n);
         sidePoint(t, k, outer(k, side), 0, _p);
         const ground = heightAtXZ(_p.x, _p.z) - FOOT_BELOW_GROUND;
-        bottom[j] = Math.min(-DECK_SLAB, ground - t.py[k]);
-        over[j] = f.isClearOfOther(_p.x, _p.z, OPENING_MARGIN, k, OWN_ROAD_LOOP) ? 0 : 1;
-      }
-      // keep the opening: the slab edge holds for 2 samples either side of every crossing-road sample
-      const held = Float64Array.from(bottom);
-      for (let j = 0; j <= len; j++) {
-        for (let d = -2; d <= 2; d++) {
-          const q = j + d;
-          if (q >= 0 && q <= len && over[q]) {
-            held[j] = -DECK_SLAB;
-            break;
-          }
-        }
+        held[j] = open[k * 2 + (side > 0 ? 1 : 0)] ? -DECK_SLAB : Math.min(-DECK_SLAB, ground - t.py[k]);
       }
       bottoms.push(held);
       strip(b, ctx, i0, len, (k, j) => [outer(k, side), held[j]], (k) => [outer(k, side), 0], side > 0 ? 'right' : 'left', 8, 0, 0.5);

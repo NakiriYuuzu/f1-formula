@@ -12,7 +12,7 @@ import { carDims } from '../src/render/car/dims';
 import { Disposer } from '../src/render/core/disposer';
 import { CarEffects } from '../src/render/fx/carEffects';
 import { ContactShadows } from '../src/render/fx/contactShadows';
-import { buildStatic, installFakeDom, makeContext } from './renderHarness';
+import { buildStatic, installFakeDom, makeContext, underDeckBlockers } from './renderHarness';
 
 const REAL = LAYOUTS.filter((l) => getLayout(l.id).def.real).map((l) => l.id);
 const LEVELS: QualityLevel[] = ['low', 'medium', 'high', 'ultra'];
@@ -84,6 +84,22 @@ describe('listed features exist (all real layouts)', () => {
         }
       }
       s.dispose();
+    });
+  }
+});
+
+describe('grade-separated crossings (real layouts with a deck)', () => {
+  const decked = REAL.filter((id) => getLayout(id).deck.some((d) => d === 1));
+  test('Suzuka is among them (both directions)', () => {
+    expect(decked).toEqual(expect.arrayContaining(['suzuka', 'suzuka-rev']));
+  });
+  for (const id of decked) {
+    test(`${id}: the lower road stays open under the deck (driver and chase-cam sight lines)`, () => {
+      const t = getLayout(id);
+      const s = buildStatic(t, { level: 'high' });
+      const blocked = underDeckBlockers(s, t);
+      s.dispose();
+      expect(blocked).toEqual([]);
     });
   }
 });
