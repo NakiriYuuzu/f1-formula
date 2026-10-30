@@ -222,36 +222,19 @@ noscript {
   word-break: break-all;
 }
 
-/* ───────────── YouTube music mini player (audio/youtube.ts) ─────────────
-   YouTube's API policies: a visible player of at least 200×200 px with nothing in front of it, so it sits above every
-   game layer (below only the error overlay) and is never clipped. Menus: bottom-left 16:9; sessions: a 200×200 square
-   at the right edge, between the timing box and the telemetry, where the race HUD leaves room. */
+/* ───────────── YouTube music player (audio/youtube.ts) ─────────────
+   Not shown (2026-10-30 user decision): the iframe stays in the page at 200×200 px so the video keeps playing, but it
+   is fully transparent and ignores the pointer (the box is also inert and aria-hidden). */
 
 .nv-yt {
   position: fixed;
-  left: max(12px, env(safe-area-inset-left));
-  bottom: max(12px, env(safe-area-inset-bottom));
-  z-index: calc(var(--nv-z-error) - 1);
-  width: 356px;
-  height: 200px;
-  background: #000;
-  border: 1px solid var(--nv-line-strong);
-  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
-  pointer-events: auto;
-}
-
-.nv-yt[data-place='race'] {
-  left: auto;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: auto;
-  top: 50%;
+  left: 0;
+  bottom: 0;
   width: 200px;
   height: 200px;
-  transform: translateY(-50%);
-}
-
-.nv-yt[hidden] {
-  display: none;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .nv-yt iframe {

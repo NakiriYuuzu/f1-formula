@@ -2172,6 +2172,50 @@
   min-height: 300px;
 }
 
+/* 音效 → YouTube 音樂: the links played in turn */
+.nvm-ytlist {
+  display: flex;
+  flex-direction: column;
+}
+
+.nvm-ytlink {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--nv-line);
+}
+
+.nvm-ytlink__n {
+  font-family: var(--nv-font-mono);
+  color: var(--nv-text-3);
+}
+
+.nvm-ytlink__url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nv-font-mono);
+  font-size: 13px;
+  color: var(--nv-text-2);
+}
+
+.nvm-ytlink:focus-within .nvm-ytlink__url {
+  color: var(--nv-text);
+}
+
+/* the link playing now */
+.nvm-ytlink.is-playing {
+  box-shadow: inset 3px 0 0 var(--nv-accent);
+  padding-left: 8px;
+}
+
+.nvm-ytlink.is-playing .nvm-ytlink__n,
+.nvm-ytlink.is-playing .nvm-ytlink__url {
+  color: var(--nv-accent);
+}
+
 .nvm-keyrows {
   display: flex;
   flex-direction: column;

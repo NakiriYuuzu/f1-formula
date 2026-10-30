@@ -31,11 +31,11 @@ import {
   type Score,
 } from '../src/audio/musicScore';
 import { CHAMPAGNE, LIGHTS_OUT, SCENE_SCORES } from '../src/audio/musicThemes';
-import { parseYouTubeUrl } from '../src/audio/youtube';
+import { parseYouTubeUrl, youtubeLinks, youtubeLinksPatch } from '../src/audio/youtube';
 import { getMusicError, loadMusicFile, MAX_MUSIC_BYTES, reportMusicError, saveMusicFile, type StoredMusic } from '../src/audio/musicStore';
 import { DEFAULT_SETTINGS } from '../src/core/defaults';
 import type { Settings } from '../src/core/types';
-import { sanitizeSettings } from '../src/meta/save';
+import { cloneSettings, MAX_YOUTUBE_LINKS, sanitizeSettings } from '../src/meta/save';
 import { FakeAudioContext, FakeBufferSource, FakeGain, FakeSource, fireEnded, resetFakeAudio, stats } from './fakeAudio';
 
 const g = globalThis as Record<string, unknown>;
@@ -281,6 +281,18 @@ describe('settings sanitizer', () => {
     expect(sanitizeSettings({ musicYoutube: '  https://youtu.be/abcdefghijk ' }).musicYoutube).toBe('https://youtu.be/abcdefghijk');
     expect(sanitizeSettings({ musicYoutube: 42 }).musicYoutube).toBe('');
     expect(sanitizeSettings({ musicYoutube: 'x'.repeat(1000) }).musicYoutube.length).toBe(300);
+    // more links played in turn (older saves have none)
+    expect(DEFAULT_SETTINGS.musicYoutubeExtra).toEqual([]);
+    expect(sanitizeSettings({}).musicYoutubeExtra).toEqual([]);
+    expect(sanitizeSettings({ musicYoutubeExtra: 'https://youtu.be/abcdefghijk' }).musicYoutubeExtra).toEqual([]);
+    expect(sanitizeSettings({ musicYoutubeExtra: [' https://youtu.be/abcdefghijk ', 42, '', '  ', 'x'.repeat(1000)] }).musicYoutubeExtra).toEqual([
+      'https://youtu.be/abcdefghijk',
+      'x'.repeat(300),
+    ]);
+    expect(sanitizeSettings({ musicYoutubeExtra: Array.from({ length: 80 }, (_, i) => `link ${i}`) }).musicYoutubeExtra.length).toBe(MAX_YOUTUBE_LINKS - 1);
+    // the clone never shares the list
+    const s = sanitizeSettings({ musicYoutubeExtra: ['a'] });
+    expect(cloneSettings(s).musicYoutubeExtra).not.toBe(s.musicYoutubeExtra);
   });
 });
 
@@ -814,16 +826,23 @@ describe('YouTube', () => {
     }
   });
 
-  test('the engine drives the mini player like the music bus and falls back to the original music on failure', async () => {
+  test('the rotation list is musicYoutube then musicYoutubeExtra, and back', () => {
+    expect(youtubeLinks({ musicYoutube: ' a ', musicYoutubeExtra: ['b', ' ', 'c'] })).toEqual(['a', 'b', 'c']);
+    expect(youtubeLinks({ musicYoutube: '', musicYoutubeExtra: ['b'] })).toEqual(['b']);
+    expect(youtubeLinksPatch(['a', 'b', 'c'])).toEqual({ musicYoutube: 'a', musicYoutubeExtra: ['b', 'c'] });
+    expect(youtubeLinksPatch([])).toEqual({ musicYoutube: '', musicYoutubeExtra: [] });
+  });
+
+  test('the engine drives the hidden player like the music bus and falls back to the original music on failure', async () => {
     resetFakeAudio();
     g.AudioContext = FakeAudioContext;
-    const calls: { link: string; active: boolean; volume: number; place: string | undefined }[] = [];
+    const calls: { links: readonly string[]; active: boolean; volume: number }[] = [];
     let status: ((message: string | null) => void) | null = null;
     let disposed = 0;
     const audio = new AudioEngine(withMusic({ musicSource: 'youtube', musicYoutube: 'https://youtu.be/dQw4w9WgXcQ', masterVolume: 1 }), {
       youtube: (onStatus) => {
         status = onStatus;
-        return { update: (link, active, volume, place) => void calls.push({ link, active, volume, place }), dispose: () => void disposed++ };
+        return { update: (links, active, volume) => void calls.push({ links, active, volume }), dispose: () => void disposed++ };
       },
     });
     audio.setMusicScene('menu');
@@ -831,7 +850,7 @@ describe('YouTube', () => {
     await audio.resume();
     const ctx = FakeAudioContext.instances[0] as FakeAudioContext;
     const last = (): (typeof calls)[number] => calls[calls.length - 1]!;
-    expect(last()).toEqual({ link: 'https://youtu.be/dQw4w9WgXcQ', active: true, volume: 0.25, place: 'menu' });
+    expect(last()).toEqual({ links: ['https://youtu.be/dQw4w9WgXcQ'], active: true, volume: 0.25 });
     // the synthesized music stays silent while YouTube plays
     const base = stats.created;
     ctx.currentTime = 2;
@@ -839,11 +858,13 @@ describe('YouTube', () => {
     expect(stats.created).toBe(base);
 
     audio.setMusicScene('session'); // music off in races by default: the player pauses
-    expect(last()).toMatchObject({ active: false, place: 'race' });
+    expect(last().active).toBe(false);
     audio.applySettings(withMusic({ musicSource: 'youtube', musicYoutube: 'https://youtu.be/dQw4w9WgXcQ', masterVolume: 1, musicInRace: true }));
-    expect(last()).toMatchObject({ active: true, place: 'race' });
+    expect(last().active).toBe(true);
     expect(last().volume).toBeCloseTo(0.25 * 0.35, 6);
-    audio.applySettings(withMusic({ musicSource: 'youtube', musicYoutube: 'https://youtu.be/dQw4w9WgXcQ', masterVolume: 1 }));
+    // every link of the rotation reaches the player, in order
+    audio.applySettings(withMusic({ musicSource: 'youtube', musicYoutube: 'https://youtu.be/dQw4w9WgXcQ', musicYoutubeExtra: ['https://youtu.be/abcdefghijk'], masterVolume: 1 }));
+    expect(last().links).toEqual(['https://youtu.be/dQw4w9WgXcQ', 'https://youtu.be/abcdefghijk']);
     audio.setMusicScene('results');
     audio.setMusicHidden(true);
     expect(last().active).toBe(false);

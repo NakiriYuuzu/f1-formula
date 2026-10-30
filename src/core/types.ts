@@ -385,10 +385,12 @@ export interface Settings {
   /** background music level 0..1 */
   musicVolume: number;
   /** original synthesized tracks, the optional local playlist (public/music/, git-ignored), a user-selected local file
-   * (kept in IndexedDB), a YouTube video / playlist (`musicYoutube`), or silence */
+   * (kept in IndexedDB), YouTube videos / playlists (`musicYoutube` + `musicYoutubeExtra`), or silence */
   musicSource: 'original' | 'bundled' | 'custom' | 'youtube' | 'off';
   /** YouTube link pasted by the player for musicSource 'youtube' ('' = none) */
   musicYoutube: string;
+  /** more YouTube links, played in turn after `musicYoutube` (the whole list loops) */
+  musicYoutubeExtra: string[];
   /** keep playing (ducked) during sessions and replays */
   musicInRace: boolean;
   units: SpeedUnit;

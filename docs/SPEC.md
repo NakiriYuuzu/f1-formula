@@ -21,14 +21,15 @@
 - **原創賽道**（5 條）維持原創虛構，不可「微調後」重現任何真實賽道。
 - 所有 3D 模型、貼圖、音效皆以程式生成（three.js geometry、canvas 貼圖、WebAudio 合成）。**執行期不得下載任何外部資產**，
   不得從網路載入字型 / CDN；真實賽道的幾何以 `tools/import-circuit.ts` 離線匯入成 `src/data/tracks/real/*.ts` 原始碼。
-  唯一例外（2026-10-29 使用者決定）：玩家在「設定 → 音效」選擇 YouTube 音樂來源並貼上連結後，才從 youtube.com 載入 IFrame Player API
-  並以 youtube-nocookie.com 播放器播放（`src/audio/youtube.ts`）。依 YouTube API 政策，播放器必須可見（≥ 200×200 px、不得被任何元素遮住）、
-  不得背景播放：播放時顯示在最上層（選單左下角 356×200、賽事與重播時在右側中段 200×200，避開 HUD），音樂靜音的場景與背景分頁時暫停並收起。
+  唯一例外（2026-10-29 使用者決定）：玩家在「設定 → 音效」選擇 YouTube 音樂來源並加入連結後，才從 youtube.com 載入 IFrame Player API
+  並以 youtube-nocookie.com 播放器播放（`src/audio/youtube.ts`）；可加入多條連結（最多 50 條），依序輪播、整份清單循環。
+  播放器不顯示（2026-10-30 使用者決定，與 YouTube API 政策「播放器必須可見、≥ 200×200 px」不符，由玩家自行承擔）：iframe 以 200×200 px
+  留在頁面中但完全透明、inert、不接收指標；音樂靜音的場景與背景分頁時仍會暫停。
   內建名單：預設為 `src/data/realGrid.ts`（2026 F1 真實陣容），原創虛構名單為 `src/data/teams.ts`（「新星之路」固定使用，也可在設定選用）。
   背景音樂為原創曲，以 WebAudio 即時合成，依場景各一首：選單〈Lights Out〉、比賽〈Pole Position Anthem〉、頒獎台〈Champagne〉
   （`src/audio/musicThemes.ts`、`src/audio/musicScore.ts`）。
 - **玩家自備內容**（2026-10-07 使用者決定，個人使用）：玩家可在「設定 → 名單」匯入本機名單檔（`src/meta/rosterPack.ts` 驗證，
-  存在瀏覽器 localStorage），在「設定 → 音效」選擇本機音樂檔（存在 IndexedDB）或貼上 YouTube 連結（存在設定）。這些是玩家自己的內容，
+  存在瀏覽器 localStorage），在「設定 → 音效」選擇本機音樂檔（存在 IndexedDB）或加入 YouTube 連結（存在設定）。這些是玩家自己的內容，
   **不屬於遊戲內容**，不得打包進 `src/` 或公開的 `dist/`。劇情「新星之路」固定使用原創名單。
   玩家自己的檔案可放在 `public/` 下兩個已列入 `.gitignore` 的資料夾，從同源讀取：
   `public/rosters/default.json` 是**個人預設名單**（開機時由 `src/app/defaultRoster.ts` 讀取，取代內建的 2026 陣容成為預設名單；

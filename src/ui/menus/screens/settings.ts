@@ -7,7 +7,8 @@
 import type { CameraMode, KeyAction, QualityLevel, Settings, SpeedUnit } from '../../../core/types';
 import { bundledPlaylist, bundledPlaylistNow } from '../../../audio/bundledMusic';
 import { clearMusicFile, getMusicError, MAX_MUSIC_BYTES, readMusicInfo, saveMusicFile, subscribeMusic } from '../../../audio/musicStore';
-import { cloneSettings, defaultSettings, KEY_ACTIONS } from '../../../meta/save';
+import { parseYouTubeUrl, skipYouTube, subscribeYouTube, youtubeLinks, youtubeLinksPatch, youtubeNowPlaying } from '../../../audio/youtube';
+import { cloneSettings, defaultSettings, KEY_ACTIONS, MAX_YOUTUBE_LINKS } from '../../../meta/save';
 import { h, setChildren } from '../dom';
 import { captureStep, clashesWithP1Pause, isPadEvent } from '../keyCapture';
 import { focusElement } from '../nav';
@@ -262,37 +263,127 @@ export class SettingsScreen extends Screen {
         }).el,
         ...this.musicFile(source),
       ),
-      this.youtubeLink(source),
+      this.youtubePanel(source),
     );
   }
 
-  /** YouTube link field: 「套用連結」 stores the link and switches the source to YouTube (Enter in the field moves to it). */
-  private youtubeLink(source: { set(v: Settings['musicSource']): void }): HTMLElement {
-    const apply = (): void => {
-      const link = field.get().trim();
-      field.set(link);
-      this.patch({ musicYoutube: link, musicSource: 'youtube' });
-      source.set('youtube');
-      this.host.toast(link ? '已改用 YouTube 音樂' : '已清除 YouTube 連結', link ? 'good' : undefined);
-    };
+  /**
+   * YouTube links, played in turn: 「加入」 appends the pasted link (Enter in the field moves to it) and switches the
+   * source to YouTube; every row has 「移除」; the link playing now is marked and 「下一首」 skips ahead.
+   */
+  private youtubePanel(source: { set(v: Settings['musicSource']): void }): HTMLElement {
+    const list = h('div', { class: 'nvm-ytlist' });
     const field = textField({
       label: '影片或播放清單連結',
-      value: this.s.musicYoutube,
+      value: '',
       maxLength: 300,
       placeholder: 'https://www.youtube.com/watch?v=…',
       onInput: () => undefined,
     });
+    const next = button({
+      label: '下一首',
+      onClick: () => {
+        if (skipYouTube()) this.host.toast('已換下一首');
+        else {
+          this.host.sound('error');
+          this.host.toast('目前沒有播放 YouTube 音樂', 'bad');
+        }
+      },
+    });
+    // marks the rows in place (never rebuilds them, so the focus stays where it is when a song changes)
+    const mark = (): void => {
+      const now = youtubeNowPlaying();
+      const links = youtubeLinks(this.s);
+      list.querySelectorAll<HTMLElement>('.nvm-ytlink').forEach((row, i) => {
+        const playing = now !== null && links[i] === now;
+        row.classList.toggle('is-playing', playing);
+        if (playing) row.setAttribute('aria-current', 'true');
+        else row.removeAttribute('aria-current');
+      });
+      next.disabled = now === null;
+    };
+    const off = subscribeYouTube(() => {
+      if (!list.isConnected) {
+        off();
+        return;
+      }
+      mark();
+    });
+    const draw = (): void => {
+      const links = youtubeLinks(this.s);
+      setChildren(
+        list,
+        links.length === 0
+          ? h('p', { class: 'nvm-empty', text: '尚未加入任何連結' })
+          : links.map((link, i) =>
+              h(
+                'div',
+                { class: 'nvm-ytlink' },
+                h('span', { class: 'nvm-ytlink__n', text: String(i + 1) }),
+                h('span', { class: 'nvm-ytlink__url', text: link, attrs: { title: link } }),
+                button({
+                  label: '移除',
+                  variant: 'danger',
+                  back: true,
+                  onClick: () => {
+                    this.patch(youtubeLinksPatch(links.filter((_, j) => j !== i)));
+                    draw();
+                    // the focus stays in the list (on the row that took this one's place)
+                    const rows = list.querySelectorAll('button');
+                    focusElement(rows[Math.min(i, rows.length - 1)] ?? field.input);
+                    this.host.toast('已移除 YouTube 連結');
+                  },
+                }),
+              ),
+            ),
+      );
+      mark();
+    };
+    const add = (): void => {
+      const link = field.get().trim();
+      const links = youtubeLinks(this.s);
+      const problem = !link
+        ? '請先貼上 YouTube 連結'
+        : !parseYouTubeUrl(link)
+          ? '這不是 YouTube 影片或播放清單的連結'
+          : links.includes(link)
+            ? '這個連結已經在清單中'
+            : links.length >= MAX_YOUTUBE_LINKS
+              ? `最多只能加入 ${MAX_YOUTUBE_LINKS} 條連結`
+              : null;
+      if (problem) {
+        this.host.sound('error');
+        this.host.toast(problem, 'bad');
+        return;
+      }
+      field.set('');
+      this.patch({ ...youtubeLinksPatch([...links, link]), musicSource: 'youtube' });
+      source.set('youtube');
+      draw();
+      this.host.toast(links.length === 0 ? '已改用 YouTube 音樂' : `已加入第 ${links.length + 1} 條 YouTube 連結`, 'good');
+    };
+    const clearAll = (): void => {
+      if (youtubeLinks(this.s).length === 0) return;
+      this.host.confirm('清除所有 YouTube 連結？', '輪播清單會清空；音樂來源仍是 YouTube 時會改播原創音樂。', () => {
+        this.patch(youtubeLinksPatch([]));
+        draw();
+        this.host.toast('已清除 YouTube 連結');
+      }, '清除');
+    };
+    draw();
     return panel(
       'YouTube 音樂',
+      list,
+      h('div', { class: 'nvm-actions' }, next),
       field.el,
-      h('div', { class: 'nvm-actions' }, button({ label: '套用連結', onClick: apply })),
+      h('div', { class: 'nvm-actions' }, button({ label: '加入', onClick: add }), button({ label: '清除全部', variant: 'danger', onClick: clearAll })),
       h('p', {
         class: 'nvm-note',
-        text: '貼上 YouTube 影片或播放清單的連結，音樂來源會改為「YouTube」。需要網路連線；有些影片的上傳者不允許嵌入播放，這時會改播原創音樂。',
+        text: '貼上 YouTube 影片或播放清單的連結後按「加入」，音樂來源會改為「YouTube」。可以加入多條，依清單順序輪播：影片播完、或播放清單的最後一部播完就換下一條，最後一條播完回到第一條；只有一條時循環播放。正在播放的連結會標示出來，「下一首」跳到播放清單的下一部或下一條連結。',
       }),
       h('p', {
         class: 'nvm-note',
-        text: '依 YouTube 的使用規範，播放時會顯示小播放器（選單在左下角，賽事中在畫面右側中段），不能隱藏；音樂靜音的場景（例如關閉「比賽中播放」時的賽事）與背景分頁會自動暫停並收起播放器。',
+        text: '播放器不會顯示在畫面上，只播放聲音；音樂靜音的場景（例如關閉「比賽中播放」時的賽事）與背景分頁會自動暫停。需要網路連線；無法播放的連結（例如上傳者不允許嵌入播放）會自動跳過，全部都無法播放時改播原創音樂。',
       }),
     );
   }

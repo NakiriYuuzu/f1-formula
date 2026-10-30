@@ -23,6 +23,8 @@ const CAMERAS: readonly CameraMode[] = ['chase', 'chaseFar', 'tcam', 'cockpit', 
 const MAX_KEYS_PER_ACTION = 4;
 /** a pasted YouTube link (watch / playlist URLs stay far below this) */
 const MAX_LINK = 300;
+/** YouTube links played in turn (`musicYoutube` + `musicYoutubeExtra`) */
+export const MAX_YOUTUBE_LINKS = 50;
 
 /** Deep copy of the default settings (never hand out the shared default objects). */
 export function defaultSettings(): Settings {
@@ -37,7 +39,7 @@ export function cloneSettings(s: Settings): Settings {
     const keys = s.keyBindingsP2[action];
     if (keys) keyBindingsP2[action] = [...keys];
   }
-  return { ...s, keyBindings, keyBindingsP2, hud: { ...s.hud } };
+  return { ...s, musicYoutubeExtra: [...s.musicYoutubeExtra], keyBindings, keyBindingsP2, hud: { ...s.hud } };
 }
 
 /** Validate every Settings field; unknown / invalid values fall back to defaults. */
@@ -85,6 +87,13 @@ export function sanitizeSettings(v: unknown): Settings {
     musicVolume: num(r.musicVolume, 0, 1, d.musicVolume),
     musicSource: oneOf(r.musicSource, ['original', 'bundled', 'custom', 'youtube', 'off'] as const, d.musicSource),
     musicYoutube: typeof r.musicYoutube === 'string' ? r.musicYoutube.trim().slice(0, MAX_LINK) : d.musicYoutube,
+    musicYoutubeExtra: Array.isArray(r.musicYoutubeExtra)
+      ? r.musicYoutubeExtra
+          .filter((l): l is string => typeof l === 'string')
+          .map((l) => l.trim().slice(0, MAX_LINK))
+          .filter((l) => l !== '')
+          .slice(0, MAX_YOUTUBE_LINKS - 1)
+      : [...d.musicYoutubeExtra],
     musicInRace: bool(r.musicInRace, d.musicInRace),
     units: oneOf(r.units, ['kmh', 'mph'] as const, d.units),
     defaultCamera: oneOf(r.defaultCamera, CAMERAS, d.defaultCamera),

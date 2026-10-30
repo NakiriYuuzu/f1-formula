@@ -15,7 +15,7 @@ import { CarVoice } from './carVoice';
 import { createAudioContext, createSharedAudio, glide, releaseNodes, snap, type SharedAudio } from './context';
 import { MusicPlayer, musicSceneFactor, musicSceneOf } from './music';
 import { reportMusicError } from './musicStore';
-import { YouTubeMusic } from './youtube';
+import { YouTubeMusic, youtubeLinks } from './youtube';
 import {
   ONBOARD_CAMERAS,
   carVelocity,
@@ -87,7 +87,7 @@ interface CarTrack {
   lastThump: number;
 }
 
-/** Creates the YouTube mini player (tests inject a fake; null = no page to show it in). */
+/** Creates the hidden YouTube player (tests inject a fake; null = no page to put it in). */
 type YouTubeFactory = (onStatus: (message: string | null) => void) => Pick<YouTubeMusic, 'update' | 'dispose'>;
 
 const volume = (v: number, fallback: number): number => {
@@ -488,7 +488,7 @@ export class AudioEngine {
     this.music?.setActive(target > 0);
   }
 
-  /** The YouTube mini player follows the music bus: its scenes, its level (times the master volume), the hidden tab. */
+  /** The YouTube player follows the music bus: its scenes, its level (times the master volume), the hidden tab. */
   private syncYouTube(on: boolean, target: number): void {
     if (!on) {
       this.youtube?.dispose();
@@ -500,7 +500,7 @@ export class AudioEngine {
     }
     if (!this.youtube) {
       if (!this.youtubeFactory) {
-        // no page to show a player in: the original music
+        // no page to put a player in: the original music
         this.youtubeFailed = true;
         return;
       }
@@ -512,8 +512,7 @@ export class AudioEngine {
         if (!this.syncingMusic) this.syncMusic(0.05);
       });
     }
-    const placement = musicSceneOf(this.musicScene) === 'race' ? 'race' : 'menu';
-    this.youtube.update(this.settings.musicYoutube, target > 0, target * volume(this.settings.masterVolume, 0.8), placement);
+    this.youtube.update(youtubeLinks(this.settings), target > 0, target * volume(this.settings.masterVolume, 0.8));
   }
 
   private teardownContext(): void {
