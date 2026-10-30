@@ -163,6 +163,16 @@ export class HostLobby {
       .map((g) => ({ playerIndex: g.playerIndex, name: this.playerOf(g.playerIndex)?.name ?? `P${g.playerIndex + 1}`, transport: g.transport }));
   }
 
+  /** Each guest's latest setup and assists into a session's player slots (a guest may change them between sessions). */
+  applyGuestCars(config: SessionConfig): void {
+    for (const slot of config.players) {
+      const g = this.guests.get(slot.playerIndex);
+      if (!g || !g.joined) continue;
+      slot.setup = { ...g.setup };
+      slot.assists = { ...g.assists };
+    }
+  }
+
   /** A session starts: everyone gets the config; the session layer takes the links over. */
   startSession(session: number, config: SessionConfig, final: boolean): void {
     this.started = true;
@@ -259,6 +269,7 @@ export class HostLobby {
         return;
       }
       case 'pick': {
+        // (empty ids: only the car — GuestLobby.syncCar — the seat and the entry stay)
         if (!g.joined) return;
         if (m.setup !== undefined) g.setup = sanitizeSetup(m.setup);
         if (m.assists !== undefined) g.assists = sanitizeAssists(m.assists);
@@ -338,6 +349,10 @@ export class GuestLobby {
   playerIndex: PlayerIndex | null = null;
   /** `seq` of the last pick sent (the host echoes the ones it handled in LobbyPlayer.pickSeq) */
   pickSeq = 0;
+  /** this player's car on a layout (online setup, assists), kept current at the host by syncCar */
+  carFor: ((layoutId: string) => { setup: CarSetup; assists: Assists }) | null = null;
+  /** the layout of the car last sent */
+  private carLayout = '';
   private closedFlag = false;
 
   constructor(
@@ -362,6 +377,18 @@ export class GuestLobby {
     send(this.transport, { t: 'pick', teamId, driverId, ...(setup ? { setup } : {}), ...(assists ? { assists } : {}), ...(entry ? { entry } : {}), seq });
   }
 
+  /**
+   * My car for the lobby's track to the host, when the track changed since the last one sent (always when forced: a
+   * new setup or assists). A pick with empty ids, so the seat and the entry stay — also one still on its way.
+   */
+  syncCar(force = false): void {
+    const layoutId = this.state?.settings.layoutId;
+    if (!this.carFor || layoutId === undefined || this.me === null || (!force && layoutId === this.carLayout)) return;
+    this.carLayout = layoutId;
+    const car = this.carFor(layoutId);
+    this.pick('', '', car.setup, car.assists);
+  }
+
   /** Every pick sent so far has been handled by the host: the lobby state shows what was taken. */
   picksSettled(): boolean {
     const me = this.me;
@@ -381,6 +408,9 @@ export class GuestLobby {
     };
     this.transport.onClose = () => this.closed('與房主的連線中斷');
     if (!this.transport.open) this.closed('與房主的連線中斷');
+    // a car sent while the host was in a session was dropped (its lobby takes no picks then): send it again
+    this.carLayout = '';
+    this.syncCar();
   }
 
   /** Messages outside a session (also those a ClientSession passes on). */
@@ -393,6 +423,8 @@ export class GuestLobby {
       case 'lobby':
         this.state = m.lobby;
         this.cb.changed?.();
+        // after the room's first pick (its setup is for the default track): the car for the host's track
+        this.syncCar();
         return;
       case 'reject':
         this.closed(m.reason);

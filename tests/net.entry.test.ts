@@ -1,7 +1,8 @@
 /**
  * Online entries (src/meta/onlineEntry.ts + the lobby): players race as their career / My Team driver in a roster seat
  * or as their whole My Team in a roster team's place — saves → entries, untrusted entries sanitized, the lobby's seat
- * rules (a My Team takes its whole team), and the session the host builds (ids, garage, livery, rating, part gains).
+ * rules (a My Team takes its whole team), and the session the host builds (ids, garage, livery, rating, part gains,
+ * a career driver's team development). Online car setups: their own book, the guests' latest ones in every session.
  */
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../src/core/defaults';
@@ -9,11 +10,12 @@ import type { DriverDef } from '../src/core/types';
 import { getLayout, LAYOUTS } from '../src/data/tracks/index';
 import { createCarSpec } from '../src/physics/index';
 import { createWorld } from '../src/race/index';
-import { createCareer } from '../src/meta/career';
+import { createCareer, type CareerSave } from '../src/meta/career';
 import { developmentFromRd, teamGains } from '../src/meta/development';
 import { createMyTeam, myTeamDef, type MyTeamSave } from '../src/meta/myTeam';
 import { applyOnlineEntries, onlineEntryOptions, sanitizeOnlineEntry, type OnlineEntry } from '../src/meta/onlineEntry';
 import { builtinRoster, MY_TEAM_ID, rosterDrivers } from '../src/meta/roster';
+import { loadOnlineSetup, loadSetup, saveOnlineSetup, saveSetup } from '../src/meta/save';
 import { DEFAULT_SEASON_SETTINGS } from '../src/meta/season';
 import { buildSessionConfig, validateSessionConfig, type SessionRequest } from '../src/meta/sessionBuilder';
 import { GuestLobby, HostLobby, listedEntry, sameListing } from '../src/net/lobby';
@@ -58,7 +60,18 @@ function teamEntry(): Extract<OnlineEntry, { kind: 'team' }> {
 
 function driverEntry(over: Partial<DriverDef> = {}): OnlineEntry {
   const career = createCareer({ ...IDENTITY, firstName: 'Mika', abbr: 'MIK', number: 12 }, 'vanta', DEFAULT_SEASON_SETTINGS, 3, LAYOUTS);
-  return { kind: 'driver', source: 'career', driver: { ...career.driver, ...over } };
+  return { kind: 'driver', source: 'career', driver: { ...career.driver, ...over }, gains: {} };
+}
+
+/** A career on `teamId` whose own team has this R&D. */
+function developedCareer(teamId: string, rd: { aero: number; power: number; chassis: number; reliability: number }, number: number): CareerSave {
+  const career = createCareer({ ...IDENTITY, number }, teamId, DEFAULT_SEASON_SETTINGS, 4, LAYOUTS);
+  career.development.teams[teamId] = developmentFromRd(rd);
+  return career;
+}
+
+function careerEntry(career: CareerSave): OnlineEntry {
+  return onlineEntryOptions(career, null).find((o) => o.source === 'career')!.entry;
 }
 
 function request(roster: SessionRequest['roster'], players: SessionRequest['players'], development?: SessionRequest['development']): SessionRequest {
@@ -102,6 +115,13 @@ describe('online entries from saves', () => {
     expect(Object.keys(e.gains).length).toBeGreaterThan(0);
     expect(e.driver.abbr).toBe('HAN');
     expect(e.mate?.id).toBe('ishikawa');
+    // the career driver brings their own team's development; the My Team driver alone brings none
+    const developed = developedCareer('corvid', { aero: 4, power: 1, chassis: 2, reliability: 0 }, 8);
+    const c = careerEntry(developed);
+    expect(c.kind === 'driver' ? c.gains : null).toEqual(teamGains(developed.development.teams.corvid));
+    expect(Object.keys(c.kind === 'driver' ? c.gains : {}).length).toBeGreaterThan(0);
+    const md = options.find((o) => o.source === 'myTeamDriver')!.entry;
+    expect(md.kind === 'driver' ? md.gains : null).toEqual({});
   });
 });
 
@@ -127,6 +147,11 @@ describe('untrusted entries', () => {
     expect(e.gains).toEqual({ floor: 5, ers: 1.5 });
     expect(e.driver.number).toBe(99);
     expect(e.mate).toBeNull();
+    // a career driver's gains are clamped; a My Team driver never carries any
+    const career = sanitizeOnlineEntry({ kind: 'driver', source: 'career', driver: {}, gains: { floor: 9, warpDrive: 1 } });
+    expect(career.kind === 'driver' ? career.gains : null).toEqual({ floor: 5 });
+    const md = sanitizeOnlineEntry({ kind: 'driver', source: 'myTeamDriver', driver: {}, gains: { floor: 3 } });
+    expect(md.kind === 'driver' ? md.gains : null).toEqual({});
   });
 });
 
@@ -176,6 +201,33 @@ describe('session roster with entries', () => {
     expect(p2.displayName).toBe('Mika Hanaoka');
     expect(p2.teamId).toBe('vanta');
     expect(p2.livery.primary).toBe(vanta.livery.primary);
+  });
+
+  test('a career driver’s team development goes to both cars of the team they sit in (two in one team: the higher per part)', () => {
+    const base = builtinRoster();
+    const vanta = base.teams.find((t) => t.id === 'vanta')!;
+    const a = developedCareer('corvid', { aero: 4, power: 0, chassis: 1, reliability: 0 }, 8);
+    const b = developedCareer('kestrel', { aero: 1, power: 3, chassis: 0, reliability: 2 }, 9);
+    const ga = teamGains(a.development.teams.corvid);
+    const gb = teamGains(b.development.teams.kestrel);
+    const field = applyOnlineEntries(base, [
+      { playerIndex: 0, teamId: 'vanta', driverId: vanta.driverIds[0], entry: careerEntry(a) },
+      { playerIndex: 1, teamId: 'vanta', driverId: vanta.driverIds[1], entry: careerEntry(b) },
+    ]);
+    const parts = new Set([...Object.keys(ga), ...Object.keys(gb)]) as Set<keyof typeof ga>;
+    const expected = Object.fromEntries([...parts].map((p) => [p, Math.max(ga[p] ?? 0, gb[p] ?? 0)]));
+    expect(field.development).toEqual({ vanta: expected });
+    const players = field.seats.map((s) => ({ ...s, setup: { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS }, startCompound: null }));
+    const config = buildSessionConfig(request(field.roster, players, field.development));
+    expect(validateSessionConfig(config)).toEqual([]);
+    const world = createWorld(JSON.parse(JSON.stringify(config)), getLayout('monza'));
+    const team = config.teams.find((t) => t.id === 'vanta')!;
+    const cars = world.cars.filter((c) => c.teamId === 'vanta');
+    expect(cars).toHaveLength(2);
+    for (const car of cars) expect(car.spec).toEqual(createCarSpec(team, DEFAULT_SETUP, config.regulation, expected));
+    // the same seats as roster drivers: no development
+    const plain = applyOnlineEntries(base, [{ playerIndex: 0, teamId: 'vanta', driverId: vanta.driverIds[0], entry: driverEntry() }]);
+    expect(plain.development).toEqual({});
   });
 
   test('without a teammate the team’s first roster driver stays on; players keep their numbers', () => {
@@ -321,6 +373,79 @@ describe('lobby seats with entries', () => {
     expect(sameListing(listedEntry(loud), host.host.entry)).toBe(true);
   });
 
+  test('every session takes each guest’s latest setup and assists (changed between the weekend’s sessions)', () => {
+    const { net, host, lobbies } = setup(2);
+    const g1 = lobbies[0]!;
+    const me = host.state.players[1]!;
+    g1.pick(me.teamId, me.driverId, { ...DEFAULT_SETUP, suspension: 3 }, { ...DEFAULT_ASSISTS, abs: false });
+    net.advance(100);
+    const hostSetup = { ...DEFAULT_SETUP, frontWing: 40 };
+    const slots = [0, 1].map((pi) => ({ playerIndex: pi as 0 | 1, driverId: 'x', teamId: 'y', setup: pi === 0 ? { ...hostSetup } : { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS } }));
+    const config = { players: slots } as unknown as Parameters<HostLobby['applyGuestCars']>[0];
+    host.startSession(1, { layoutId: 'monza', grid: [] } as unknown as Parameters<HostLobby['startSession']>[1], false);
+    host.attach(false);
+    // between sessions the guest sets the car up again
+    g1.pick(me.teamId, me.driverId, { ...DEFAULT_SETUP, suspension: 9, rearWing: 12 }, { ...DEFAULT_ASSISTS, abs: true });
+    net.advance(100);
+    host.applyGuestCars(config);
+    expect(config.players[1]!.setup.suspension).toBe(9);
+    expect(config.players[1]!.setup.rearWing).toBe(12);
+    expect(config.players[1]!.assists.abs).toBe(true);
+    // the host's own slot keeps the setup from its briefing
+    expect(config.players[0]!.setup).toEqual(hostSetup);
+  });
+
+  test('the host always has the guest’s car for its track: a track change sends it, a seat pick on its way is not undone', () => {
+    const { net, host, lobbies } = setup(1);
+    const g1 = lobbies[0]!;
+    const books: Record<string, typeof DEFAULT_SETUP> = { monza: { ...DEFAULT_SETUP, suspension: 2 }, 'koyo-hills': { ...DEFAULT_SETUP, suspension: 10 } };
+    g1.carFor = (layoutId) => ({ setup: books[layoutId] ?? { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS, abs: false } });
+    g1.syncCar();
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(2);
+    expect(host.guestCar(1)!.assists.abs).toBe(false);
+    // the guest picks another seat; before the host handles it, the host changes the track
+    const seat = host.state.roster.drivers.find((d) => !host.state.players.some((p) => p.teamId === d.teamId))!;
+    g1.pick(seat.teamId, seat.id);
+    host.setSettings({ layoutId: 'koyo-hills' });
+    net.advance(200);
+    expect(host.guestCar(1)!.setup.suspension).toBe(10);
+    expect(host.state.players[1]!.driverId).toBe(seat.id);
+    expect(g1.picksSettled()).toBe(true);
+    // a new setup or assists: forced, the seat and the entry stay
+    books['koyo-hills'] = { ...DEFAULT_SETUP, suspension: 6 };
+    g1.syncCar();
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(10);
+    g1.syncCar(true);
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(6);
+    expect(host.state.players[1]!.driverId).toBe(seat.id);
+    expect(host.entryOf(1).kind).toBe('roster');
+  });
+
+  test('a car sent while the host was in a session is sent again when the guest’s lobby takes the link back', () => {
+    const { net, host, lobbies } = setup(1);
+    const g1 = lobbies[0]!;
+    let suspension = 3;
+    g1.carFor = () => ({ setup: { ...DEFAULT_SETUP, suspension }, assists: { ...DEFAULT_ASSISTS } });
+    g1.syncCar();
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(3);
+    // the host starts a session (its lobby takes no picks); the guest's change on its way is dropped
+    host.startSession(1, { layoutId: 'monza', grid: [] } as unknown as Parameters<HostLobby['startSession']>[1], false);
+    suspension = 9;
+    g1.syncCar(true);
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(3);
+    // the session is over: both lobbies take their links back, the host gets the guest's latest car
+    host.attach(false);
+    g1.attach();
+    net.advance(100);
+    expect(host.guestCar(1)!.setup.suspension).toBe(9);
+    expect(g1.picksSettled()).toBe(true);
+  });
+
   test('the lobby message keeps a valid entry and refuses a bad colour', () => {
     const { host } = setup(0);
     host.setHostPick(host.host.teamId, host.host.driverId, teamEntry());
@@ -329,5 +454,20 @@ describe('lobby seats with entries', () => {
     const bad = JSON.parse(encodeMessage({ t: 'lobby', lobby: host.state }));
     bad.lobby.players[0].entry.color = 'url(x)';
     expect(decodeMessage(JSON.stringify(bad))).toBeNull();
+  });
+});
+
+describe('online car setups', () => {
+  test('their own book: a layout not set up online starts from the single-player setup; saving online never changes it', () => {
+    const solo = { ...DEFAULT_SETUP, frontWing: 31, suspension: 4 };
+    saveSetup('koyo-hills', solo);
+    expect(loadOnlineSetup('koyo-hills')).toEqual(solo);
+    const online = { ...solo, suspension: 10, tyrePressure: 2 };
+    saveOnlineSetup('koyo-hills', online);
+    expect(loadOnlineSetup('koyo-hills')).toEqual(online);
+    expect(loadSetup('koyo-hills')).toEqual(solo);
+    // later single-player changes no longer reach the online one
+    saveSetup('koyo-hills', { ...solo, frontWing: 12 });
+    expect(loadOnlineSetup('koyo-hills')).toEqual(online);
   });
 });

@@ -5,7 +5,7 @@
  */
 import type { SessionConfig } from '../core/types';
 import { ONLINE_ENTRY_SOURCES } from '../meta/onlineEntry';
-import { loadProfile, loadSetup } from '../meta/save';
+import { loadOnlineSetup, loadProfile } from '../meta/save';
 import { standardRoster } from '../meta/roster';
 import { readRecord, writeRecord } from '../meta/storage';
 import { OnlineRoom } from '../net/room';
@@ -59,7 +59,13 @@ export class OnlineController implements OnlineHooks {
     this.leave();
     const p = this.prefs();
     const settings = defaultLobbySettings();
-    const room = await OnlineRoom.join({ mode: p.mode, serverUrl: p.serverUrl, name: p.name }, code, loadSetup(settings.layoutId), { ...loadProfile().assists });
+    const room = await OnlineRoom.join({ mode: p.mode, serverUrl: p.serverUrl, name: p.name }, code, loadOnlineSetup(settings.layoutId), { ...loadProfile().assists });
+    // the host always has my online setup for its track and my assists, whatever screen is showing
+    const lobby = room.guestLobby;
+    if (lobby) {
+      lobby.carFor = (layoutId) => ({ setup: loadOnlineSetup(layoutId), assists: { ...loadProfile().assists } });
+      lobby.syncCar();
+    }
     this.adopt(room);
     return room;
   }

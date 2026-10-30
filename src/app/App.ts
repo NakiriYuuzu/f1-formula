@@ -366,6 +366,8 @@ export class App {
     if (room?.hostLobby && ctx.returnTo === 'online') {
       const session = room.nextSession();
       const players = room.hostLobby.sessionPlayers();
+      // the guests' setups as they left them (also changed between the weekend's sessions)
+      room.hostLobby.applyGuestCars(config);
       this.onlineFinal = ctx.weekendQueue.length === 0;
       room.hostLobby.startSession(session, config, this.onlineFinal);
       net = { role: 'host', session, players };

@@ -134,7 +134,7 @@ export function saveProfile(profile: ProfileSave): void {
   writeRecord('profile', sanitizeProfile(profile));
 }
 
-/** Setup-book key: player 1 per layout; split-screen player 2 keeps a separate entry (online seats use player 1's). */
+/** Setup-book key: player 1 per layout; split-screen player 2 keeps a separate entry (online rooms: loadOnlineSetup). */
 function setupKey(layoutId: string, playerIndex: PlayerIndex): string {
   return playerIndex === 1 ? `${layoutId}--p2` : layoutId;
 }
@@ -150,6 +150,19 @@ export function saveSetup(layoutId: string, setup: CarSetup, playerIndex: Player
   const book = sanitizeSetupBook(readRecord('setups'));
   book[setupKey(layoutId, playerIndex)] = sanitizeSetup(setup);
   writeRecord('setups', book);
+}
+
+/** Car setup for online rooms on a layout: its own book, a layout not set up online yet starts from the single-player one. */
+export function loadOnlineSetup(layoutId: string): CarSetup {
+  const found = sanitizeSetupBook(readRecord('onlineSetups'))[layoutId];
+  return found ? { ...found } : loadSetup(layoutId);
+}
+
+/** Online setups never touch the single-player book. */
+export function saveOnlineSetup(layoutId: string, setup: CarSetup): void {
+  const book = sanitizeSetupBook(readRecord('onlineSetups'));
+  book[layoutId] = sanitizeSetup(setup);
+  writeRecord('onlineSetups', book);
 }
 
 // ───────────────────────────── time trial ─────────────────────────────

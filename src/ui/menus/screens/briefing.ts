@@ -54,7 +54,7 @@ export class BriefingScreen extends Screen {
         label: editable.length > 1 ? `賽車設定（P${p.playerIndex + 1}）` : '賽車設定',
         onClick: () => {
           const weather = this.preview()?.weather ?? 'clear';
-          this.host.push(new CarSetupScreen(this.host, p, this.request.layoutId, this.request.kind, weather, editable.length > 1 ? `P${p.playerIndex + 1}` : ''));
+          this.host.push(new CarSetupScreen(this.host, p, this.request.layoutId, this.request.kind, weather, editable.length > 1 ? `P${p.playerIndex + 1}` : '', { online }));
         },
       }),
     );

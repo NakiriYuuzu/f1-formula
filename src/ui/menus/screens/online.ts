@@ -11,7 +11,7 @@ import type { Assists, Regulation, SessionRules } from '../../../core/types';
 import { DEFAULT_RULES } from '../../../core/defaults';
 import { FORMAT_LABEL, SAFETY_CAR_LABEL, WEATHER_LABEL, difficultyLabel, lapsLabel } from '../labels';
 import { LAPS_CHOICES, WEATHER_CHOICES, findLayout, listLayouts, resolveLaps, weekendSessions, type LapsChoice, type WeatherChoice, type WeekendFormat } from '../../../meta/options';
-import { loadCareer, loadMyTeam, loadProfile, loadSetup, saveProfile } from '../../../meta/save';
+import { loadCareer, loadMyTeam, loadOnlineSetup, loadProfile, saveProfile } from '../../../meta/save';
 import { standardRoster } from '../../../meta/roster';
 import { applyOnlineEntries, onlineEntryOptions, type OnlineEntryOption, type OnlineEntrySource } from '../../../meta/onlineEntry';
 import { MAX_SPLIT_AI, type PlayerChoice, type SessionRequest } from '../../../meta/sessionBuilder';
@@ -25,6 +25,7 @@ import { minimapCanvas } from '../minimap';
 import { onlineHooks, type OnlinePrefs } from '../onlineHooks';
 import { Screen, type Host } from '../screen';
 import { button, cycler, heading, panel, slider, teamChip, textField } from '../widgets';
+import { CarSetupScreen } from './carSetup';
 
 const FORMATS: readonly WeekendFormat[] = ['raceOnly', 'qualiRace', 'full'];
 /** A guest's entry the host refused (its seat was taken meanwhile) is chosen again this many times before giving up. */
@@ -412,7 +413,7 @@ export class LobbyScreen extends Screen {
     // my driver: any not taken by another player (a whole team for a My Team entry)
     const others = state.players.filter((p) => p.playerIndex !== me?.playerIndex);
     const takenKey = me
-      ? `${this.source}|${me.teamId}|${me.driverId}|${others.map((p) => `${p.driverId}:${p.entry?.kind === 'team' ? p.teamId : ''}`).sort().join(',')}`
+      ? `${this.source}|${me.teamId}|${me.driverId}|${state.settings.layoutId}|${others.map((p) => `${p.driverId}:${p.entry?.kind === 'team' ? p.teamId : ''}`).sort().join(',')}`
       : '';
     if (me && takenKey !== this.mineKey) {
       this.mineKey = takenKey;
@@ -460,20 +461,27 @@ export class LobbyScreen extends Screen {
         const profile = loadProfile();
         profile.assists = { ...a };
         saveProfile(profile);
-        const now = this.lobbyMe();
-        if (now) this.send(now.teamId, now.driverId);
+        // (the host reads its own when the weekend starts)
+        this.room?.guestLobby?.syncCar(true);
       });
+      const setup = button({ label: '賽車設定', sub: findLayout(state.settings.layoutId)?.displayName ?? '', onClick: () => this.openSetup() });
       const note =
         option.entry.kind === 'team'
           ? '你的車隊（隊名、塗裝、研發後的賽車性能）整支頂替所選車隊，用它的車庫與兩個席位；隊友由你簽下的車手（AI）駕駛。'
           : option.entry.kind === 'driver'
-            ? '你的車手（姓名、車號、頭盔）頂替所選車手的席位，開那支車隊的賽車。'
+            ? `你的車手（姓名、車號、頭盔）頂替所選車手的席位，開那支車隊的賽車${option.source === 'career' ? '；你生涯車隊的研發會套用到這支車隊的兩台車' : ''}。`
             : '';
       this.mineEl.replaceChildren(
         ...rows,
         assists.el,
+        setup,
         ...(note ? [h('p', { class: 'nvm-note', text: note })] : []),
-        h('p', { class: 'nvm-note', text: '賽車設定沿用你在這條賽道上次的設定；輔助只影響你自己的賽車。' }),
+        h('p', {
+          class: 'nvm-note',
+          text: `賽車設定是線上專用的（依賽道保存，不會改到單機模式；還沒在線上調過的賽道先沿用單機設定），和輔助一樣只影響你自己的賽車；${
+            room.role === 'host' ? '週末的每一節開始前，簡報裡也能調整。' : '週末的節次之間回到大廳也能再調整，每一節開始時採用你最新的設定。'
+          }`,
+        }),
       );
       if (focused >= 0) this.mineEl.querySelectorAll('button')[focused]?.focus();
     }
@@ -528,13 +536,31 @@ export class LobbyScreen extends Screen {
     return (this.entries.find((e) => this.listedAs(me, e.source)) ?? this.entries.find((e) => e.entry.kind === kind))?.source ?? 'roster';
   }
 
-  /** My seat and entry to the host (the host's own: straight into its lobby). */
+  /** My seat and entry to the host (the host's own: straight into its lobby; a guest's car: GuestLobby.syncCar). */
   private send(teamId: string, driverId: string): void {
     const room = this.room;
     if (!room) return;
     const entry = this.entry().entry;
     if (room.hostLobby) room.hostLobby.setHostPick(teamId, driverId, entry);
-    else room.guestLobby?.pick(teamId, driverId, loadSetup(this.lobbyState()?.settings.layoutId ?? ''), this.assists, entry);
+    else room.guestLobby?.pick(teamId, driverId, undefined, undefined, entry);
+  }
+
+  /** The online setup of the room's track (a guest's goes to the host at every change). */
+  private openSetup(): void {
+    const room = this.room;
+    const state = this.lobbyState();
+    const me = this.lobbyMe();
+    if (!room || !state || !me) return;
+    const layoutId = state.settings.layoutId;
+    const player: PlayerChoice = { playerIndex: me.playerIndex, driverId: me.driverId, teamId: me.teamId, setup: loadOnlineSetup(layoutId), assists: { ...this.assists }, startCompound: null };
+    const guest = room.guestLobby;
+    this.host.push(
+      new CarSetupScreen(this.host, player, layoutId, 'race', 'clear', findLayout(layoutId)?.displayName ?? '', {
+        online: true,
+        startCompound: false,
+        ...(guest ? { onSave: () => guest.syncCar(true) } : {}),
+      }),
+    );
   }
 
   private pick(driverId: string): void {
@@ -604,7 +630,7 @@ export class LobbyScreen extends Screen {
         .map((p) => ({ playerIndex: p.playerIndex, teamId: p.teamId, driverId: p.driverId, entry: lobby.entryOf(p.playerIndex) })),
     );
     const players: PlayerChoice[] = field.seats.map((seat) => {
-      const car = seat.playerIndex === 0 ? { setup: loadSetup(layout.id), assists: { ...profile.assists } } : (lobby.guestCar(seat.playerIndex) ?? { setup: loadSetup(layout.id), assists: { ...profile.assists } });
+      const car = seat.playerIndex === 0 ? { setup: loadOnlineSetup(layout.id), assists: { ...profile.assists } } : (lobby.guestCar(seat.playerIndex) ?? { setup: loadOnlineSetup(layout.id), assists: { ...profile.assists } });
       return { playerIndex: seat.playerIndex, driverId: seat.driverId, teamId: seat.teamId, setup: car.setup, assists: car.assists, startCompound: null };
     });
     const base: SessionRequest = {

@@ -1,7 +1,8 @@
 /**
  * Online entries: what a player races as in an online room — a roster driver, their own driver from a career / My Team
- * save in a roster driver's seat, or their whole My Team (name, livery, rating and part development, driver and signed
- * teammate) in a roster team's place (its garage and both seats). A guest sends its entry with its pick; the host
+ * save in a roster driver's seat (a career driver brings their career team's part development to the team they sit
+ * in), or their whole My Team (name, livery, rating and part development, driver and signed teammate) in a roster
+ * team's place (its garage and both seats). A guest sends its entry with its pick; the host
  * sanitizes it and applies every player's entry to its roster when it builds a session (pure; ids made unique per seat).
  */
 import type { CarPartGains, DriverDef, PlayerIndex, TeamDef } from '../core/types';
@@ -13,8 +14,11 @@ import { cloneDriver, cloneRoster, cloneTeam, driverName, rosterDrivers, type Ro
 
 export type OnlineEntry =
   | { kind: 'roster' }
-  /** source: which save the driver comes from (the lobby lists it, so the player sees which of the two the host took) */
-  | { kind: 'driver'; source: 'career' | 'myTeamDriver'; driver: DriverDef }
+  /**
+   * source: which save the driver comes from (the lobby lists it, so the player sees which of the two the host took);
+   * gains: a career driver's team development, for both cars of the team they sit in (empty for a My Team driver)
+   */
+  | { kind: 'driver'; source: 'career' | 'myTeamDriver'; driver: DriverDef; gains: CarPartGains }
   | { kind: 'team'; team: TeamDef; driver: DriverDef; mate: DriverDef | null; gains: CarPartGains };
 
 /** Where an entry comes from (remembered in the online prefs). */
@@ -33,12 +37,18 @@ export const ROSTER_ENTRY: OnlineEntry = { kind: 'roster' };
 /** The entries a player can race as: always the roster, plus what their career / My Team saves hold. */
 export function onlineEntryOptions(career: CareerSave | null, myTeam: MyTeamSave | null): OnlineEntryOption[] {
   const out: OnlineEntryOption[] = [{ source: 'roster', label: '名單車手', entry: ROSTER_ENTRY }];
-  if (career) out.push({ source: 'career', label: `生涯車手：${driverName(career.driver)}`, entry: { kind: 'driver', source: 'career', driver: cloneDriver(career.driver) } });
+  if (career) {
+    out.push({
+      source: 'career',
+      label: `生涯車手：${driverName(career.driver)}`,
+      entry: { kind: 'driver', source: 'career', driver: cloneDriver(career.driver), gains: teamGains(career.development.teams[career.teamId]) },
+    });
+  }
   if (myTeam) {
     out.push({
       source: 'myTeamDriver',
       label: `我的車隊車手：${driverName(myTeam.driver)}`,
-      entry: { kind: 'driver', source: 'myTeamDriver', driver: cloneDriver(myTeam.driver) },
+      entry: { kind: 'driver', source: 'myTeamDriver', driver: cloneDriver(myTeam.driver), gains: {} },
     });
     const mate = rosterDrivers().find((d) => d.id === myTeam.teammateId);
     out.push({
@@ -97,7 +107,8 @@ function sanitizeGains(v: unknown): CarPartGains {
 export function sanitizeOnlineEntry(v: unknown): OnlineEntry {
   if (!isRecord(v)) return ROSTER_ENTRY;
   if (v.kind === 'driver' && isRecord(v.driver)) {
-    return { kind: 'driver', source: v.source === 'myTeamDriver' ? 'myTeamDriver' : 'career', driver: sanitizeDriver(v.driver, FALLBACK_DRIVER) };
+    const source = v.source === 'myTeamDriver' ? 'myTeamDriver' : 'career';
+    return { kind: 'driver', source, driver: sanitizeDriver(v.driver, FALLBACK_DRIVER), gains: source === 'career' ? sanitizeGains(v.gains) : {} };
   }
   if (v.kind === 'team' && isRecord(v.team) && isRecord(v.driver)) {
     return {
@@ -109,6 +120,15 @@ export function sanitizeOnlineEntry(v: unknown): OnlineEntry {
     };
   }
   return ROSTER_ENTRY;
+}
+
+function maxGains(a: CarPartGains, b: CarPartGains): CarPartGains {
+  const out: CarPartGains = { ...a };
+  for (const p of CAR_PARTS) {
+    const g = Math.max(a[p] ?? 0, b[p] ?? 0);
+    if (g > 0) out[p] = g;
+  }
+  return out;
 }
 
 /** A player's seat in the lobby (roster ids) and what they race as. */
@@ -123,14 +143,15 @@ export interface OnlineField {
   roster: Roster;
   /** every seat's driver / team in `roster` (the roster's ids when the entry could not be applied) */
   seats: { playerIndex: PlayerIndex; teamId: string; driverId: string }[];
-  /** part development of the My Team entries (SessionRequest.development) */
+  /** part development of the My Team entries and of the teams career drivers sit in (SessionRequest.development) */
   development: Record<string, CarPartGains>;
 }
 
 /**
  * The session roster with every seat's entry applied: a driver entry takes its seat's place in the team, a team entry
  * takes its team's place in the team list (so its garage too) with the player and their teammate (without one, the
- * team's first roster driver stays on as teammate). A seat that no longer resolves keeps its roster ids.
+ * team's first roster driver stays on as teammate). A career driver's development goes to both cars of their team (two
+ * in one team: the higher gain per part). A seat that no longer resolves keeps its roster ids.
  */
 export function applyOnlineEntries(base: Roster, seats: readonly OnlineSeat[]): OnlineField {
   const roster = cloneRoster(base);
@@ -163,6 +184,8 @@ export function applyOnlineEntries(base: Roster, seats: readonly OnlineSeat[]): 
         const driverId = `online-${tag}`;
         team.driverIds[slot] = driverId;
         roster.drivers[di] = { ...cloneDriver(entry.driver), id: driverId, teamId: team.id };
+        const gains = maxGains(development[team.id] ?? {}, entry.gains);
+        if (Object.keys(gains).length > 0) development[team.id] = gains;
         out.push({ playerIndex: seat.playerIndex, teamId: team.id, driverId });
         continue;
       }
