@@ -942,6 +942,22 @@
 .nvh-car-body[data-dmg='severe'] {
   fill: var(--nv-danger);
 }
+.nvh-car-susp {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  transition: stroke var(--nv-med);
+}
+.nvh-car-susp[data-dmg='minor'] {
+  stroke: #ffcf33;
+}
+.nvh-car-susp[data-dmg='major'] {
+  stroke: #ff8a3d;
+}
+.nvh-car-susp[data-dmg='severe'] {
+  stroke: var(--nv-danger);
+}
 .nvh-tyre {
   display: flex;
   align-items: center;
@@ -1977,6 +1993,27 @@
   background: linear-gradient(180deg, #2b6cf0, #1747b8);
   box-shadow: 0 0 1.2em rgba(43, 108, 240, 0.7);
   animation: nvh-blink 1.2s ease-in-out infinite;
+}
+/* black flag with an orange disc */
+.nvh-flagpill[data-kind='blackorange'] {
+  --nvh-fp: #ff8a1f;
+  padding: 0.5em 1.4em 0.55em 2.3em;
+  color: #fff;
+  background: radial-gradient(circle at 1.1em 50%, #ff8a1f 0 0.55em, transparent 0.6em), #050608;
+  box-shadow: 0 0 1.2em rgba(255, 138, 31, 0.55);
+}
+.nvh-flagpill[data-kind='blackorange'] .nvh-flagpill-x {
+  color: #ffb066;
+}
+.nvh-flagpill[data-kind='penalty'] {
+  --nvh-fp: #ff7a85;
+  color: #ffb3ba;
+}
+.nvh-flagpill[data-kind='mandatory'] {
+  --nvh-fp: rgba(255, 255, 255, 0.35);
+  font-size: 0.85em;
+  font-weight: 700;
+  color: var(--nv-text-2);
 }
 .nvh-flagpill[data-kind='giveback'] {
   --nvh-fp: #ff7a85;

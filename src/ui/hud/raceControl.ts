@@ -1,7 +1,8 @@
 /**
  * Race-control HUD: pure label / classification helpers (unit-tested), the top-centre status strip
- * (SC / VSC / red flag / formation lap / green flag) and the per-player flag pills (blue flag, VSC delta,
- * give-back countdown, safety-car queue). Everything reads world.session.control / car.flags defensively:
+ * (SC / VSC / red flag / formation lap / green flag) and the per-player flag pills (black-and-orange flag, blue flag,
+ * VSC delta, give-back countdown, safety-car queue, unserved time penalty, mandatory stop still open). Everything
+ * reads world.session.control / car.flags defensively:
  * a world without them (old tests, fake worlds) behaves like 'green' with no flags.
  */
 import type { CarEntry, CarFlagState, RaceControlMode, RaceControlState, WorldState } from '../../core/types';
@@ -42,13 +43,34 @@ export function redCount(world: WorldState): number {
 /** car.flags with every field defaulted. */
 export function flagsOf(car: CarEntry): CarFlagState {
   const f = (car as { flags?: Partial<CarFlagState> }).flags ?? {};
+  const bo = f.blackOrange;
   return {
     shown: f.shown ?? 'none',
     delta: typeof f.delta === 'number' && Number.isFinite(f.delta) ? f.delta : null,
     giveBack: f.giveBack ?? null,
     queuing: f.queuing === true,
+    blackOrange: bo && typeof bo.crossingsLeft === 'number' ? { crossingsLeft: Math.max(1, Math.round(fin(bo.crossingsLeft, 1))) } : null,
+    mandatoryStop: f.mandatoryStop === true,
   };
 }
+
+export const BLACK_ORANGE_TEXT = '黑橘旗 — 車損危險，必須進站維修';
+/** Deadline of the black-and-orange flag: the black flag comes at the crossingsLeft-th crossing of the line. */
+export function blackOrangeDeadline(crossingsLeft: number): string {
+  const n = Math.max(1, Math.round(fin(crossingsLeft, 1)));
+  return n === 1 ? '過終點線前進站，否則黑旗' : `${n} 圈內進站，否則黑旗`;
+}
+
+/** Time penalties (s) not served yet (0 when none / not a race). */
+export function unservedPenaltySec(car: CarEntry, world: WorldState): number {
+  if (world.session?.kind !== 'race') return 0;
+  const p = car.penalties as { timeSec?: number; servedSec?: number } | undefined;
+  return Math.max(0, Math.round(fin(p?.timeSec ?? 0) - fin(p?.servedSec ?? 0)));
+}
+
+export const penaltyPillText = (sec: number): string => `待執行罰時 ${sec} 秒`;
+export const PENALTY_PILL_EXTRA = '下次進站時執行，不進站則加到總時間';
+export const MANDATORY_STOP_TEXT = '強制進站：尚未使用第二種乾地配方';
 
 /** Strip content for a mode; null = no strip (green). `reason` is control.reason (zh-TW, '' = none). */
 export function stripSpec(mode: RaceControlMode, reason: string): StripSpec | null {
@@ -203,20 +225,29 @@ interface Pill {
   cls: AttrSlot;
 }
 
-/** Blue flag / VSC delta / give-back / SC queue pills of one player view. */
+/**
+ * Pills of one player view: black-and-orange flag, blue flag, give-back, VSC delta, SC queue, and the pit-stop duties
+ * (an unserved time penalty, the mandatory stop still open).
+ */
 export class FlagStack {
   readonly el: HTMLElement;
+  private readonly blackOrange: Pill;
   private readonly blue: Pill;
   private readonly delta: Pill;
   private readonly giveBack: Pill;
   private readonly queue: Pill;
+  private readonly penalty: Pill;
+  private readonly mandatory: Pill;
 
   constructor(parent: Element) {
     this.el = el('div', 'nvh-flags', parent);
+    this.blackOrange = this.pill('blackorange');
     this.blue = this.pill('blue');
     this.giveBack = this.pill('giveback');
     this.delta = this.pill('delta');
     this.queue = this.pill('queue');
+    this.penalty = this.pill('penalty');
+    this.mandatory = this.pill('mandatory');
   }
 
   private pill(kind: string): Pill {
@@ -228,13 +259,20 @@ export class FlagStack {
   }
 
   hide(): void {
-    for (const p of [this.blue, this.delta, this.giveBack, this.queue]) p.show.set(false);
+    for (const p of [this.blackOrange, this.blue, this.delta, this.giveBack, this.queue, this.penalty, this.mandatory]) p.show.set(false);
   }
 
   update(car: CarEntry, world: WorldState): void {
     const flags = flagsOf(car);
     const mode = modeOf(world);
     const active = car.status !== 'retired' && car.status !== 'finished';
+
+    const bo = active ? flags.blackOrange : null;
+    this.blackOrange.show.set(!!bo);
+    if (bo) {
+      this.blackOrange.text.set(BLACK_ORANGE_TEXT);
+      this.blackOrange.extra.set(blackOrangeDeadline(bo.crossingsLeft));
+    }
 
     const blue = active && flags.shown === 'blue';
     this.blue.show.set(blue);
@@ -257,5 +295,16 @@ export class FlagStack {
       this.queue.text.set(car.assists?.scLimiter === true ? QUEUE_LIMITED_TEXT : QUEUE_TEXT);
       this.queue.extra.set(queueGapText(fin(car.timing?.position, 1), fin(car.timing?.interval, -1)));
     }
+
+    const pen = active ? unservedPenaltySec(car, world) : 0;
+    this.penalty.show.set(pen > 0);
+    if (pen > 0) {
+      this.penalty.text.set(penaltyPillText(pen));
+      this.penalty.extra.set(PENALTY_PILL_EXTRA);
+    }
+
+    const mandatory = active && flags.mandatoryStop === true;
+    this.mandatory.show.set(mandatory);
+    if (mandatory) this.mandatory.text.set(MANDATORY_STOP_TEXT);
   }
 }

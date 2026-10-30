@@ -7,8 +7,20 @@ import type { SessionRules, WorldState } from '../core/types';
 import { snapshotWorld } from '../race';
 
 export const SNAPSHOT_INTERVAL = 0.5;
-export const FLASHBACK_WINDOW = 20;
+/** long enough to undo a crash-out until the offer ends: a broken car rolls up to 8 s before it is withdrawn, then
+ * CRASH_FLASHBACK_OFFER (15 s) to decide, and the rewind goes 3 s before the break */
+export const FLASHBACK_WINDOW = 30;
 export const REWIND_SECONDS = 5;
+
+/**
+ * Earliest of the crash times (a car broke / crashed out; null = none) that a buffer whose oldest snapshot is at
+ * `oldest` still reaches back past, else null: rewinding there undoes the crash.
+ */
+export function rewindableCrash(crashTimes: readonly (number | null)[], oldest: number | null): number | null {
+  let first: number | null = null;
+  for (const at of crashTimes) if (at !== null && oldest !== null && at > oldest) first = Math.min(first ?? at, at);
+  return first;
+}
 
 interface Snapshot {
   time: number;

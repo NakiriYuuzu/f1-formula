@@ -34,6 +34,7 @@ import {
   attachSprint,
   createCalendar,
   type LayoutLike,
+  classifiedFinish,
   driverStandings,
   recordRace,
   roundRequest,
@@ -294,7 +295,7 @@ export function applyCareerRace(save: CareerSave, result: SessionResult, trackLi
   const teammate = { ...save.teammate };
   if (mine) {
     rating = updateRating(save.rating, {
-      position: mine.status === 'retired' ? null : mine.position,
+      position: mine.status === 'retired' || mine.disqualified === true ? null : mine.position,
       grid: mine.gridPosition > 0 ? mine.gridPosition : mine.position,
       expected: expectedPosition(save.teamId, roster, save.development),
       wet: result.weather === 'lightRain' || result.weather === 'heavyRain',
@@ -313,10 +314,10 @@ export function applyCareerRace(save: CareerSave, result: SessionResult, trackLi
   const earned = careerRoundPoints({
     teamRank0: teamRank0 >= 0 ? teamRank0 : standings.length - 1,
     teamCount: standings.length,
-    position: mine && mine.status !== 'retired' ? mine.position : null,
+    position: mine && mine.status !== 'retired' && mine.disqualified !== true ? mine.position : null,
     fieldSize: result.rows.length,
     aheadOfTeammate: mine !== undefined && mateRow !== undefined && mine.position < mateRow.position,
-    sprintPosition: sprintEntry && sprintEntry.status !== 'retired' ? sprintEntry.position : null,
+    sprintPosition: sprintEntry && classifiedFinish(sprintEntry) ? sprintEntry.position : null,
   });
   const { pendingSprint: _spent, ...rest } = save;
   const next: CareerSave = {

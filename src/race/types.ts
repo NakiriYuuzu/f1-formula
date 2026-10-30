@@ -55,7 +55,7 @@ export interface CarRaceInternal {
   slowTime: number;
   /** event bookkeeping */
   collisionCooldown: number;
-  /** damage levels last reported [frontWing, rearWing, floor] */
+  /** damage levels last reported [frontWing, rearWing, floor, suspension] */
   reportedDamage: number[];
   drsWasAvailable: boolean;
   drsWasOpen: boolean;
@@ -100,6 +100,11 @@ export interface CarRaceInternal {
   carContactAt: number | null;
   /** retired but still visible on / beside the track until the marshals recover it */
   hazard: boolean;
+  /** world time the suspension broke (terminal damage, null = intact) and seconds stopped since (damageRules.ts) */
+  brokenAt: number | null;
+  brokenStill: number;
+  /** black-and-orange flag: completed laps when it was shown (-1 = not shown) */
+  blackOrangeLaps: number;
   /** s at the previous race-control step (VSC delta / formation distance) */
   ctlS: number;
   /** VSC: penalty already given this period; cooldown of the next 'controlWarning' */

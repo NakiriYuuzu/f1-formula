@@ -70,6 +70,8 @@ export function radioFinish(world: WorldState, car: CarEntry): void {
     say(world, car, best !== null ? `節次結束，你的最快圈是 ${formatLapTime(best)}。` : '節次結束，這次沒有有效圈速。', true);
     return;
   }
+  // disqualified at the line: radioDisqualified already told the driver
+  if (car.penalties.disqualified) return;
   const pos = car.timing.position;
   let text: string;
   if (pos === 1) text = '冠軍！你贏了！整個車庫都在為你歡呼！';
@@ -87,7 +89,22 @@ export function radioAll(world: WorldState, text: string): void {
 }
 
 export function radioPenalty(world: WorldState, car: CarEntry, seconds: number, reason: string): void {
-  say(world, car, `收到 ${Math.round(seconds)} 秒罰時：${reason}。`, true);
+  const serve = world.config.kind === 'race' ? '下次進站時原地停滿再作業，不進站就加到總時間。' : '';
+  say(world, car, `收到 ${Math.round(seconds)} 秒罰時：${reason}。${serve}`, true);
+}
+
+/** The suspension broke: the car cannot go on. */
+export function radioBroken(world: WorldState, car: CarEntry): void {
+  say(world, car, '懸吊斷了，車子沒辦法再開。找個安全的地方停下來。', true);
+}
+
+/** Black-and-orange flag: dangerous damage, box for repairs. */
+export function radioBlackOrange(world: WorldState, car: CarEntry): void {
+  say(world, car, '黑橘旗！車損太危險，這圈一定要進站維修，不然會被黑旗取消資格。', true);
+}
+
+export function radioDisqualified(world: WorldState, car: CarEntry, reason: string): void {
+  say(world, car, `我們被取消資格了：${reason}。`, true);
 }
 
 export function radioTrackLimits(world: WorldState, car: CarEntry, warnings: number): void {
@@ -156,7 +173,7 @@ export function stepRadio(world: WorldState, dt: number, mandatoryOpen: (car: Ca
     }
     if (!r.radioMandatoryWarned && race && lapsLeft <= 3 && lapsLeft > 1 && mandatoryOpen(car)) {
       r.radioMandatoryWarned = true;
-      say(world, car, '提醒：本場必須換上另一種乾地配方，記得安排進站。');
+      say(world, car, '提醒：本場必須換上另一種乾地配方，否則會被取消資格，記得安排進站。');
       continue;
     }
     const wet = world.weather.wetness;

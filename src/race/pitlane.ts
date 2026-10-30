@@ -17,7 +17,7 @@
  */
 import type { BuiltTrack, CarEntry, CarSpec, DamageState, RaceControlMode, WorldState } from '../core/types';
 import { G, clamp, damp, forwardX, forwardZ, lerp, moveToward, randRange, smoothstep, wrapAngle } from '../core/math';
-import { fitTyres, rpmForSpeed, setCarHeld, speedForRpm } from '../physics/index';
+import { fitTyres, isBroken, rpmForSpeed, setCarHeld, speedForRpm } from '../physics/index';
 import {
   forwardDistance,
   isInPitZone,
@@ -45,8 +45,9 @@ const EXIT_ACCEL = 11;
 const BOX_LATERAL = 4;
 /** Queue spot (m) behind an occupied box. */
 const QUEUE_GAP = 9;
-/** Extra stationary time (s) to repair each part, in full from REPAIR_FULL damage (less for lighter damage). */
-const REPAIR_TIME: Record<keyof DamageState, number> = { frontWing: 6, rearWing: 8, floor: 10 };
+/** Extra stationary time (s) to repair each part, in full from REPAIR_FULL damage (less for lighter damage). The
+ * suspension is not repaired at a stop (garage work). */
+const REPAIR_TIME: Record<Exclude<keyof DamageState, 'suspension'>, number> = { frontWing: 6, rearWing: 8, floor: 10 };
 const REPAIR_FULL = 0.3;
 /** Manual pit: distance (m) before the stop spot where the autopilot takes over the box manoeuvre. */
 const BOX_APPROACH = 30;
@@ -144,9 +145,13 @@ export function gearForSpeed(spec: CarSpec, v: number): { gear: number; rpm: num
   return { gear, rpm };
 }
 
-/** Should a car (without autopilot) be put on the autopilot now? Requested + crossed the entry, or drove into the lane. */
+/**
+ * Should a car (without autopilot) be put on the autopilot now? Requested + crossed the entry, or drove into the lane.
+ * Never a car with a broken suspension: it has no drive and is withdrawn where it stops (damageRules).
+ */
 export function shouldEngagePit(world: WorldState, track: BuiltTrack, car: CarEntry, prevS: number): boolean {
   if (car.pit.phase !== 'none' || car.status !== 'running' || world.config.kind === 'timeTrial') return false;
+  if (isBroken(car.phys)) return false;
   const ph = world.session.phase;
   if (ph !== 'running' && ph !== 'chequered') return false;
   const p = car.phys;
@@ -379,7 +384,14 @@ function startStop(world: WorldState, car: CarEntry): void {
     if (dmg[part] > 0) repair += REPAIR_TIME[part] * Math.min(1, dmg[part] / REPAIR_FULL);
   }
   r.pitRepair = repair > 0;
-  const duration = randRange(world.rng, 2.0, 3.5) + repair;
+  // unserved time penalties first: the car stands for them before anyone may work on it (FIA B1.9.6 b)
+  const pen = car.penalties;
+  const serve = world.config.kind === 'race' ? Math.max(0, fin(pen.timeSec) - fin(pen.servedSec)) : 0;
+  if (serve > 0) {
+    pen.servedSec = fin(pen.servedSec) + serve;
+    emit(world, { type: 'penaltyServed', carId: car.id, seconds: serve });
+  }
+  const duration = serve + randRange(world.rng, 2.0, 3.5) + repair;
   pit.timer = duration;
   r.pitStopTotal = duration;
   setCarHeld(car.phys, true);
@@ -391,8 +403,9 @@ function serviceDone(world: WorldState, car: CarEntry): void {
   const pit = car.pit;
   const compound = pit.nextCompound;
   fitTyres(p, compound, r.pitRepair);
-  // repaired parts report damage again from zero (reportedDamage: [frontWing, rearWing, floor])
-  if (r.pitRepair) r.reportedDamage.fill(0);
+  // repaired parts report damage again from zero (reportedDamage: [frontWing, rearWing, floor, suspension]; the
+  // suspension is not repaired)
+  if (r.pitRepair) r.reportedDamage.fill(0, 0, 3);
   if (isDry(compound)) {
     if (!r.usedCompounds.includes(compound)) r.usedCompounds.push(compound);
   } else {

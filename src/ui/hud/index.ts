@@ -47,6 +47,7 @@ import {
 } from './labels';
 import { Minimap } from './minimap';
 import { estimatePitLoss } from '../../race/index';
+import { RETIRE_BY_CHOICE } from '../../race/index';
 import { PauseMenu } from './pauseMenu';
 import type { MenuDirection, PauseItem } from './pauseMenu';
 import { RaceControlStrip, sectorFlagLabel } from './raceControl';
@@ -104,6 +105,11 @@ export interface HudFrameInfo {
 const TIME_WARNINGS = [300, 60];
 const FPS_REFRESH = 0.25;
 const RADIO_FALLBACK_COLOR = '#19d3c5';
+/**
+ * Seconds a crash-out offers the flashback: the 「按 R 回溯」 banner stays this long, and the runtime waits as long
+ * before it fast-forwards the rest of the race (SessionRuntime.watchFinish).
+ */
+export const CRASH_FLASHBACK_OFFER = 15;
 /** Keys that close the 操作說明 panel directly (unless bound to 暫停, see handleBack). */
 const HELP_CLOSE_KEYS: ReadonlySet<string> = new Set(['Escape', 'Backspace', 'Enter', 'NumpadEnter', 'Space']);
 
@@ -524,8 +530,17 @@ export class HudLayer {
   /** Flashback feedback: rewound (sub = how far / how many left) or refused (sub = reason). */
   notifyFlashback(ok: boolean, sub: string): void {
     if (this.destroyed) return;
-    if (ok) this.toastAll('回溯', sub, 'info', 2.2);
-    else this.toastAll('無法回溯', sub, 'bad', 2.2);
+    if (ok) {
+      // the banners, team radio and start lights of the rewound seconds are gone with them (e.g. 退賽 after a crash, a
+      // red-flag restart that was on the lights)
+      this.banner.clear();
+      this.lights.reset();
+      for (const v of this.views) {
+        v.banner.clear();
+        v.radio.clear();
+      }
+      this.toastAll('回溯', sub, 'info', 2.2);
+    } else this.toastAll('無法回溯', sub, 'bad', 2.2);
   }
 
   private toastAll(title: string, sub: string, tone: Tone, duration?: number): void {
@@ -562,6 +577,8 @@ export class HudLayer {
         break;
       case 'carFinished': {
         const v = this.viewByCar.get(ev.carId);
+        // disqualified at the flag (tyre rule): the 'disqualified' banner stays
+        if (world.cars[ev.carId]?.penalties?.disqualified === true) break;
         if (v) {
           const raceLike = world.session.kind === 'race';
           v.banner.show('finish', raceLike ? `完賽　第 ${ev.position} 名` : '節次完成', raceLike ? '衝過方格旗！' : '', 'flag', 4.5);
@@ -666,14 +683,46 @@ export class HudLayer {
         break;
       }
       case 'retired': {
+        // a disqualification has its own banner / toast
+        if (world.cars[ev.carId]?.penalties?.disqualified === true) break;
         const v = this.viewByCar.get(ev.carId);
-        if (v) v.banner.show('retired', '退賽', ev.reason, 'bad', 4.5);
+        const hint = this.flashbackHint(ev.reason);
+        if (v) v.banner.show('retired', '退賽', `${ev.reason}${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : 6);
         else this.toastAll(`${abbr(ev.carId)} 退賽`, ev.reason, 'info', 3);
+        break;
+      }
+      case 'terminalDamage': {
+        const v = this.viewByCar.get(ev.carId);
+        const hint = this.flashbackHint('');
+        if (v) v.banner.show('terminal', '賽車報廢', `懸吊斷裂，無法繼續比賽${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : 6);
+        break;
+      }
+      case 'blackOrangeFlag': {
+        const v = this.viewByCar.get(ev.carId);
+        if (v) v.banner.show('blackorange', '黑橘旗', '車損危險：本圈進站維修，否則黑旗取消資格', 'bad', 4.5);
+        break;
+      }
+      case 'disqualified': {
+        const v = this.viewByCar.get(ev.carId);
+        if (v) v.banner.show('dsq', '取消資格', ev.reason, 'bad', 6);
+        else this.toastAll(`${abbr(ev.carId)} 取消資格`, ev.reason, 'info', 3.5);
+        break;
+      }
+      case 'penaltyServed': {
+        const v = this.viewByCar.get(ev.carId);
+        if (v) v.toast(`執行 ${Math.round(fin(ev.seconds))} 秒罰時`, '停站時原地等待，期間不得作業', 'warn', 3.6);
         break;
       }
       default:
         break;
     }
+  }
+
+  /** 「・按 R 回溯」 after a crash while a flashback is possible ('' otherwise; never for a retirement the player chose). */
+  private flashbackHint(reason: string): string {
+    if (this.online || reason === RETIRE_BY_CHOICE || fin(this.lastInfo?.flashbacksLeft ?? 0, 0) === 0) return '';
+    const key = (this.settings.keyBindings.flashback ?? [])[0];
+    return key ? `・按 ${keyLabel(key)} 回溯` : '・可從暫停選單回溯';
   }
 
   private buildPauseItems(world: WorldState): PauseItem[] {

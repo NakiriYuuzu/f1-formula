@@ -36,7 +36,7 @@ export {
   FUEL_KG_PER_KM_REF,
 } from './spec';
 export { tyreGrip, wetGrip, temperatureGrip, wearGrip, COMPOUND_PARAMS, SURFACE_GRIP, SURFACE_DRAG_DECEL } from './tyres';
-export { stepCarPhysics, SUBSTEPS } from './step';
+export { stepCarPhysics, SUBSTEPS, isBroken } from './step';
 export { collideWithBarrier, collideCars, applyImpactDamage, isFrontalContact } from './collision';
 export { REVERSE_HOLD_TIME, REVERSE_MAX_SPEED, UPSHIFT_TIME, DOWNSHIFT_TIME, assistedErsMode, nextErsMode } from './powertrain';
 
@@ -82,7 +82,7 @@ export function createCarPhysics(
     fuelKg: clamp(fin(fuelKg), 0, Math.max(0, spec.fuelCapacity)),
     ers: { charge: 1, mode: 'medium', deployedLap: 0, harvestedLap: 0, overtakeAvailable: false, overtakeActive: false },
     drs: { eligible: false, available: false, open: false },
-    damage: { frontWing: 0, rearWing: 0, floor: 0 },
+    damage: { frontWing: 0, rearWing: 0, floor: 0, suspension: 0 },
     limiter: false,
     impact: 0,
     surface: 'asphalt',
@@ -128,7 +128,8 @@ export function isCarHeld(car: CarPhysicsState): boolean {
   return car.internal.held;
 }
 
-/** Fit a new set of tyres (wear 0, warm-ish blanket temp) and optionally repair all damage (wings and floor). */
+/** Fit a new set of tyres (wear 0, warm-ish blanket temp) and optionally repair the wings and floor (a pit stop cannot
+ * repair the suspension). */
 export function fitTyres(car: CarPhysicsState, compound: TireCompound, repair: boolean): void {
   car.tire = { compound, wear: 0, temp: COMPOUND_PARAMS[compound].blanketTemp, laps: 0 };
   if (repair) {

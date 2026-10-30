@@ -7,7 +7,9 @@
 import type { BuiltTrack, WorldState } from '../core/types';
 import { updateClassification } from './classification';
 import { isRacing } from './events';
-import { chequer, finishCar, mandatoryStopOpen, requestEnd } from './session';
+import { isBroken } from '../physics/index';
+import { BROKEN_REASON } from './damageRules';
+import { chequer, finishCar, mandatoryStopOpen, requestEnd, retire } from './session';
 
 /** Time (s) a projected car that still owes the mandatory stop loses to it. */
 const PROJECTED_STOP_LOSS = 24;
@@ -24,6 +26,8 @@ export function concludeRace(world: WorldState, track: BuiltTrack): void {
     requestEnd(world);
     return;
   }
+  // a car whose suspension broke is withdrawn, not projected to the flag
+  for (const car of world.cars) if (isRacing(car) && isBroken(car.phys)) retire(world, car, BROKEN_REASON);
   const runs = world.cars
     .filter(isRacing)
     .map((car) => ({ car, pace: car.timing.progress / elapsed, loss: mandatoryStopOpen(world, car) ? PROJECTED_STOP_LOSS : 0 }))

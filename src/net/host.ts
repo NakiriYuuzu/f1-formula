@@ -36,7 +36,7 @@ import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, Pl
 import { SIM_DT } from '../core/defaults';
 import { computeAIInput } from '../ai/index';
 import { isCarHeld } from '../physics/index';
-import { COAST_INPUT, buildRenderFrame, cancelPit, getPlayerCarId, predictHumanStep, requestPit, retireCar, setErsMode } from '../race/index';
+import { COAST_INPUT, RETIRE_BY_CHOICE, buildRenderFrame, cancelPit, getPlayerCarId, predictHumanStep, requestPit, retireCar, setErsMode } from '../race/index';
 import { assignDeep, diffMirror, mirrorView } from './mirror';
 import {
   ONE_SHOTS,
@@ -615,7 +615,7 @@ export class HostSession {
         break;
       case 'retire': {
         const car = this.world.cars[carId];
-        if (car && car.status !== 'finished' && car.status !== 'retired') retireCar(this.world, carId, '車手退賽');
+        if (car && car.status !== 'finished' && car.status !== 'retired') retireCar(this.world, carId, RETIRE_BY_CHOICE);
         break;
       }
     }

@@ -18,6 +18,7 @@ import {
   stepWorld,
 } from '../src/race/index';
 import { HEAVY_IMPACT } from '../src/race/control';
+import { BROKEN_REASON } from '../src/race/damageRules';
 import { GIVE_BACK_SEC, notePass, stepGiveBack } from '../src/race/legality';
 import type { Incident } from '../src/race/types';
 import { forwardDistance, poseAt, sampleAt, signedDeltaS, wrapS } from '../src/track/track';
@@ -512,29 +513,35 @@ describe('human crashes', () => {
     expect(world.session.control.mode).toBe('green');
   }, 120000);
 
-  test('full damage: a single-car wreck stops the race with the red flag; the car is repaired and takes the restart', () => {
+  test('full damage: a single-car wreck red-flags the race, but the wreck is withdrawn and misses the restart (FIA B1.8.9)', () => {
     const { world, track } = race({ laps: 8, safetyCar: 'standard', seed: 1, damage: 'full' });
     const me = world.cars.find((c) => c.playerIndex === 0)!;
-    let wrecked = 0;
-    const log = crash(world, track, {
-      steer: -1,
-      sec: 1,
-      until: 120,
-      at: WALL_S,
-      after: (input, t) => {
-        wrecked = Math.max(wrecked, me.phys.damage.frontWing);
-        brakeFor20(input, t);
-      },
-    });
-    expect(wrecked).toBeGreaterThanOrEqual(0.9);
+    const log = crash(world, track, { steer: -1, sec: 1, until: 120, at: WALL_S, after: brakeFor20 });
+    expect(me.phys.damage.suspension).toBe(1);
     const inc = log.decided[0];
     expect(inc).toBeDefined();
     expect(inc.carId).toBe(me.id);
     expect(inc.response).toBe('red');
     expect(world.session.control.counts.red).toBe(1);
-    expect(log.retired).toBeNull();
-    expect(me.status).toBe('running');
-    expect(me.phys.damage.frontWing).toBe(0);
+    expect(log.retired).toBe(BROKEN_REASON);
+    expect(me.status).toBe('retired');
+    // the race restarted without it
+    expect(world.session.phase).toBe('running');
+    expect(world.session.control.mode).toBe('green');
+    expect(me.phys.damage.suspension).toBe(1);
+  }, 120000);
+
+  test('reduced damage: a heavy enough hit also ends the race (no red flag: the AI crash rule)', () => {
+    const { world, track } = race({ laps: 8, safetyCar: 'standard', seed: 1 });
+    const me = world.cars.find((c) => c.playerIndex === 0)!;
+    expect(world.config.rules.damage).toBe('reduced');
+    const log = crash(world, track, { steer: -1, sec: 1, until: 90, at: WALL_S, after: brakeFor20 });
+    expect(log.peak).toBeGreaterThan(31_000);
+    expect(me.phys.damage.suspension).toBe(1);
+    expect(log.retired).toBe(BROKEN_REASON);
+    expect(me.status).toBe('retired');
+    expect(['sc', 'vsc']).toContain(log.decided[0]?.response ?? '');
+    expect(world.session.control.counts.red).toBe(0);
   }, 120000);
 
   test('full damage: a wreck that involved another car ends the human race (retired, no red flag)', () => {
@@ -557,11 +564,11 @@ describe('human crashes', () => {
     other.race.ctlS = s;
     other.timing.progress = me.timing.progress + 12;
     const log = crash(world, track, { steer: 0, sec: 0.5, until: 70, after: brakeFor20 });
-    expect(me.phys.damage.frontWing).toBeGreaterThanOrEqual(0.9);
+    expect(me.phys.damage.suspension).toBe(1);
     const inc = log.decided[0];
     expect(inc).toBeDefined();
     expect(['sc', 'vsc']).toContain(inc.response!);
-    expect(log.retired).toBe('車損過重退賽');
+    expect(log.retired).toBe(BROKEN_REASON);
     expect(me.status).toBe('retired');
     expect(world.session.control.counts.red).toBe(0);
   }, 60000);

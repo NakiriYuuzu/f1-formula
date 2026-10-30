@@ -30,6 +30,7 @@ import {
   buildSessionResult,
   cancelPit,
   concludeRace,
+  crashTime,
   createWorld,
   endSession,
   getPlayerCarId,
@@ -37,16 +38,17 @@ import {
   playerCarIds,
   requestPit,
   retireCar,
+  RETIRE_BY_CHOICE,
   setErsMode,
   stepWorld,
 } from '../race/index';
 import { computeAIInput } from '../ai/index';
 import { RaceScene, type RaceSceneOptions } from '../render/RaceScene';
 import type { GameRenderer } from '../render/GameRenderer';
-import { HudLayer, type HudCallbacks, type HudFrameInfo, type HudView } from '../ui/hud/index';
+import { CRASH_FLASHBACK_OFFER, HudLayer, type HudCallbacks, type HudFrameInfo, type HudView } from '../ui/hud/index';
 import { FixedStepClock, MAX_FRAME_DT, MAX_SUBSTEPS, ONLINE_MAX_BACKLOG, ONLINE_MAX_FRAME_DT, ONLINE_MAX_SUBSTEPS } from './clock';
 import { substepInputs, withPendingOneShots } from './controls';
-import { FlashbackBuffer, REWIND_SECONDS, flashbacksLeft } from './flashback';
+import { FlashbackBuffer, REWIND_SECONDS, flashbacksLeft, rewindableCrash } from './flashback';
 import { ReplayRecorder, type ReplayClip } from './replay';
 import { sceneCarsFor, sceneTeamColors } from './sceneCars';
 import { buildViews, nextCamera } from './views';
@@ -54,8 +56,14 @@ import { HostSession } from '../net/host';
 import type { ClientSession } from '../net/client';
 import type { NetTransport } from '../net/transport';
 
-/** Seconds of simulation after every human car took the flag before the rest of the race is fast-forwarded. */
+/**
+ * Seconds of simulation after every human car took the flag before the rest of the race is fast-forwarded; after a
+ * crash-out that a flashback can still undo, CRASH_FLASHBACK_OFFER (time to decide; ends early once the buffer no
+ * longer reaches back past the crash).
+ */
 const FINISH_GRACE = 6;
+/** A flashback after a crash goes back this many seconds before the car broke / retired. */
+const CRASH_REWIND_MARGIN = 3;
 /**
  * Real-time budget (ms) per frame for fast-forwarding, and the most simulated seconds it may take before the
  * rest of the race is projected from each car's pace (keeps the wait after an early retirement short).
@@ -152,6 +160,8 @@ export class SessionRuntime {
   private pending: (ControlInput | null)[] = [null, null];
   private racingLine: RacingLineMode;
   private pausedFlag = false;
+  /** human cars retired from the pause menu (final: no flashback) */
+  private readonly quit = new Set<number>();
   private humansDoneAt: number | null = null;
   private fastForward = false;
   private fastForwardFrom = 0;
@@ -365,10 +375,22 @@ export class SessionRuntime {
     const w = this.world;
     if (this.online) return '線上模式無法回溯';
     if (w.session.phase === 'finished') return '節次已結束';
-    // a retirement chosen from the pause menu is final (rewinding would put the car back in the race)
-    if (this.humans.some((id) => w.cars[id]?.status === 'retired')) return '退賽後無法回溯';
+    // a retirement chosen from the pause menu is final (rewinding would put the car back in the race); a crash is not
+    if (this.humans.some((id) => w.cars[id]?.status === 'retired' && this.quit.has(id))) return '退賽後無法回溯';
+    // every human car crashed out longer ago than the buffer reaches: rewinding would not bring one back
+    if (this.humans.length > 0 && this.humans.every((id) => w.cars[id]?.status === 'retired') && this.rewindableCrash() === null) {
+      return '撞車已超過可回溯的時間';
+    }
     if (flashbacksLeft(w.config.rules, w.flashbacksUsed) === 0) return '回溯次數已用完';
     return null;
+  }
+
+  /** Earliest crash (car broke / retired) of a human car the flashback buffer still reaches back past, else null. */
+  private rewindableCrash(): number | null {
+    return rewindableCrash(
+      this.humans.map((id) => crashTime(this.world, id)),
+      this.flashbacks.oldestTime,
+    );
   }
 
   /** Rewind ~5 s with HUD / sound feedback. Returns false when not allowed / nothing stored. */
@@ -376,7 +398,11 @@ export class SessionRuntime {
     if (this.disposed || this.fastForward) return false;
     const w = this.world;
     const blocked = this.flashbackBlock();
-    const restored = blocked ? null : this.flashbacks.rewind(w.time, REWIND_SECONDS);
+    // after a crash (broken car / retired) rewind to just before it, not only the usual few seconds (a crash longer
+    // ago than the buffer reaches stays: in split screen the other player rewinds the usual few seconds)
+    const crash = this.rewindableCrash();
+    const seconds = crash === null ? REWIND_SECONDS : Math.max(REWIND_SECONDS, w.time - crash + CRASH_REWIND_MARGIN);
+    const restored = blocked ? null : this.flashbacks.rewind(w.time, seconds);
     if (!restored) {
       this.hud.notifyFlashback(false, blocked ?? '沒有可回溯的紀錄');
       this.deps.audio.ui('error');
@@ -392,7 +418,8 @@ export class SessionRuntime {
     this.humansDoneAt = null;
     this.deps.input.reset();
     const left = flashbacksLeft(restored.config.rules, restored.flashbacksUsed);
-    this.hud.notifyFlashback(true, left < 0 ? `倒帶 ${REWIND_SECONDS} 秒` : `倒帶 ${REWIND_SECONDS} 秒・剩餘 ${left} 次`);
+    const back = Math.round(Math.max(0, w.time - restored.time));
+    this.hud.notifyFlashback(true, left < 0 ? `倒帶 ${back} 秒` : `倒帶 ${back} 秒・剩餘 ${left} 次`);
     this.deps.audio.ui('back');
     return true;
   }
@@ -406,6 +433,7 @@ export class SessionRuntime {
     this.hud = this.createHud(settings);
     this.flashbacks.clear();
     this.recorder.clear();
+    this.quit.clear();
     this.clock.reset();
     this.pending = [null, null];
     this.humansDoneAt = null;
@@ -475,7 +503,10 @@ export class SessionRuntime {
         for (const id of own) {
           const car = this.world.cars[id];
           if (!car || (playerIndex !== undefined && car.playerIndex !== playerIndex)) continue;
-          if (car.status !== 'finished' && car.status !== 'retired') retireCar(this.world, id, '車手退賽');
+          if (car.status !== 'finished' && car.status !== 'retired') {
+            retireCar(this.world, id, RETIRE_BY_CHOICE);
+            this.quit.add(id);
+          }
         }
         this.setPaused(false);
       },
@@ -707,7 +738,8 @@ export class SessionRuntime {
       return;
     }
     if (this.humansDoneAt === null) this.humansDoneAt = w.time;
-    if (this.pausedFlag || w.time - this.humansDoneAt < FINISH_GRACE) return;
+    const grace = this.rewindableCrash() !== null && this.flashbackBlock() === null ? CRASH_FLASHBACK_OFFER : FINISH_GRACE;
+    if (this.pausedFlag || w.time - this.humansDoneAt < grace) return;
     this.fastForward = true;
     this.fastForwardFrom = w.time;
     this.deps.audio.setPaused(true);

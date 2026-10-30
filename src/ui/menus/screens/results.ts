@@ -123,7 +123,7 @@ export class ResultsScreen extends Screen {
 
   private buildPodium(): ShowroomCar[] {
     return [...this.d.result.rows]
-      .filter((r) => r.status !== 'retired' && r.position >= 1)
+      .filter((r) => r.status !== 'retired' && r.disqualified !== true && r.position >= 1)
       .sort((a, b) => a.position - b.position)
       .slice(0, 3)
       .map((r) => {
@@ -143,7 +143,7 @@ export class ResultsScreen extends Screen {
           const timeText = r.position === 1 && r.time !== null && r.status !== 'retired' ? formatLapTime(r.time) : r.gapText || STATUS_TEXT[r.status] || '—';
           const pts = pointsForRow(r, result.sprint === true);
           return {
-            position: r.status === 'retired' ? 'DNF' : String(r.position),
+            position: r.disqualified === true ? 'DSQ' : r.status === 'retired' ? 'DNF' : String(r.position),
             driverId: r.driverId,
             teamId: r.teamId,
             carId: r.carId,

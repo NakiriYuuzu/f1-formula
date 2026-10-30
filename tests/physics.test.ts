@@ -959,7 +959,7 @@ describe('collisions and damage', () => {
   test('impact damage: thresholds, multiplier 0 = none, front wing hurts front', () => {
     const { car } = makeCar();
     applyImpactDamage(car, 30_000, true, 0);
-    expect(car.damage).toEqual({ frontWing: 0, rearWing: 0, floor: 0 });
+    expect(car.damage).toEqual({ frontWing: 0, rearWing: 0, floor: 0, suspension: 0 });
     applyImpactDamage(car, 1_000, true, 1);
     expect(car.damage.frontWing).toBe(0);
     applyImpactDamage(car, 12_000, true, 0.5);
@@ -970,5 +970,59 @@ describe('collisions and damage', () => {
     applyImpactDamage(car, 1e9, false, 1);
     expect(car.damage.rearWing).toBeLessThanOrEqual(1);
     expect(car.damage.floor).toBeLessThanOrEqual(1);
+  });
+
+  test('suspension: racing contact leaves it intact, one heavy hit breaks it (31k with reduced damage), hits add up', () => {
+    const hit = (impulse: number, mult: number, times = 1): number => {
+      const { car } = makeCar();
+      for (let i = 0; i < times; i++) applyImpactDamage(car, impulse, false, mult);
+      return car.damage.suspension;
+    };
+    // wheel-to-wheel contact in AI races stays below ~4000 N·s
+    expect(hit(4000, 1)).toBe(0);
+    expect(hit(14_000, 1)).toBeGreaterThan(0.5);
+    expect(hit(14_000, 1)).toBeLessThan(1);
+    expect(hit(18_000, 1)).toBe(1);
+    expect(hit(27_000, 0.5)).toBeLessThan(1);
+    expect(hit(31_000, 0.5)).toBe(1);
+    expect(hit(12_000, 1, 2)).toBe(1);
+    expect(hit(1e9, 0)).toBe(0);
+  });
+
+  test('a broken suspension gives no drive; a bent one costs grip', () => {
+    const env = makeEnv('2025');
+    const intact = makeCar();
+    const broken = makeCar();
+    broken.car.damage.suspension = 1;
+    run(intact.car, intact.spec, makeInput({ throttle: 1 }), env, 3);
+    run(broken.car, broken.spec, makeInput({ throttle: 1 }), env, 3);
+    expect(intact.car.speed).toBeGreaterThan(20);
+    expect(broken.car.speed).toBeLessThan(0.5);
+    // rolling at 60 m/s: the broken car loses speed much faster than a coasting intact one
+    const coast = makeCar();
+    const wreck = makeCar();
+    wreck.car.damage.suspension = 1;
+    for (const c of [coast, wreck]) {
+      c.car.vx = forwardX(0) * 60;
+      c.car.vz = forwardZ(0) * 60;
+      c.car.gear = 7;
+      run(c.car, c.spec, makeInput({ throttle: wreck === c ? 1 : 0 }), env, 2);
+    }
+    expect(wreck.car.speed).toBeLessThan(coast.car.speed - 5);
+    // the same steady corner: a bent suspension slides wider (lower lateral g at the same speed and lock)
+    const lateral = (susp: number): number => {
+      const { spec, car } = makeCar();
+      car.damage.suspension = susp;
+      car.vx = forwardX(0) * 45;
+      car.vz = forwardZ(0) * 45;
+      car.gear = 6;
+      let g = 0;
+      for (let i = 0; i < Math.round(4 / SIM_DT); i++) {
+        stepCarPhysics(car, spec, makeInput({ throttle: 0.55, steer: 1 }), env, SIM_DT);
+        g = Math.max(g, Math.abs(car.gLat));
+      }
+      return g;
+    };
+    expect(lateral(0.9)).toBeLessThan(lateral(0) * 0.97);
   });
 });

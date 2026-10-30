@@ -466,6 +466,9 @@ export interface DamageState {
   frontWing: number;
   rearWing: number;
   floor: number;
+  /** suspension / structure from heavy impacts: bent costs grip, 1 = broken (no drive, the car retires); a pit stop
+   * cannot repair it (only the red-flag suspension does, for a car still running) */
+  suspension: number;
 }
 
 export interface CarPhysicsState {
@@ -571,8 +574,12 @@ export interface PitState {
 }
 
 export interface PenaltyState {
-  /** seconds added to race time */
+  /** time penalties imposed (s); what is not served in the pit lane (servedSec) is added to the race time */
   timeSec: number;
+  /** seconds of timeSec already served stationary at a pit stop (FIA B1.9.6 b) */
+  servedSec: number;
+  /** disqualified (black flag, tyre rule): no classification, no points */
+  disqualified: boolean;
   trackLimitWarnings: number;
   /** zh-TW lines for results */
   log: string[];
@@ -644,6 +651,11 @@ export interface CarFlagState {
   giveBack: { carId: number; timeLeft: number } | null;
   /** under SC / formation: car is in (or catching) the queue behind the car ahead */
   queuing: boolean;
+  /** black-and-orange flag (dangerous damage, must pit for repairs): control-line crossings left before the black
+   * flag; null = not shown. Optional: absent in older worlds = not shown */
+  blackOrange?: { crossingsLeft: number } | null;
+  /** race with the mandatory-stop rule: this car has not used two dry compounds yet (HUD reminder) */
+  mandatoryStop?: boolean;
 }
 
 // ───────────────────────────── session / world ─────────────────────────────
@@ -837,6 +849,14 @@ export type GameEvent =
   | { type: 'shift'; carId: number; gear: number }
   | { type: 'radio'; carId: number | null; text: string }
   | { type: 'retired'; carId: number; reason: string }
+  /** the suspension broke (DamageState.suspension reached 1): no drive any more, the car retires once it stops */
+  | { type: 'terminalDamage'; carId: number }
+  /** black-and-orange flag shown to a car: dangerous damage, pit for repairs */
+  | { type: 'blackOrangeFlag'; carId: number }
+  /** disqualified (black flag, tyre rule) */
+  | { type: 'disqualified'; carId: number; reason: string }
+  /** a time penalty served stationary at a pit stop */
+  | { type: 'penaltyServed'; carId: number; seconds: number }
   /** race-control mode change (SC / VSC deployed, SC in this lap, red flag, formation lap, green) */
   | { type: 'raceControl'; mode: RaceControlMode; previous: RaceControlMode; reason: string }
   /** local flag change in a sector (0-based); 'clear' = back to green */
@@ -971,7 +991,12 @@ export interface ResultRow {
   gapText: string;
   bestLap: number | null;
   pitStops: number;
+  /** time penalties imposed (s), served ones included */
   penaltySec: number;
+  /** of penaltySec, served at pit stops (not in `time`); undefined = 0 */
+  penaltyServedSec?: number;
+  /** disqualified (black flag, tyre rule): classified last, no points; undefined = false */
+  disqualified?: boolean;
   points: number;
   fastestLap: boolean;
   status: CarStatus;

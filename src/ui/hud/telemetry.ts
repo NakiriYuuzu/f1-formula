@@ -86,6 +86,7 @@ export class TelemetryPanel {
   private readonly dmgFront: AttrSlot;
   private readonly dmgRear: AttrSlot;
   private readonly dmgFloor: AttrSlot;
+  private readonly dmgSusp: AttrSlot;
   private readonly fuelKg: TextSlot;
   private readonly fuelLaps: TextSlot;
   private readonly fuelMargin: TextSlot;
@@ -157,6 +158,10 @@ export class TelemetryPanel {
       svgEl('rect', { x, y, width: w, height: h, rx: 2 }, tyres);
     }
     this.tyreBand = new AttrSlot(tyres, 'data-band');
+    // suspension arms (wheel to body)
+    const susp = svgEl('g', { class: 'nvh-car-susp' }, svg);
+    for (const d of ['M9 20.5L17 22', 'M31 20.5L23 22', 'M9 62.5L14 62', 'M31 62.5L26 62']) svgEl('path', { d }, susp);
+    this.dmgSusp = new AttrSlot(susp, 'data-dmg');
     const floor = svgEl('path', { d: 'M18 9h4l1 13 2 8 5 6v22l-4 10H14l-4-10V36l5-6 2-8z', class: 'nvh-car-body' }, svg);
     this.dmgFloor = new AttrSlot(floor, 'data-dmg');
     svgEl('ellipse', { cx: 20, cy: 39, rx: 2.6, ry: 4.2, class: 'nvh-car-cockpit' }, svg);
@@ -249,6 +254,7 @@ export class TelemetryPanel {
     this.dmgFront.set(damageBand(p.damage.frontWing));
     this.dmgRear.set(damageBand(p.damage.rearWing));
     this.dmgFloor.set(damageBand(p.damage.floor));
+    this.dmgSusp.set(damageBand(p.damage.suspension));
 
     // Fuel.
     const fuel = Math.max(0, fin(p.fuelKg));

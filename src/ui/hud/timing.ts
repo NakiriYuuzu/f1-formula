@@ -142,6 +142,7 @@ export class TimingPanel {
     const lap = Number.isFinite(t.lap) ? Math.max(0, Math.floor(t.lap)) : 0;
     const finished = car.status === 'finished';
     const retired = car.status === 'retired';
+    const disqualified = car.penalties?.disqualified === true;
     const nCars = world.cars.length;
 
     // Position.
@@ -157,7 +158,7 @@ export class TimingPanel {
     if (s.kind === 'race') {
       const total = Math.max(1, Math.round(fin(s.totalLaps, 1)));
       this.lapLabel.set('圈數');
-      this.lapValue.set(finished ? '完賽' : retired ? '退賽' : `${Math.min(Math.max(lap, 1), total)}/${total}`);
+      this.lapValue.set(disqualified ? '取消資格' : finished ? '完賽' : retired ? '退賽' : `${Math.min(Math.max(lap, 1), total)}/${total}`);
       this.lapSub.set('');
     } else if (s.timeRemaining != null && Number.isFinite(s.timeRemaining)) {
       this.lapLabel.set('剩餘時間');

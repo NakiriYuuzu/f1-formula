@@ -23,7 +23,6 @@ import {
   simulateLapTimes,
   snapshotWorld,
   stepWorld,
-  MANDATORY_STOP_PENALTY,
   TRACK_LIMIT_PENALTY,
 } from '../src/race/index';
 import { computeAIInput, steerToward } from '../src/ai/index';
@@ -249,8 +248,8 @@ describe('pit stops', () => {
       });
       const car = world.cars[0];
       expect(car.pit.stops).toBe(1);
-      expect(car.phys.damage).toEqual({ frontWing: 0, rearWing: 0, floor: 0 });
-      expect(car.race.reportedDamage).toEqual([0, 0, 0]);
+      expect(car.phys.damage).toEqual({ frontWing: 0, rearWing: 0, floor: 0, suspension: 0 });
+      expect(car.race.reportedDamage).toEqual([0, 0, 0, 0]);
       // rear wing 8 s (≥ 30 %) + floor 10 s × 0.15 / 0.3 = 13 s on top of the 2.0–3.5 s service
       const stop = ofType(events, 'pitStop')[0];
       expect(stop.duration).toBeGreaterThanOrEqual(15 - 1e-6);
@@ -680,7 +679,7 @@ describe('results', () => {
 
 describe('mandatory pit stop', () => {
   test(
-    'AI cars serve the two-compound stop; a car that never pits gets the penalty',
+    'AI cars serve the two-compound stop; a car that never pits is disqualified (FIA B6.3.6)',
     () => {
       const track = getLayout('highland-ridge-rev');
       const grid = RACERS.map((d) => d.id).slice(0, 8);
@@ -689,8 +688,15 @@ describe('mandatory pit stop', () => {
       expect(isSessionOver(world)).toBe(true);
       const human = world.cars[7];
       expect(human.pit.stops).toBe(0);
-      expect(human.penalties.timeSec).toBe(MANDATORY_STOP_PENALTY);
-      expect(ofType(events, 'penalty').filter((p) => p.carId === 7)).toHaveLength(1);
+      expect(human.penalties.disqualified).toBe(true);
+      expect(human.penalties.timeSec).toBe(0);
+      expect(ofType(events, 'disqualified').filter((p) => p.carId === 7)).toHaveLength(1);
+      const rows = buildSessionResult(world).rows;
+      const row = rows.find((r) => r.carId === 7)!;
+      expect(row.disqualified).toBe(true);
+      expect(row.points).toBe(0);
+      expect(row.gapText).toBe('取消資格');
+      expect(rows[rows.length - 1].carId).toBe(7);
       for (const c of world.cars.slice(0, 7)) {
         expect(c.pit.stops).toBeGreaterThanOrEqual(1);
         expect(c.race.usedCompounds.length).toBeGreaterThanOrEqual(2);

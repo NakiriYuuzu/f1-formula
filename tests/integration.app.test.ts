@@ -150,7 +150,7 @@ describe('flashback limits', () => {
     expect(flashbacksLeft(rules(Number.NaN), 0)).toBe(0);
   });
 
-  test('buffer keeps ~20 s of 0.5 s snapshots and rewinds to the oldest when younger than 5 s', () => {
+  test('buffer keeps ~30 s of 0.5 s snapshots and rewinds to the oldest when younger than 5 s', () => {
     const { config } = buildQuickStart({ kind: 'practice', layoutId: 'porto-lumen', seed: 1 });
     const track = getLayout(config.layoutId);
     const world = createWorld(config, track);
@@ -164,13 +164,13 @@ describe('flashback limits', () => {
     const early = buffer.rewind(world.time, 5);
     expect(early?.time).toBeCloseTo(SIM_DT, 6);
     expect(buffer.size).toBe(1);
-    for (let i = 0; i < Math.round(30 / SIM_DT); i++) {
+    for (let i = 0; i < Math.round(40 / SIM_DT); i++) {
       stepWorld(world, track, [null], SIM_DT);
       buffer.record(world);
     }
-    expect(buffer.size).toBeGreaterThanOrEqual(40);
-    expect(buffer.size).toBeLessThanOrEqual(42);
-    expect(world.time - (buffer.oldestTime ?? 0)).toBeLessThanOrEqual(20.5);
+    expect(buffer.size).toBeGreaterThanOrEqual(60);
+    expect(buffer.size).toBeLessThanOrEqual(62);
+    expect(world.time - (buffer.oldestTime ?? 0)).toBeLessThanOrEqual(30.5);
     buffer.clear();
     expect(buffer.size).toBe(0);
   });

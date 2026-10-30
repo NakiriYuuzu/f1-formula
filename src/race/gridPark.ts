@@ -122,9 +122,12 @@ export function regroupOnGrid(world: WorldState, track: BuiltTrack): void {
     r.gridLat = slot.lateral;
     r.parking = false;
     r.parked = true;
+    // genuine accident damage may be repaired during the suspension (FIA B5.14.4 a viii); a car whose suspension broke
+    // was withdrawn before the regroup (B1.8.9)
     p.damage.frontWing = 0;
     p.damage.rearWing = 0;
     p.damage.floor = 0;
+    p.damage.suspension = 0;
     fitTyres(p, restartCompound(world, track, car), true);
     parkOnSlot(track, car);
     const t = car.timing;

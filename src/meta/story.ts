@@ -304,7 +304,7 @@ export function resolveObjective(t: ObjectiveTemplate, referenceLapTime: number 
 export function evaluateObjective(objective: StoryObjective, result: SessionResult): boolean {
   const row = result.rows.find((r) => r.playerIndex === 0);
   if (!row) return false;
-  const finished = row.status !== 'retired' && row.position >= 1;
+  const finished = row.status !== 'retired' && row.disqualified !== true && row.position >= 1;
   switch (objective.kind) {
     case 'finishAtOrAbove':
       return finished && row.position <= objective.value;
@@ -414,7 +414,7 @@ export function recordStoryAttempt(progress: StoryProgress, id: string, met: boo
   if (!STORY_CHALLENGES.some((c) => c.id === id)) return next;
   const row = result.rows.find((r) => r.playerIndex === 0);
   const prev = next.challenges[id] ?? { completed: false, attempts: 0, bestPosition: null, bestLap: null };
-  const pos = row && row.status !== 'retired' && result.kind === 'race' ? row.position : null;
+  const pos = row && row.status !== 'retired' && row.disqualified !== true && result.kind === 'race' ? row.position : null;
   const lap = row ? (row.bestLap ?? null) : null;
   next.challenges[id] = {
     completed: prev.completed || met,

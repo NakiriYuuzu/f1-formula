@@ -62,6 +62,7 @@ export const DAMAGE_PART_LABEL: Record<keyof DamageState, string> = {
   frontWing: '前翼',
   rearWing: '尾翼',
   floor: '底板',
+  suspension: '懸吊',
 };
 
 export const REPLAY_SPEEDS: readonly number[] = [0.25, 0.5, 1, 2, 4];

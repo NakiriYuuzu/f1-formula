@@ -402,7 +402,9 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
 
   // capability-based target speed
   const dmg = p.damage;
-  const damageFactor = 1 - 0.28 * clamp01(dmg.frontWing) - 0.16 * clamp01(dmg.rearWing) - 0.12 * clamp01(dmg.floor);
+  // (a bent suspension costs up to 8 % grip: ≈ 4 % cornering speed)
+  const damageFactor =
+    1 - 0.28 * clamp01(dmg.frontWing) - 0.16 * clamp01(dmg.rearWing) - 0.12 * clamp01(dmg.floor) - 0.04 * clamp01(fin(dmg.suspension));
   const wetF = wetPaceFactor(weather.wetness, ai.wetSkill);
   // trail braking and kerb use fade on a wet track (faster for a poor wet driver)
   const wetT = wetTechnique(weather.wetness, ai.wetSkill);

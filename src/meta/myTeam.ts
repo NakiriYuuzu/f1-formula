@@ -50,6 +50,7 @@ import {
 import { activeRosterPack } from './rosterPack';
 import {
   attachSprint,
+  classifiedFinish,
   createCalendar,
   type LayoutLike,
   recordRace,
@@ -311,7 +312,7 @@ export function sponsorTarget(save: MyTeamSave): number {
 export function raceIncome(save: MyTeamSave, record: RoundRecord): IncomeLine[] {
   const mine = record.classification.filter((e) => e.teamId === MY_TEAM_ID);
   const points = mine.reduce((acc, e) => acc + e.points, 0) + (record.sprint ?? []).filter((e) => e.teamId === MY_TEAM_ID).reduce((acc, e) => acc + e.points, 0);
-  const finished = mine.filter((e) => e.status !== 'retired' && e.position > 0);
+  const finished = mine.filter(classifiedFinish);
   const best = finished.length > 0 ? Math.min(...finished.map((e) => e.position)) : 99;
   const target = sponsorTarget(save);
   const lines: IncomeLine[] = [{ label: '參賽獎金', amount: 2 }];

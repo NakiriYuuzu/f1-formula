@@ -1,8 +1,9 @@
 /**
  * Race control (races only). Incidents — random AI crashes / mechanical failures / debris drawn from an incident budget
  * set by rules.safetyCar, plus any car stopped on track (a long stop on the racing surface becomes a VSC) and a human car
- * hitting a barrier / another car hard (debris by severity if it drives on, else judged as an AI crash; with full damage
- * a wreck brings out the red flag and is repaired, or retires when another car was involved) — raise local
+ * hitting a barrier / another car hard (debris by severity if it drives on, else judged as an AI crash) and any car whose
+ * suspension broke (withdrawn where it stops, never repaired by a red flag — FIA B1.8.9; a human's single-car wreck with
+ * full damage brings out the red flag) — raise local
  * yellow flags and, by severity, a virtual safety car (per-car delta), the safety car (a kinematic vehicle out of the pit
  * lane that waves the cars before the leader past, picks the leader up and leads the queue, passing slower cars / hazards;
  * the leader may not pass it; "in this lap" with most of a lap's notice, restart at the line) or a red flag (regroup on
@@ -20,14 +21,15 @@ import type {
   WorldState,
 } from '../core/types';
 import { clamp, damp, moveToward, nextRandom, randRange, rightX, rightZ, smoothstep, wrapAngle } from '../core/math';
-import { isCarHeld } from '../physics/index';
+import { isBroken, isCarHeld } from '../physics/index';
 import { forwardDistance, pitLaneOffsetAt, poseAt, sampleAt, signedDeltaS, wrapS } from '../track/track';
 import { emit, isHuman } from './events';
 import { parkOnSlot, regroupOnGrid, startParking, wantsToPark } from './gridPark';
 import { GIVE_BACK_SEC, ILLEGAL_PASS_PENALTY, applyTimePenalty, checkFormationOrder, sectorOf, stepGiveBack } from './legality';
 import { SC_MAX_SPEED, SC_SPEED_FACTOR, pacedSpeedAhead, vscRefSpeed } from './neutralPace';
 import { radioAll } from './radio';
-import { retire } from './session';
+import { BROKEN_REASON, brokenSettled } from './damageRules';
+import { mandatoryStopOpen, retire } from './session';
 import type { Incident, IncidentKind, IncidentResponse } from './types';
 
 /** Expected random incidents per race (any length) per setting; per-lap draw rate cap. */
@@ -108,9 +110,8 @@ const STRANDED_SEC = 12;
 export const HEAVY_IMPACT = 8000;
 const SEVERE_IMPACT = 30_000;
 const IMPACT_JUDGE_SEC = 6;
-/** Human wreck (rules.damage 'full'): front-wing damage of a car that came to rest; contact with another car this many
- * seconds before the hit makes it a crash with another car involved (no red flag, the car retires). */
-const WRECK_DAMAGE = 0.9;
+/** Contact with another car this many seconds before the hit makes a human crash one with another car involved (a
+ * wreck from a single-car crash red-flags the race with full damage; the wreck itself is withdrawn either way). */
 const CONTACT_LOOKBACK_SEC = 3;
 /** Red flag: seconds of slow running before the field is regrouped on the grid; lights delay after the regroup. */
 const RED_REGROUP_SEC = 8;
@@ -138,7 +139,7 @@ export function createControlState(): RaceControlState {
 }
 
 export function createCarFlags(): CarFlagState {
-  return { shown: 'none', delta: null, giveBack: null, queuing: false };
+  return { shown: 'none', delta: null, giveBack: null, queuing: false, blackOrange: null, mandatoryStop: false };
 }
 
 const settingOf = (world: WorldState): SafetyCarSetting => world.config.rules.safetyCar ?? 'off';
@@ -226,19 +227,21 @@ function createIncident(
 const hasIncident = (world: WorldState, carId: number): boolean =>
   world.race.incidents.some((i) => !i.resolved && i.carId === carId);
 
-const isWreck = (world: WorldState, car: CarEntry): boolean =>
-  world.config.rules.damage === 'full' && car.phys.damage.frontWing >= WRECK_DAMAGE;
-
 const redFlagPossible = (world: WorldState): boolean =>
   world.config.rules.redFlags === true && world.session.leaderLap < world.session.totalLaps;
 
 /** Retire a car where it stopped and keep it visible as a hazard until the marshals recover it. */
 function retireAsHazard(world: WorldState, car: CarEntry, reason: string): void {
+  // a car that took the flag stays classified
+  if (car.status === 'finished') return;
   car.ai.failing = false;
   car.ai.crashTimer = 0;
   retire(world, car, reason);
   car.race.hazard = true;
 }
+
+/** Reason for an AI car pulling over: a mechanical failure, or the suspension it broke (it pulls over the same way). */
+const failReason = (car: CarEntry): string => (isBroken(car.phys) ? BROKEN_REASON : '機械故障退賽');
 
 // ───────────────────────────── responses ─────────────────────────────
 
@@ -325,11 +328,13 @@ function decideResponse(world: WorldState, track: BuiltTrack, inc: Incident): vo
     else if (off < SURFACE_MARGIN) resp = fast || roll < 0.4 ? 'sc' : 'vsc';
     else if (off < NEAR_MARGIN) resp = roll < 0.55 ? 'vsc' : 'sc';
     else resp = roll < 0.35 ? 'vsc' : 'yellow';
-    const heavy = inc.kind === 'crash' && car !== null && car.phys.damage.frontWing >= 0.5;
-    if (inc.impact > 0) {
-      // a human wreck still in the race came from a single-car crash: the red flag (the regroup repairs it)
-      if (car && car.status !== 'retired' && isWreck(world, car)) resp = 'red';
-    } else if (resp === 'sc' && heavy && world.config.rules.redFlags === true && c.counts.red === 0 && lapsLeft > 3) {
+    const wrecked = car !== null && car.status === 'retired' && isBroken(car.phys);
+    const heavy = inc.kind === 'crash' && car !== null && (car.phys.damage.frontWing >= 0.5 || wrecked);
+    // a human's single-car crash that wrecked the car (full damage; also when the last hit only finished off a damaged
+    // car): the red flag — the wreck itself stays withdrawn
+    const humanWreck = wrecked && car !== null && isHuman(car) && !inc.otherCar && world.config.rules.damage === 'full';
+    if (humanWreck && redFlagPossible(world)) resp = 'red';
+    else if (inc.impact === 0 && resp === 'sc' && heavy && world.config.rules.redFlags === true && c.counts.red === 0 && lapsLeft > 3) {
       if (nextRandom(rng) < RED_CHANCE[settingOf(world)]) resp = 'red';
     }
   }
@@ -496,6 +501,23 @@ function detectHeavyImpacts(world: WorldState, track: BuiltTrack): void {
   }
 }
 
+/**
+ * A car whose suspension broke (an AI car in a heavy contact, a human from a hit below HEAVY_IMPACT after earlier
+ * ones) gets a crash incident unless one is being judged already; its crash branch withdraws it once it stops. An
+ * older incident of the car that clears when it drives away is superseded.
+ */
+function detectBrokenCars(world: WorldState, track: BuiltTrack): void {
+  for (const car of world.cars) {
+    if (car.status !== 'running' || car.pit.phase !== 'none' || !isBroken(car.phys) || car.race.netGuess) continue;
+    const mine = world.race.incidents.filter((i) => !i.resolved && i.carId === car.id);
+    if (mine.some((i) => i.response === null)) continue;
+    for (const i of mine) if (i.recoverAt === null) i.resolved = true;
+    const inc = createIncident(world, track, 'crash', car, car.phys.s, car.phys.lateral, null);
+    const contact = car.race.carContactAt;
+    inc.otherCar = contact !== null && contact >= world.time - CONTACT_LOOKBACK_SEC;
+  }
+}
+
 function progressIncident(world: WorldState, track: BuiltTrack, inc: Incident): void {
   const car = inc.carId >= 0 ? (world.cars[inc.carId] ?? null) : null;
   const now = world.time;
@@ -518,13 +540,16 @@ function progressIncident(world: WorldState, track: BuiltTrack, inc: Incident): 
         decideResponse(world, track, inc);
       }
     } else if (inc.kind === 'crash') {
-      if (stopped) {
-        if (inc.impact > 0) {
-          // a human wreck retires unless a red flag (single-car crash) lets the team repair it; else it keeps the car
-          if (isWreck(world, car) && (inc.otherCar || !redFlagPossible(world))) retireAsHazard(world, car, '車損過重退賽');
-        } else if (car.phys.damage.frontWing > 0.45) retireAsHazard(world, car, '撞車退賽');
+      const broken = isBroken(car.phys);
+      if (broken ? stopped || brokenSettled(world, car) : stopped) {
+        // a broken car is withdrawn where it stopped, also when a red flag follows (FIA B1.8.9); a random AI crash
+        // that hit something retires; a human that only came to rest keeps the car
+        if (broken) retireAsHazard(world, car, BROKEN_REASON);
+        else if (inc.impact === 0 && car.phys.damage.frontWing > 0.45) retireAsHazard(world, car, '撞車退賽');
         else car.ai.crashTimer = 0;
         decideResponse(world, track, inc);
+      } else if (broken) {
+        // no drive: it rolls to a stop (brokenSettled)
       } else if (inc.impact > 0 && age > IMPACT_JUDGE_SEC) {
         // drove on: debris on the road where it hit
         inc.carId = -1;
@@ -544,7 +569,7 @@ function progressIncident(world: WorldState, track: BuiltTrack, inc: Incident): 
   }
   if (car && car.status !== 'retired') {
     // a car still pulling over after a forced response stops for good here
-    if (car.ai.failing && car.phys.speed < STOP_SPEED && car.race.stopTime >= 1) retireAsHazard(world, car, '機械故障退賽');
+    if (car.ai.failing && car.phys.speed < STOP_SPEED && car.race.stopTime >= 1) retireAsHazard(world, car, failReason(car));
     else if (inc.recoverAt === null && (inc.response === 'yellow' || inc.response === 'vsc') && inc.forced === null && car.phys.speed >= MOVING_SPEED) {
       inc.resolved = true;
     } else if (
@@ -562,7 +587,7 @@ function progressIncident(world: WorldState, track: BuiltTrack, inc: Incident): 
     if (inc.resolved || inc.recoverAt === null) return;
   }
   if (inc.recoverAt !== null && now >= inc.recoverAt) {
-    if (car && car.status !== 'retired' && car.ai.failing) retireAsHazard(world, car, '機械故障退賽');
+    if (car && car.status !== 'retired' && car.ai.failing) retireAsHazard(world, car, failReason(car));
     if (car) car.race.hazard = false;
     inc.resolved = true;
   }
@@ -839,8 +864,12 @@ function regroupForRestart(world: WorldState, track: BuiltTrack): void {
   for (const inc of r.incidents) {
     const car = inc.carId >= 0 ? world.cars[inc.carId] : null;
     if (car && !isHuman(car) && car.status !== 'retired' && (inc.kind === 'crash' || inc.kind === 'failure')) {
-      retireAsHazard(world, car, '撞車退賽');
+      retireAsHazard(world, car, isBroken(car.phys) ? BROKEN_REASON : '撞車退賽');
     }
+  }
+  // nor does any car whose suspension broke, a human's included: abandoned because of damage (FIA B1.8.9)
+  for (const car of world.cars) {
+    if (car.status !== 'retired' && car.status !== 'finished' && isBroken(car.phys)) retireAsHazard(world, car, BROKEN_REASON);
   }
   regroupOnGrid(world, track);
   for (const car of world.cars) car.race.hazard = false;
@@ -941,6 +970,7 @@ function updateCarFlags(world: WorldState, track: BuiltTrack): void {
   for (const car of world.cars) {
     const f = car.flags;
     f.queuing = car.status !== 'retired' && (formation || c.mode === 'sc' || c.mode === 'scEnding');
+    f.mandatoryStop = (car.status === 'running' || car.status === 'pitting') && mandatoryStopOpen(world, car);
     if (c.mode !== 'vsc' && c.mode !== 'vscEnding') f.delta = null;
     let shown: CarFlag = 'none';
     if (car.status === 'retired' || car.status === 'finished' || formation) shown = 'none';
@@ -974,6 +1004,7 @@ export function stepRaceControl(world: WorldState, track: BuiltTrack, dt: number
       scheduleRandomIncident(world, track);
       detectStoppedCars(world, track);
       detectHeavyImpacts(world, track);
+      detectBrokenCars(world, track);
     }
     for (const inc of r.incidents.slice()) progressIncident(world, track, inc);
     r.incidents = r.incidents.filter((i) => !i.resolved);

@@ -7,7 +7,7 @@ import type { CarEntry, WorldState } from '../core/types';
 import { setCarHeld } from '../physics/index';
 import { finishPosition } from './classification';
 import { emit, isRacing } from './events';
-import { radioAll, radioFinish } from './radio';
+import { radioAll, radioDisqualified, radioFinish } from './radio';
 
 /** Seconds of 'pre' before the first start light. */
 export const PRE_LIGHTS = 2;
@@ -15,8 +15,8 @@ export const PRE_LIGHTS = 2;
 export const LIGHT_INTERVAL = 1;
 /** Seconds after the chequered flag before unfinished cars are classified where they are. */
 export const CHEQUERED_TIMEOUT = 180;
-/** Time penalty (s) for not serving the mandatory stop. */
-export const MANDATORY_STOP_PENALTY = 30;
+/** Retirement reason of a player who chose to retire (pause menu): final, no flashback. */
+export const RETIRE_BY_CHOICE = '車手退賽';
 
 /** Advance start lights (race) or the session clock (practice / qualifying). */
 export function stepSessionClock(world: WorldState): void {
@@ -158,17 +158,31 @@ export function finishCar(world: WorldState, car: CarEntry, time: number): void 
   radioFinish(world, car);
 }
 
-/** Dry race with the mandatory-stop rule: a finisher that never ran two dry compounds gets a time penalty. */
+/**
+ * Dry race with the mandatory-stop rule: a finisher that never ran two dry compounds is disqualified (FIA B6.3.6). A
+ * race classified by projection (concludeRace) already charged the stop it still owed.
+ */
 function applyMandatoryStopRule(world: WorldState, car: CarEntry): void {
   const r = car.race;
   if (!world.config.rules.mandatoryPitStop || world.config.sprint === true || r.mandatoryPenaltyApplied) return;
   if (world.race.maxWetness > 0.35 || r.usedWetTyre) return;
   if (r.usedCompounds.length >= 2) return;
   r.mandatoryPenaltyApplied = true;
-  car.penalties.timeSec += MANDATORY_STOP_PENALTY;
-  const reason = '未履行強制進站規定';
-  car.penalties.log.push(`+${MANDATORY_STOP_PENALTY} 秒：${reason}`);
-  emit(world, { type: 'penalty', carId: car.id, seconds: MANDATORY_STOP_PENALTY, reason });
+  disqualify(world, car, '未使用兩種乾地配方');
+}
+
+/**
+ * Disqualify a car (black flag, tyre rule): unclassified, no points. A car still racing is taken out of the race (a
+ * finisher keeps its finished status and is classified behind everyone).
+ */
+export function disqualify(world: WorldState, car: CarEntry, reason: string): void {
+  const pen = car.penalties;
+  if (pen.disqualified) return;
+  pen.disqualified = true;
+  pen.log.push(`取消資格：${reason}`);
+  emit(world, { type: 'disqualified', carId: car.id, reason });
+  radioDisqualified(world, car, reason);
+  if (isRacing(car)) retire(world, car, `取消資格：${reason}`);
 }
 
 /** Whether the mandatory-stop rule is still open for this car (used by AI strategy / radio). */
@@ -223,9 +237,9 @@ export function requestEnd(world: WorldState): void {
   finishSession(world);
 }
 
-/** Retire a car: parked (held, hidden), out of the running order. */
+/** Retire a car: parked (held, hidden), out of the running order. A car that took the flag stays classified. */
 export function retire(world: WorldState, car: CarEntry, reason: string): void {
-  if (car.status === 'retired') return;
+  if (car.status === 'retired' || car.status === 'finished') return;
   car.status = 'retired';
   car.race.retiredAt = world.time;
   car.pit.requested = false;

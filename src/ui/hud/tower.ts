@@ -8,7 +8,7 @@ import type { CarEntry, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { formatGap, formatLapTime } from '../../core/math';
 import { AttrSlot, ShowSlot, TextSlot, clickable, el } from './dom';
-import { safeColor } from './labels';
+import { fin, safeColor } from './labels';
 import { modeChip, modeOf } from './raceControl';
 
 const REFRESH = 0.2;
@@ -121,7 +121,12 @@ export class TimingTower {
       row.status.set(car.status);
       row.fastest.set(car.id === fastestId && car.timing.bestLap != null ? '1' : null);
       const inPit = car.pit.phase !== 'none' || car.status === 'pitting';
-      if (car.status === 'retired') {
+      // unserved time penalties only (a served one is no longer added to the race time)
+      const pen = Math.max(0, fin(car.penalties.timeSec) - fin(car.penalties.servedSec ?? 0));
+      if (car.penalties.disqualified === true) {
+        row.tag.set('DSQ');
+        row.tagKind.set('pen');
+      } else if (car.status === 'retired') {
         row.tag.set('');
         row.tagKind.set(null);
       } else if (inPit) {
@@ -130,8 +135,8 @@ export class TimingTower {
       } else if (car.status === 'finished') {
         row.tag.set('');
         row.tagKind.set('flag');
-      } else if (car.penalties.timeSec > 0) {
-        row.tag.set(`+${Math.round(car.penalties.timeSec)}s`);
+      } else if (pen > 0) {
+        row.tag.set(`+${Math.round(pen)}s`);
         row.tagKind.set('pen');
       } else {
         row.tag.set('');

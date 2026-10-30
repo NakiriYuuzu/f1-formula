@@ -93,7 +93,12 @@ function describePlayer(car: CarEntry): Record<string, unknown> {
     tyre: { compound: p.tire.compound, wear: r3(p.tire.wear), temp: r1(p.tire.temp) },
     ers: { charge: r3(p.ers.charge), mode: p.ers.mode },
     drs: { available: p.drs.available, open: p.drs.open },
-    damage: { frontWing: r2(p.damage.frontWing), rearWing: r2(p.damage.rearWing), floor: r2(p.damage.floor) },
+    damage: {
+      frontWing: r2(p.damage.frontWing),
+      rearWing: r2(p.damage.rearWing),
+      floor: r2(p.damage.floor),
+      suspension: r2(p.damage.suspension),
+    },
     pitPhase: car.pit.phase,
     pitRequested: car.pit.requested,
     trackLimitWarnings: car.penalties.trackLimitWarnings,

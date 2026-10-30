@@ -58,8 +58,13 @@ export class ViewHud {
   private readonly noCar: AttrSlot;
   private delta: DeltaTracker | null = null;
   private clock = 0;
-  private readonly damageAt: Record<keyof DamageState, number> = { frontWing: -Infinity, rearWing: -Infinity, floor: -Infinity };
-  private readonly damageLevel: Record<keyof DamageState, number> = { frontWing: 0, rearWing: 0, floor: 0 };
+  private readonly damageAt: Record<keyof DamageState, number> = {
+    frontWing: -Infinity,
+    rearWing: -Infinity,
+    floor: -Infinity,
+    suspension: -Infinity,
+  };
+  private readonly damageLevel: Record<keyof DamageState, number> = { frontWing: 0, rearWing: 0, floor: 0, suspension: 0 };
 
   constructor(
     parent: Element,
@@ -146,7 +151,8 @@ export class ViewHud {
     this.damageAt[part] = this.clock;
     this.damageLevel[part] = v;
     const pct = Math.round(Math.min(1, v) * 100);
-    const advice = v < 0.35 ? '' : part === 'frontWing' ? '建議進站更換前翼' : '建議進站維修';
+    const advice =
+      v < 0.35 ? '' : part === 'frontWing' ? '建議進站更換前翼' : part === 'suspension' ? '抓地力下降，維修站無法修復' : '建議進站維修';
     this.toasts.push(`${DAMAGE_PART_LABEL[part]}受損 ${pct}%`, advice, v >= 0.6 ? 'bad' : 'warn');
   }
 }

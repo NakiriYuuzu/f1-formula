@@ -472,7 +472,8 @@ describe('B1 / B4 headless races', () => {
       world.events.length = 0;
     }
     expect(isSessionOver(world)).toBe(true);
-    expect(world.cars.every((c) => c.status === 'finished')).toBe(true);
+    // every car finishes, unless a crash broke its suspension (it is withdrawn: race/damageRules.ts)
+    expect(world.cars.every((c) => c.status === 'finished' || (c.status === 'retired' && c.phys.damage.suspension >= 1))).toBe(true);
     return log;
   }
 

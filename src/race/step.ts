@@ -2,7 +2,8 @@
  * stepWorld orchestration, in this order each SIM_DT:
  * weather → session clock / start lights → per car (projection → input (human / AI; pit autopilot overrides) →
  * PhysicsEnv → physics → re-projection → barrier) → car-vs-car contacts → per car (pit-entry detection → timing →
- * track limits → AI stuck watchdog) → classification & gaps → DRS / overtake eligibility → session end →
+ * track limits → AI stuck watchdog) → classification & gaps → damage rules (terminal damage, black-and-orange flag) →
+ * race control → DRS / overtake eligibility → session end →
  * AI pit strategy → radio.
  */
 import type { BuiltTrack, CarEntry, ControlInput, TireCompound, WorldState } from '../core/types';
@@ -21,6 +22,7 @@ import { engagePit, estimatePitLoss, gearForSpeed, pitLossFactor, shouldEngagePi
 import { radioTeamHold, radioTeamYield, stepRadio } from './radio';
 import { checkSessionEnd, mandatoryStopOpen, stepSessionClock } from './session';
 import { stepRaceControl } from './control';
+import { stepDamageRules } from './damageRules';
 import { stepParking } from './gridPark';
 import { updateCarTiming } from './timing';
 import { stepWeather } from './weather';
@@ -277,6 +279,7 @@ export function advanceWorld(world: WorldState, track: BuiltTrack, inputs: reado
   carContacts(world, track);
   for (const car of world.cars) postCar(world, track, car, t0, h);
   updateClassification(world, track);
+  stepDamageRules(world, track, h);
   stepRaceControl(world, track, h);
   updateDrs(world, track, t0);
   checkSessionEnd(world);

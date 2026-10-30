@@ -21,6 +21,7 @@ import {
   stripSpec,
 } from '../src/ui/hud/raceControl';
 import { sessionLabel } from '../src/ui/hud/labels';
+import { Banner } from '../src/ui/hud/feed';
 
 class FakeEl {
   className = '';
@@ -30,11 +31,14 @@ class FakeEl {
   attrs = new Map<string, string>();
   children: FakeEl[] = [];
   classes = new Set<string>();
+  offsetWidth = 0;
   classList = {
     toggle: (c: string, on?: boolean): void => {
       if (on ?? !this.classes.has(c)) this.classes.add(c);
       else this.classes.delete(c);
     },
+    add: (...cs: string[]): void => cs.forEach((c) => this.classes.add(c)),
+    remove: (...cs: string[]): void => cs.forEach((c) => this.classes.delete(c)),
   };
   constructor(readonly tag: string) {}
   appendChild(c: FakeEl): FakeEl {
@@ -123,7 +127,14 @@ describe('race-control helpers', () => {
     const bare = { cars: [], session: { kind: 'race' } } as unknown as WorldState;
     expect(redCount(bare)).toBe(0);
     expect(redCount(worldWith({ counts: { red: 2 } }))).toBe(2);
-    expect(flagsOf({} as CarEntry)).toEqual({ shown: 'none', delta: null, giveBack: null, queuing: false });
+    expect(flagsOf({} as CarEntry)).toEqual({
+      shown: 'none',
+      delta: null,
+      giveBack: null,
+      queuing: false,
+      blackOrange: null,
+      mandatoryStop: false,
+    });
   });
 });
 
@@ -163,7 +174,7 @@ describe('FlagStack', () => {
   test('shows blue, delta, give-back and queue pills from car.flags', () => {
     const root = new FakeEl('div');
     const stack = new FlagStack(root as unknown as Element);
-    const [blue, giveBack, delta, queue] = pills(root);
+    const [, blue, giveBack, delta, queue] = pills(root);
     const other = { id: 1, abbr: 'ABC' } as unknown as CarEntry;
     const world = { cars: [car(), other], session: { kind: 'race', control: { mode: 'sc' } } } as unknown as WorldState;
     stack.update(car({ shown: 'blue', delta: 0.1, giveBack: { carId: 1, timeLeft: 6.1 }, queuing: true }), world);
@@ -181,12 +192,39 @@ describe('FlagStack', () => {
   test('queue pill says when the safety-car limiter holds the speed', () => {
     const root = new FakeEl('div');
     const stack = new FlagStack(root as unknown as Element);
-    const queue = pills(root)[3];
+    const queue = pills(root)[4];
     const world = { cars: [], session: { kind: 'race', control: { mode: 'sc' } } } as unknown as WorldState;
     stack.update(car({ queuing: true }), world);
     expect(queue.children[0].textContent).toBe('跟隨安全車 — 禁止超車');
     stack.update({ ...car({ queuing: true }), assists: { scLimiter: true } } as unknown as CarEntry, world);
     expect(queue.children[0].textContent).toBe('安全車限速中 — 禁止超車');
+  });
+
+  test('pit duties: black-and-orange flag (on top), unserved penalty and the open mandatory stop', () => {
+    const root = new FakeEl('div');
+    const stack = new FlagStack(root as unknown as Element);
+    const all = pills(root);
+    const [blackOrange] = all;
+    const [penalty, mandatory] = all.slice(-2);
+    const world = { cars: [], session: { kind: 'race', control: { mode: 'green' } } } as unknown as WorldState;
+    const flagged = {
+      ...car({ blackOrange: { crossingsLeft: 1 }, mandatoryStop: true }),
+      penalties: { timeSec: 10, servedSec: 5 },
+    } as unknown as CarEntry;
+    stack.update(flagged, world);
+    expect(blackOrange.hidden).toBe(false);
+    expect(blackOrange.attrs.get('data-kind') ?? blackOrange.dataset?.kind).toBe('blackorange');
+    expect(blackOrange.children[0].textContent).toBe('黑橘旗 — 車損危險，必須進站維修');
+    expect(blackOrange.children[1].textContent).toBe('過終點線前進站，否則黑旗');
+    expect(penalty.hidden).toBe(false);
+    expect(penalty.children[0].textContent).toBe('待執行罰時 5 秒');
+    expect(mandatory.hidden).toBe(false);
+    expect(mandatory.children[0].textContent).toBe('強制進站：尚未使用第二種乾地配方');
+    // served / not flagged / out of the race: nothing
+    stack.update({ ...car({}), penalties: { timeSec: 5, servedSec: 5 } } as unknown as CarEntry, world);
+    expect([blackOrange, penalty, mandatory].every((p) => p.hidden)).toBe(true);
+    stack.update({ ...flagged, status: 'retired' } as unknown as CarEntry, world);
+    expect(all.every((p) => p.hidden)).toBe(true);
   });
 
   test('queue pill needs sc / scEnding; a car without flags shows nothing', () => {
@@ -197,5 +235,23 @@ describe('FlagStack', () => {
     expect(pills(root).every((p) => p.hidden)).toBe(true);
     stack.update({ id: 0, status: 'racing' } as unknown as CarEntry, world);
     stack.hide();
+  });
+});
+
+describe('view banner', () => {
+  test('cleared by a flashback: the same retirement banner shows again at once', () => {
+    const banner = new Banner(new FakeEl('div') as unknown as Element);
+    const el = banner.el as unknown as FakeEl;
+    banner.show('retired', '退賽', '懸吊損毀退賽', 'bad', 6);
+    expect(banner.isShowing('retired')).toBe(true);
+    // the same key is not repeated while it is recent
+    banner.update(1);
+    banner.show('retired', '退賽', '懸吊損毀退賽', 'bad', 6);
+    banner.clear();
+    expect(banner.isShowing('retired')).toBe(false);
+    expect(el.hidden).toBe(true);
+    banner.show('retired', '退賽', '懸吊損毀退賽', 'bad', 6);
+    expect(banner.isShowing('retired')).toBe(true);
+    expect(el.hidden).toBe(false);
   });
 });

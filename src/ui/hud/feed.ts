@@ -172,8 +172,11 @@ export class Banner {
     }
   }
 
+  /** Hide it; the next show() appears even with the same key (e.g. the same retirement again after a flashback). */
   clear(): void {
     this.remaining = 0;
+    this.key = '';
+    this.sinceKey = Infinity;
     this.el.classList.add('nvh-hidden');
   }
 }

@@ -25,6 +25,14 @@ export const SUBSTEPS = 2;
 
 const num = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
 
+/** Grip lost with a bent suspension (share of μ at 0.99). */
+const SUSPENSION_GRIP_LOSS = 0.08;
+/** Broken suspension (damage 1): no drive, and the wrecked corner drags the car down (m/s²). */
+const BROKEN_DRAG_DECEL = 5;
+
+/** The suspension is broken: the car cannot be driven any more. */
+export const isBroken = (car: CarPhysicsState): boolean => num(car.damage.suspension) >= 1;
+
 interface SafeInput {
   throttle: number;
   brake: number;
@@ -156,6 +164,8 @@ export function stepCarPhysics(car: CarPhysicsState, spec: CarSpec, input: Contr
 
   applyBrakingAssist(env, body.u, inp);
   if (car.limiter) inp.throttle = Math.min(inp.throttle, clamp((REFERENCE_CAR.pitSpeed - body.u) * 0.8, 0, 1));
+  const broken = isBroken(car);
+  if (broken) inp.throttle = 0;
   updateDrs(car, spec, input, env, inp.brake);
 
   updateGearbox(car, spec, {
@@ -211,7 +221,13 @@ export function stepCarPhysics(car: CarPhysicsState, spec: CarSpec, input: Contr
   const surfaceGrip = surface === 'kerb' ? spec.kerbGrip : (SURFACE_GRIP[surface] ?? 1);
   const tyre = tyreGrip(car.tire.compound, car.tire.wear, car.tire.temp, wet);
   const mu =
-    spec.baseMu * spec.tyreGripScale * tyre * surfaceGrip * (1 + 0.03 * clamp01(num(env.rubber))) * (1 + (perf - 1) * 0.6);
+    spec.baseMu *
+    spec.tyreGripScale *
+    tyre *
+    surfaceGrip *
+    (1 + 0.03 * clamp01(num(env.rubber))) *
+    (1 + (perf - 1) * 0.6) *
+    (1 - SUSPENSION_GRIP_LOSS * clamp01(num(dmg.suspension)));
   const diffUndersteer = 1 - 0.04 * (spec.diffLock - 0.5) * inp.throttle;
   const surfaceDecel = (SURFACE_DRAG_DECEL[surface] ?? 0) * clamp(Math.abs(body.u) / 20, 0.15, 1);
 
@@ -222,7 +238,7 @@ export function stepCarPhysics(car: CarPhysicsState, spec: CarSpec, input: Contr
     drive: drive.force,
     brakeForce,
     engineBrake,
-    extraResist: mass * surfaceDecel + harvest.coastDrag,
+    extraResist: mass * (surfaceDecel + (broken ? BROKEN_DRAG_DECEL : 0)) + harvest.coastDrag,
     dragArea,
     clFront,
     clRear,

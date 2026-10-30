@@ -33,7 +33,7 @@ export type { CarRaceInternal, WorldRaceInternal } from './types';
 export { formatRaceTime, evaluateObjective } from './results';
 export { predictLapTime, pointMassLap, qualifyingCompound, qualiCalibration } from './qualiSim';
 export { GHOST_DT } from './timing';
-export { PRE_LIGHTS, LIGHT_INTERVAL, CHEQUERED_TIMEOUT, MANDATORY_STOP_PENALTY, mandatoryStopOpen } from './session';
+export { PRE_LIGHTS, LIGHT_INTERVAL, CHEQUERED_TIMEOUT, RETIRE_BY_CHOICE, mandatoryStopOpen } from './session';
 export { FREE_WARNINGS, TRACK_LIMIT_PENALTY } from './limits';
 export { DRS_GAP, DRS_WET_LIMIT } from './drs';
 export { GRID_FRONT, GRID_GAP, GRID_LATERAL, FLYING_START, BOX_SPACING, BOX_SLOTS } from './world';
@@ -84,6 +84,16 @@ export function setErsMode(world: WorldState, carId: number, mode: ErsMode): voi
 export function retireCar(world: WorldState, carId: number, reason: string): void {
   const car = carById(world, carId);
   if (car) retire(world, car, typeof reason === 'string' ? reason : '');
+}
+
+/**
+ * World time a flashback has to go back before to undo this car's crash: when its suspension broke, else when it
+ * retired (null = nothing to undo).
+ */
+export function crashTime(world: WorldState, carId: number): number | null {
+  const car = carById(world, carId);
+  if (!car) return null;
+  return car.race.brokenAt ?? (car.status === 'retired' ? car.race.retiredAt : null);
 }
 
 /** True once results are final (all cars classified, or time trial/practice ended by the player). */

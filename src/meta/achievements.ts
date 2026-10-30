@@ -80,7 +80,7 @@ function humanRow(result: SessionResult): ResultRow | undefined {
 }
 
 function finished(row: ResultRow): boolean {
-  return row.status !== 'retired' && row.position >= 1;
+  return row.status !== 'retired' && row.disqualified !== true && row.position >= 1;
 }
 
 /** Stats after counting this session. */

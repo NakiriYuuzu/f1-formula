@@ -1,5 +1,6 @@
 /**
- * Live classification. Race: finished cars by laps then total time incl. penalties (a car still racing that will
+ * Live classification. Race: finished cars by laps then total time incl. unserved penalties (disqualified ones last;
+ * a car still racing that will
  * take the flag with more laps stays ahead of them), then racing cars by progress (4 m hysteresis so side-by-side
  * cars do not flicker), retired cars last; gaps from checkpoint times (every ~50 m), laps down from progress;
  * overtake events for real on-track passes. Practice / qualifying / time trial: by best valid lap.
@@ -12,15 +13,22 @@ import { radioOvertake } from './radio';
 /** Progress margin (m, ≈ 0.7 car length) a car needs to be classified ahead of the car in front. */
 const POSITION_HYSTERESIS = 4;
 
-/** Race time incl. time penalties of a finished car (null before it finished). */
+/** Time penalties (s) not served at a pit stop: added to the race time. */
+export function unservedPenalty(car: CarEntry): number {
+  return Math.max(0, fin(car.penalties.timeSec) - fin(car.penalties.servedSec));
+}
+
+/** Race time incl. the unserved time penalties of a finished car (null before it finished). */
 export function raceTotal(world: WorldState, car: CarEntry): number | null {
   const start = world.session.startTime;
   if (car.timing.finishTime === null || start === null) return null;
-  return car.timing.finishTime - start + car.penalties.timeSec;
+  return car.timing.finishTime - start + unservedPenalty(car);
 }
 
-/** Order of two finished race cars: more laps first, then lower total time incl. penalties. */
+/** Order of two finished race cars: disqualified ones last, more laps first, then lower total time incl. penalties. */
 export function compareFinishers(world: WorldState, a: CarEntry, b: CarEntry): number {
+  const dq = Number(a.penalties.disqualified === true) - Number(b.penalties.disqualified === true);
+  if (dq !== 0) return dq;
   if (a.timing.lapsCompleted !== b.timing.lapsCompleted) return b.timing.lapsCompleted - a.timing.lapsCompleted;
   return (raceTotal(world, a) ?? Infinity) - (raceTotal(world, b) ?? Infinity) || a.id - b.id;
 }
@@ -68,7 +76,9 @@ function lapsBetween(track: BuiltTrack, behind: CarEntry, leader: CarEntry): num
 function raceOrder(world: WorldState, track: BuiltTrack): void {
   const cars = world.cars;
   const s = world.session;
-  const finished = cars.filter((c) => c.status === 'finished').sort((a, b) => compareFinishers(world, a, b));
+  // a disqualified finisher is out of the order, with the retired cars
+  const out = (c: CarEntry): boolean => c.status === 'retired' || c.penalties.disqualified === true;
+  const finished = cars.filter((c) => c.status === 'finished' && !out(c)).sort((a, b) => compareFinishers(world, a, b));
   const racing: number[] = [];
   for (const id of world.race.order) {
     const c = cars[id];
@@ -93,9 +103,11 @@ function raceOrder(world: WorldState, track: BuiltTrack): void {
     }
     if (!changed) break;
   }
+  // the retired by distance, then the disqualified (as in the results)
+  const dq = (c: CarEntry): number => (c.penalties.disqualified === true ? 1 : 0);
   const retired = cars
-    .filter((c) => c.status === 'retired')
-    .sort((a, b) => b.timing.progress - a.timing.progress || (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) || a.id - b.id);
+    .filter(out)
+    .sort((a, b) => dq(a) - dq(b) || b.timing.progress - a.timing.progress || (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) || a.id - b.id);
   const order: number[] = [];
   let j = 0;
   for (const f of finished) {

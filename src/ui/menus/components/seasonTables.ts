@@ -97,9 +97,11 @@ export function calendarList(
       const mine = rec?.classification.find((e) => e.driverId === playerId);
       const status = rec
         ? mine
-          ? mine.status === 'retired'
-            ? '退賽'
-            : `P${mine.position}・${mine.points} 分`
+          ? mine.disqualified === true
+            ? '取消資格'
+            : mine.status === 'retired'
+              ? '退賽'
+              : `P${mine.position}・${mine.points} 分`
           : '已完成'
         : i === results.length
           ? '下一站'

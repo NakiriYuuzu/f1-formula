@@ -190,6 +190,8 @@ export interface RoundEntry {
   gridPosition: number;
   points: number;
   status: CarStatus;
+  /** disqualified (black flag / tyre rule): unclassified, no win / podium / countback credit */
+  disqualified?: boolean;
 }
 
 export interface RoundRecord {
@@ -225,6 +227,7 @@ export function recordSprint(result: SessionResult): RoundEntry[] {
       gridPosition: r.gridPosition,
       points: pointsForRow(r, true),
       status: r.status,
+      ...(r.disqualified === true ? { disqualified: true } : {}),
     }));
 }
 
@@ -252,6 +255,7 @@ export function recordRace(result: SessionResult): RoundRecord {
       gridPosition: r.gridPosition,
       points: pointsForRow(r),
       status: r.status,
+      ...(r.disqualified === true ? { disqualified: true } : {}),
     })),
     fastestLapDriverId: fastest ? fastest.driverId : null,
   };
@@ -282,6 +286,11 @@ function emptyEntry(id: string): StandingEntry {
   return { id, points: 0, wins: 0, podiums: 0, best: 0, finishes: [] };
 }
 
+/** A finish that counts as one: not retired, not disqualified. */
+export function classifiedFinish(entry: RoundEntry): boolean {
+  return entry.status !== 'retired' && entry.disqualified !== true && entry.position >= 1;
+}
+
 /** Sprint points only: sprint wins / podiums are not counted. */
 function addSprint(e: StandingEntry, entry: RoundEntry): void {
   e.points += entry.points;
@@ -289,7 +298,7 @@ function addSprint(e: StandingEntry, entry: RoundEntry): void {
 
 function addFinish(e: StandingEntry, entry: RoundEntry): void {
   e.points += entry.points;
-  if (entry.status === 'retired' || entry.position < 1) return;
+  if (!classifiedFinish(entry)) return;
   if (entry.position === 1) e.wins++;
   if (entry.position <= 3) e.podiums++;
   if (e.best === 0 || entry.position < e.best) e.best = entry.position;
@@ -384,6 +393,7 @@ function sanitizeEntries(v: unknown): RoundEntry[] {
       gridPosition: int(e.gridPosition, 0, 30, 0),
       points: int(e.points, 0, 50, 0),
       status: oneOf(e.status, CAR_STATUSES, 'finished'),
+      ...(e.disqualified === true ? { disqualified: true } : {}),
     });
   }
   return out;

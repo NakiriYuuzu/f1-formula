@@ -16,7 +16,7 @@ export const COLLISION_EVENT_IMPULSE = 1200;
 const COLLISION_EVENT_COOLDOWN = 0.4;
 /** Damage increase that triggers a new damage event. */
 const DAMAGE_EVENT_STEP = 0.05;
-const DAMAGE_PARTS: (keyof DamageState)[] = ['frontWing', 'rearWing', 'floor'];
+const DAMAGE_PARTS: (keyof DamageState)[] = ['frontWing', 'rearWing', 'floor', 'suspension'];
 
 export function damageMultiplier(world: WorldState): number {
   const d = world.config.rules.damage;

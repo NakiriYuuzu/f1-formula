@@ -13,6 +13,14 @@ const CAR_RESTITUTION = 0.3;
 const DAMAGE_THRESHOLD = 2500;
 /** impulse (N·s) above the threshold that destroys a part at multiplier 1 */
 const DAMAGE_SCALE = 16_000;
+/**
+ * Suspension / structure: only heavy hits bend it. Wheel-to-wheel racing contact stays below ~4000 N·s (AI races),
+ * a wall hit at a shallow angle is 11–15k (bent), steering into a wall at racing speed 27–37k. At multiplier 1 one
+ * hit of SUSPENSION_THRESHOLD + SUSPENSION_SCALE (18k, ≈ 80 km/h straight into the wall) breaks it; at 0.5
+ * ('reduced') it takes 31k (the team's damageScale, from its reliability, scales both).
+ */
+const SUSPENSION_THRESHOLD = 5000;
+const SUSPENSION_SCALE = 13_000;
 
 const num = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
 
@@ -197,6 +205,7 @@ export function applyImpactDamage(car: CarPhysicsState, impulse: number, frontal
   if (mult <= 0 || imp <= DAMAGE_THRESHOLD) return;
   const amount = ((imp - DAMAGE_THRESHOLD) / DAMAGE_SCALE) * mult;
   const d = car.damage;
+  if (imp > SUSPENSION_THRESHOLD) d.suspension = clamp01(num(d.suspension) + ((imp - SUSPENSION_THRESHOLD) / SUSPENSION_SCALE) * mult);
   if (frontal) {
     d.frontWing = clamp01(num(d.frontWing) + amount);
     d.floor = clamp01(num(d.floor) + amount * 0.2);
