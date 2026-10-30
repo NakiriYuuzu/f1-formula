@@ -910,7 +910,8 @@ export interface CarRenderState {
   rainLight: boolean;
   /** pit limiter light */
   limiter: boolean;
-  damage: { frontWing: number; rearWing: number };
+  /** 0..1 per part (DamageState); floor / suspension optional (absent = intact): the renderer shows them as scuffs and a splayed wheel */
+  damage: { frontWing: number; rearWing: number; floor?: number; suspension?: number };
   /** 0..1 tyre slip intensity (smoke/squeal) */
   slip: number;
   /** 0..1 lockup intensity */

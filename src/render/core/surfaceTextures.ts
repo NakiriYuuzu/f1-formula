@@ -1,26 +1,37 @@
 /**
  * Procedural, tileable surface textures (canvas): asphalt, grass, gravel, sand, kerbs, concrete,
  * catch fence, tyre wall, chequered line, building windows, garage doors, terrain ground + greyscale ground
- * detail, sea wave normals, sky cloud noise and distant skyline facades.
+ * detail, sea wave normals, sky cloud noise and distant skyline facades, plus the detail normal / roughness maps
+ * of the racing surfaces and walls (aggregate, kerb ribs, pebbles, grass blades, concrete pores).
  */
 import type * as THREE from 'three';
 import type { Biome } from '../../core/types';
 import { hash3, tileableFbm } from '../track/sceneryMath';
 import { addBlotches, addGrain, canvasTexture, clampByte, createCanvas, drawWrapped, Rng, shadePixels } from './canvas';
 
-/** Road asphalt: dark grey grain + aggregate speckle (tileable). */
-export function asphaltTexture(anisotropy: number, seed = 11): THREE.CanvasTexture {
-  const c = createCanvas(512, 512);
+/** Road asphalt: dark grey grain + aggregate speckle (tileable). `size` = edge in px (counts scale with the area). */
+export function asphaltTexture(anisotropy: number, seed = 11, size = 512): THREE.CanvasTexture {
+  const c = createCanvas(size, size);
   const rng = new Rng(seed);
+  const k = c.w / 512;
   c.ctx.fillStyle = '#4a4b4e';
   c.ctx.fillRect(0, 0, c.w, c.h);
-  addBlotches(c, rng, 40, ['#3d3e41', '#56575a', '#44464a'], 30, 110, 0.55);
-  for (let i = 0; i < 2600; i++) {
+  addBlotches(c, rng, 40, ['#3d3e41', '#56575a', '#44464a'], 30 * k, 110 * k, 0.55);
+  // patched / resurfaced sections: slightly different binder tone in long rectangles across the lane
+  for (let i = 0; i < 3; i++) {
+    const v = rng.int(58, 82);
+    const pw = rng.range(80, 160) * k;
+    const ph = rng.range(24, 60) * k;
+    c.ctx.fillStyle = `rgba(${v},${v},${v + 2},0.35)`;
+    drawWrapped(c, rng.next() * c.w, rng.next() * c.h, 160 * k, (px, py) => c.ctx.fillRect(px - pw / 2, py - ph / 2, pw, ph));
+  }
+  // aggregate speckle: low contrast (the detail normal map carries the stones' relief; bright specks read as salt)
+  for (let i = 0; i < 2600 * k * k; i++) {
     const x = rng.next() * c.w;
     const y = rng.next() * c.h;
-    const v = rng.int(70, 140);
+    const v = rng.int(64, 106);
     c.ctx.fillStyle = `rgb(${v},${v},${v + 3})`;
-    c.ctx.fillRect(x, y, rng.range(0.8, 2.2), rng.range(0.8, 2.2));
+    c.ctx.fillRect(x, y, rng.range(0.8, 2.2) * k, rng.range(0.8, 2.2) * k);
   }
   addGrain(c, rng, 26);
   return canvasTexture(c, { repeat: true, anisotropy });
@@ -432,4 +443,140 @@ export function skylineTexture(lit: boolean, seed = 121): THREE.CanvasTexture {
   c.ctx.fillStyle = lit ? '#000000' : '#3a4048';
   c.ctx.fillRect(0, c.h - 6, 6, 6);
   return canvasTexture(c, { repeat: true, anisotropy: 2 });
+}
+
+// ───────────────────────────── detail normal / roughness maps ─────────────────────────────
+
+/**
+ * Tangent-space normal map (OpenGL convention, as seaNormalTexture) from a tileable w × h height field: wrapped central
+ * differences, `strength` = slope gain per height unit.
+ */
+export function normalMapFromHeight(height: Float32Array, w: number, h: number, strength: number, anisotropy: number): THREE.CanvasTexture {
+  const c = createCanvas(w, h);
+  shadePixels(c, (x, y, d, i) => {
+    const hx = height[y * w + ((x + 1) % w)] - height[y * w + ((x + w - 1) % w)];
+    const hy = height[((y + 1) % h) * w + x] - height[((y + h - 1) % h) * w + x];
+    let nx = -hx * strength;
+    let ny = hy * strength;
+    let nz = 1;
+    const len = Math.hypot(nx, ny, nz);
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    d[i] = clampByte(Math.round((nx * 0.5 + 0.5) * 255));
+    d[i + 1] = clampByte(Math.round((ny * 0.5 + 0.5) * 255));
+    d[i + 2] = clampByte(Math.round((nz * 0.5 + 0.5) * 255));
+    d[i + 3] = 255;
+  });
+  return canvasTexture(c, { repeat: true, anisotropy, srgb: false });
+}
+
+/** Roughness map (G channel, as three samples it) from a 0..1 field: lo..hi multipliers of the material roughness. */
+function roughnessMapFromField(field: Float32Array, w: number, h: number, lo: number, hi: number, anisotropy: number): THREE.CanvasTexture {
+  const c = createCanvas(w, h);
+  shadePixels(c, (x, y, d, i) => {
+    const v = clampByte(Math.round((lo + (hi - lo) * field[y * w + x]) * 255));
+    d[i] = v;
+    d[i + 1] = v;
+    d[i + 2] = v;
+    d[i + 3] = 255;
+  });
+  return canvasTexture(c, { repeat: true, anisotropy, srgb: false });
+}
+
+/** Stamp rounded stones (domes with flattened tops) into a wrapped height field; returns the tops mask (polish). */
+function stampStones(height: Float32Array, n: number, rng: Rng, count: number, rMin: number, rMax: number, top: Float32Array | null): void {
+  for (let s = 0; s < count; s++) {
+    const cx = rng.next() * n;
+    const cy = rng.next() * n;
+    const r = rng.range(rMin, rMax);
+    const peak = rng.range(0.55, 1);
+    const ri = Math.ceil(r);
+    for (let dy = -ri; dy <= ri; dy++) {
+      for (let dx = -ri; dx <= ri; dx++) {
+        const q = 1 - (dx * dx + dy * dy) / (r * r);
+        if (q <= 0) continue;
+        const x = (((Math.floor(cx) + dx) % n) + n) % n;
+        const y = (((Math.floor(cy) + dy) % n) + n) % n;
+        const v = peak * Math.min(1, Math.sqrt(q) * 1.6);
+        const j = y * n + x;
+        if (v > height[j]) {
+          height[j] = v;
+          if (top) top[j] = q > 0.35 ? 1 : 0;
+        }
+      }
+    }
+  }
+}
+
+/** Repeats of the asphalt detail maps per asphalt colour-map repeat (detail texels ≈ 6 mm on a 12 m colour tile). */
+export const ASPHALT_DETAIL_REPEAT = 4;
+
+/**
+ * Asphalt micro-relief: packed aggregate stones in a darker binder, faint seal cracks; the roughness map polishes the
+ * exposed stone tops slightly (multipliers 0.9–1 of the material roughness).
+ */
+export function asphaltDetailMaps(anisotropy: number, seed = 13, size = 512): { normal: THREE.CanvasTexture; roughness: THREE.CanvasTexture } {
+  const n = Math.max(16, Math.floor(size));
+  const rng = new Rng(seed);
+  const height = new Float32Array(n * n);
+  const top = new Float32Array(n * n);
+  const grit = tileableFbm(n, 32, 3, seed + 3, 0.5);
+  for (let i = 0; i < height.length; i++) height[i] = 0.12 * grit[i] + 0.08 * rng.next();
+  stampStones(height, n, rng, Math.round(0.034 * n * n), 0.9, 2.6, top);
+  // seal cracks: a few long thin grooves
+  for (let c = 0; c < 6; c++) {
+    let x = rng.next() * n;
+    let y = rng.next() * n;
+    let a = rng.next() * Math.PI * 2;
+    for (let st = 0; st < n * 0.6; st++) {
+      a += rng.range(-0.25, 0.25);
+      x += Math.cos(a);
+      y += Math.sin(a);
+      const j = ((((Math.floor(y) % n) + n) % n) * n) + ((((Math.floor(x) % n) + n) % n));
+      height[j] = Math.min(height[j], -0.35);
+      top[j] = 0;
+    }
+  }
+  const tone = tileableFbm(n, 4, 3, seed + 7, 0.5);
+  const rough = new Float32Array(n * n);
+  for (let i = 0; i < rough.length; i++) rough[i] = top[i] > 0 ? 0.4 + 0.3 * tone[i] : 0.7 + 0.3 * tone[i];
+  // gentle polish only: glossier stone tops turn into white glitter at grazing angles (Fresnel) otherwise
+  return { normal: normalMapFromHeight(height, n, n, 1.8, anisotropy), roughness: roughnessMapFromField(rough, n, n, 0.9, 1, anisotropy) };
+}
+
+/** Kerb relief (same 64 × 128 layout as kerbTexture): rounded ribs every 8 px along v, rounded outer edge, grit. */
+export function kerbNormalTexture(anisotropy: number, seed = 53): THREE.CanvasTexture {
+  const w = 64;
+  const h = 128;
+  const rng = new Rng(seed);
+  const height = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const rib = 0.5 + 0.5 * Math.cos(((y % 8) / 8) * Math.PI * 2);
+    for (let x = 0; x < w; x++) height[y * w + x] = 0.9 * rib * rib + 0.12 * rng.next();
+  }
+  return normalMapFromHeight(height, w, h, 1.4, anisotropy);
+}
+
+/** Gravel relief: tightly packed rounded pebbles with shadowed gaps. */
+export function pebbleNormalTexture(anisotropy: number, seed = 33, size = 256): THREE.CanvasTexture {
+  const n = Math.max(16, Math.floor(size));
+  const rng = new Rng(seed);
+  const height = new Float32Array(n * n);
+  for (let i = 0; i < height.length; i++) height[i] = 0.1 * rng.next();
+  stampStones(height, n, rng, Math.round(0.09 * n * n), 0.8, 2.4, null);
+  return normalMapFromHeight(height, n, n, 2.0, anisotropy);
+}
+
+/**
+ * Generic organic relief from fractal noise + per-texel grit (grass blades, concrete pores, worn paint): `period`
+ * noise cells per tile, `grit` 0..1 share of single-texel noise, `strength` slope gain.
+ */
+export function noiseNormalTexture(anisotropy: number, seed: number, size = 256, period = 16, grit = 0.4, strength = 1.5): THREE.CanvasTexture {
+  const n = Math.max(16, Math.floor(size));
+  const rng = new Rng(seed);
+  const field = tileableFbm(n, period, 4, seed, 0.55);
+  const height = new Float32Array(n * n);
+  for (let i = 0; i < height.length; i++) height[i] = (1 - grit) * field[i] + grit * rng.next();
+  return normalMapFromHeight(height, n, n, strength, anisotropy);
 }

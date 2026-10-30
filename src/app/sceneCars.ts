@@ -1,5 +1,5 @@
 /**
- * Maps the world's cars to the renderer's car list (pure): livery, number, team code and driver helmet,
+ * Maps the world's cars to the renderer's car list (pure): livery, number, team code, driver helmet and pit box,
  * resolved from the session's teams/drivers with the static data as fallback.
  */
 import type { Livery, WorldState } from '../core/types';
@@ -17,6 +17,9 @@ function copyLivery(l: Livery): Livery {
   };
 }
 
+/** Pit boxes per garage row (race/world.ts BOX_SLOTS). */
+const PIT_BOXES = 12;
+
 /** Team colours in pit-box order (race/world.ts boxSlot uses the SessionConfig.teams index). */
 export function sceneTeamColors(world: WorldState): string[] {
   return world.config.teams.map((t) => t.livery.primary);
@@ -27,12 +30,14 @@ export function sceneCarsFor(world: WorldState): RaceSceneCar[] {
   return world.cars.map((car) => {
     const team = teams.find((t) => t.id === car.teamId) ?? TEAMS.find((t) => t.id === car.teamId);
     const driver = drivers.find((d) => d.id === car.driverId) ?? DRIVERS.find((d) => d.id === car.driverId);
+    const teamIndex = teams.findIndex((t) => t.id === car.teamId);
     return {
       carId: car.id,
       livery: copyLivery(car.livery),
       number: car.number,
       teamShort: team?.shortName ?? car.abbr,
       helmet: copyLivery(driver?.helmet ?? car.livery),
+      ...(teamIndex >= 0 ? { pitBox: teamIndex % PIT_BOXES } : {}),
     };
   });
 }

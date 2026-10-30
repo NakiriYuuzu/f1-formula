@@ -1,6 +1,7 @@
 /**
- * Post-processing look + adaptive resolution: every tunable of the post chain (selective bloom, colour grade,
- * vignette, speed blur) and of the frame-time controller as named constants, plus the pure helpers that turn time of day /
+ * Post-processing look + adaptive resolution: every tunable of the post chain (ambient occlusion, selective bloom,
+ * colour grade, vignette, speed blur, lens chromatic aberration, film grain) and of the frame-time controller as
+ * named constants, plus the pure helpers that turn time of day /
  * biome / weather / quality into a PostLook (no three.js, no DOM: unit-tested headless). postPipeline.ts applies a
  * PostLook to the GPU passes; GameRenderer drives AdaptiveResolution.
  *
@@ -41,12 +42,40 @@ export interface PostLook {
   vignette: number;
   /** radial speed blur 0..SPEED_BLUR_MAX (0 = off), see speedBlurAmount */
   speedBlur: number;
+  /** ambient-occlusion blend 0..1 (0 = off; only where the pipeline was built with AO) */
+  ao: number;
+  /** lateral chromatic aberration at the corners (UV fraction, 0 = off) */
+  chroma: number;
+  /** film grain amplitude (multiplicative ±, 0 = off) */
+  grain: number;
 }
 
 // ───────────────────────────── pipeline ─────────────────────────────
 
 /** MSAA samples of the composer's scene target when Settings.antialias is on (clamped to the GPU maximum). */
 export const POST_MSAA_SAMPLES = 4;
+
+// ───────────────────────────── ambient occlusion ─────────────────────────────
+
+/** GTAO blend per time of day (night floodlight scenes have less ambient light to occlude). */
+export const AO_BY_TIME: Record<TimeOfDay, number> = { day: 0.8, dusk: 0.75, night: 0.6 };
+/** Overcast / rain light is diffuse: contact shading reads stronger (blend × (1 + boost × cloud)). */
+export const AO_OVERCAST_BOOST = 0.15;
+/** World radius (m) of the occlusion search: under cars, wheel arches, barrier feet, grandstand rows. */
+export const AO_RADIUS = 0.9;
+/** Depth difference (m) beyond which an occluder in front is ignored (no dark halos around cars against far ground). */
+export const AO_THICKNESS = 0.8;
+/** Horizon samples per pixel (GTAO SAMPLES). */
+export const AO_SAMPLES = 12;
+/** Showroom AO blend (studio light is mostly ambient: AO grounds the car on the turntable). */
+export const SHOWROOM_AO = 0.9;
+
+// ───────────────────────────── lens ─────────────────────────────
+
+/** Lateral chromatic aberration at the screen corners (UV fraction toward the centre; red in, blue out). */
+export const LENS_CHROMA = 0.0022;
+/** Film grain amplitude (± fraction of the linear colour; also dithers sky gradients against banding). */
+export const LENS_GRAIN = 0.03;
 
 // ───────────────────────────── bloom ─────────────────────────────
 
@@ -166,7 +195,17 @@ export function createPostLook(): PostLook {
     grade: { tint: [1, 1, 1], saturation: 1, contrast: 1, lift: 0 },
     vignette: 0,
     speedBlur: 0,
+    ao: 0,
+    chroma: 0,
+    grain: 0,
   };
+}
+
+/** Race AO blend for a time of day, the quality's AO scale (0 = off) and smoothed cloud cover 0..1. */
+export function aoAmount(time: TimeOfDay, aoScale: number, cloud: number): number {
+  if (!Number.isFinite(aoScale) || aoScale <= 0) return 0;
+  const c = clamp01(Number.isFinite(cloud) ? cloud : 0);
+  return clamp01((AO_BY_TIME[time] ?? AO_BY_TIME.day) * (1 + AO_OVERCAST_BOOST * c));
 }
 
 /**
@@ -210,8 +249,8 @@ export function normaliseTint(tint: Rgb): Rgb {
   return tint;
 }
 
-/** Showroom look: fixed light bloom + neutral grade, vignette when the quality enables it (written into `out`). */
-export function showroomLook(quality: QualityLevel, vignette: boolean, out: PostLook = createPostLook()): PostLook {
+/** Showroom look: fixed light bloom + neutral grade, vignette when the quality enables it, AO when `ao` (written into `out`). */
+export function showroomLook(quality: QualityLevel, vignette: boolean, out: PostLook = createPostLook(), ao = false): PostLook {
   const q = BLOOM_QUALITY[quality] ?? BLOOM_QUALITY.high;
   out.bloom.strength = SHOWROOM_BLOOM.strength * q.strength;
   out.bloom.radius = clamp(SHOWROOM_BLOOM.radius * q.radius, 0, 1);
@@ -222,6 +261,9 @@ export function showroomLook(quality: QualityLevel, vignette: boolean, out: Post
   out.grade.lift = SHOWROOM_GRADE.lift;
   out.vignette = vignette ? SHOWROOM_VIGNETTE : 0;
   out.speedBlur = 0;
+  out.ao = ao ? SHOWROOM_AO : 0;
+  out.chroma = 0;
+  out.grain = vignette ? LENS_GRAIN * 0.5 : 0;
   return out;
 }
 

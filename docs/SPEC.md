@@ -59,7 +59,7 @@
 - 橫向偏移、曲率、轉向一律「+ = 右」。
 - WorldState 必須是純資料（可 `structuredClone`）。固定步長 `SIM_DT = 1/120`。
 - 各模組的私有狀態放在自己擁有的型別：`physics/types.ts`（CarSpec、PhysicsInternal）、`ai/types.ts`（AIState）、
-  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
+  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；`CarRenderState.damage` 新增選填 `floor` / `suspension`（0..1，渲染車損用）；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
 
 ## 3. F1 25 功能對照（本作要實作的範圍）
 
@@ -209,16 +209,24 @@
   柏油帶（canvas 噪聲貼圖、白邊線、起跑格線、方格起終點線）、紅白路緣石、草地/碎石/柏油緩衝區、護欄（輪胎牆/鋼板護欄/水泥牆 + 防護網）、
   維修道（路面、維修牆、車庫建築與 11 個隊伍車庫、維修格）、起跑燈架（5 組紅燈，依 frame.startLights）、看台 + 觀眾（instanced）、
   樹木/仙人掌/路燈/建築（依 biome，instanced）、原創虛構廣告看板、煞車距離牌（100/150/200）、DRS 區標線、彎道標誌、夜賽燈柱。
+  柏油上有沿行車線、煞車區較深的膠痕帶（`rubberIntensity`）；medium 以上柏油/路緣石/草地/碎石/水泥牆加程式化法線與粗糙度細節貼圖（溼地降低法線強度）。
+- 維修站人員（`render/track/pitCrew.ts`，編排為純函式 `pitCrewMath.ts`）：每個維修格 16 人（每輪風槍/拆胎/裝胎、前後千斤頂、兩名扶車），隊色 instanced；
+  閒置時在車庫前排成兩列，隊車進維修道時就位，停站時依時間軸頂車（車身抬高）→ 拆胎 → 裝胎 → 放車，放行時退開；離維修區 420 m 外隱藏。
 - 行車線顯示（off/corners/full，綠→黃→紅依加減速）。
 - 車模（程式化，全部 three geometry；合併同材質以降低 draw call）：單體殼、鼻錐、多片前翼 + 端板、前後懸吊連桿、輪胎（側壁配方色環）+ 輪圈 +
   煞車碟（煞車發紅光）、側箱、引擎蓋 + 鯊魚鰭、進氣口、Halo、車手頭盔（隊色）、底板 + 擴散器、尾翼主翼 + 可動 DRS 翼片（2026 前翼也可動）、
-  雨燈（雨天閃爍）、後視鏡、方向盤（座艙鏡頭）、塗裝（canvas 貼圖：三色 + 圖樣 + 車號 + 隊名縮寫）。前輪轉向、輪子轉動、損傷時前翼缺件。
+  雨燈（雨天閃爍）、後視鏡、方向盤（座艙鏡頭）、塗裝（canvas 貼圖：三色 + 圖樣 + 車號 + 隊名縮寫）。前輪轉向、輪子轉動。
+  損傷外觀（`render/car/carDamage.ts`，依 `CarRenderState.damage`）：前翼先往受撞側彎垂、超過 0.5 斷裂缺件；尾翼翼片下垂扭曲；懸吊受損時固定的一角
+  車輪外傾/偏擺/外推、車身往該角下沉（全斷時最明顯）；漆面刮痕與裸露碳纖維隨損傷與每次重擊累積（整場保留，進站只換翼）。
   2026 規格車更短更窄。幽靈車半透明。
-- 特效：雨滴（跟隨鏡頭）、溼地水霧（車後）、輪胎煙（鎖死/打滑）、碰撞火花、刹車碟發光、溼路面反光（降 roughness）。
+- 特效：雨滴（跟隨鏡頭）、溼地水霧（車後）、輪胎煙（鎖死/打滑）、碰撞火花、碰撞碎片（重擊噴出碳纖維/塗裝碎片，翼片斷裂掉落大塊殘骸，彈跳後留在路面一段時間）、
+  刹車碟發光、溼路面反光（降 roughness）。
 - 鏡頭：chase / chaseFar / tcam / cockpit / nose / tv（電視轉播：沿賽道固定機位自動切換），後視（lookBack），平滑跟隨、速度感 FOV、可選震動、強度可調的速度模糊（post chain 徑向模糊，隨跟隨車速增強，0% 關閉，電視鏡頭不套用）。
 - 分割畫面：每個 ViewSpec 各自相機與 viewport（scissor），CSS 座標左上原點。
 - `ShowroomScene`：轉台展示車 + 頒獎台模式。
 - 品質：low/medium/high/ultra 影響陰影解析度、物件密度、特效數量；20 台車 high 畫質目標 60 fps（draw call < 500）。
+  另含：軟陰影半徑（`shadowRadius`）、柏油貼圖解析度、表面細節貼圖（medium 起）、場景反射探針（medium 起，從賽道上方擷取場景做環境反射，
+  失敗則退回天空）、環境光遮蔽（high/ultra，GTAO 乘在場景上，依時段/雲量調整，正交鏡頭不套用）；post 另有輕微色散與底片顆粒（座艙鏡頭不加色散）。
 
 ### 6.5 hud（DOM + CSS，使用 tokens.css 變數，zh-TW）
 - 速度（依 units）/ 檔位 / 轉速條 + 換檔燈、ERS 電量與模式、Overtake 指示、DRS 狀態（可用/開啟）、限速器、燃油、輪胎（配方、磨耗%、溫度色）、

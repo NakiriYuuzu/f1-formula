@@ -41,7 +41,9 @@ const F_IMPACT = 18;
 const F_COMPOUND = 19;
 const F_SURFACE = 20;
 const F_FLAGS = 21;
-const CAR_FIELDS = 22;
+const F_DMG_FLOOR = 22;
+const F_DMG_SUSPENSION = 23;
+const CAR_FIELDS = 24;
 
 const FLAG_DRS = 1;
 const FLAG_RAIN = 2;
@@ -90,6 +92,8 @@ export function encodeFrame(frame: RenderFrame): Float32Array {
     out[o + F_GEAR] = fin(c.gear);
     out[o + F_DMG_FRONT] = fin(c.damage?.frontWing ?? 0);
     out[o + F_DMG_REAR] = fin(c.damage?.rearWing ?? 0);
+    out[o + F_DMG_FLOOR] = fin(c.damage?.floor ?? 0);
+    out[o + F_DMG_SUSPENSION] = fin(c.damage?.suspension ?? 0);
     out[o + F_SLIP] = fin(c.slip);
     out[o + F_LOCKUP] = fin(c.lockup);
     out[o + F_IMPACT] = fin(c.impact);
@@ -140,7 +144,7 @@ function decodeCar(a: Float32Array, oa: number, b: Float32Array | null, ob: numb
     compound: valueOf(COMPOUND_CODES, near[on + F_COMPOUND] ?? 0),
     rainLight: (flags & FLAG_RAIN) !== 0,
     limiter: (flags & FLAG_LIMITER) !== 0,
-    damage: { frontWing: clamp01(v(F_DMG_FRONT)), rearWing: clamp01(v(F_DMG_REAR)) },
+    damage: { frontWing: clamp01(v(F_DMG_FRONT)), rearWing: clamp01(v(F_DMG_REAR)), floor: clamp01(v(F_DMG_FLOOR)), suspension: clamp01(v(F_DMG_SUSPENSION)) },
     slip: clamp01(v(F_SLIP)),
     lockup: clamp01(v(F_LOCKUP)),
     impact: Math.max(0, v(F_IMPACT)),

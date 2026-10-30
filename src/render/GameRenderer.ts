@@ -32,7 +32,7 @@ export class GameRenderer {
   /** the GPU can render to half-float targets (required by the HDR post chain) */
   private readonly postSupported: boolean;
   private post: PostPipeline | null = null;
-  /** contextVersion | samples | bloom scale the current chain was built for */
+  /** contextVersion | samples | bloom scale | AO scale the current chain was built for */
   private postKey = '';
   /** sizeVersion the current chain was sized for */
   private postSizeVersion = -1;
@@ -165,7 +165,7 @@ export class GameRenderer {
 
   /**
    * The shared post chain sized to the drawing buffer, or null when post is off (quality low, no half-float
-   * render targets, context lost). Rebuilt after a context restore or an anti-aliasing / bloom-scale change.
+   * render targets, context lost). Rebuilt after a context restore or an anti-aliasing / bloom / AO scale change.
    * Single full-screen views only: split-screen renders directly (see RaceScene.render).
    */
   postPipeline(): PostPipeline | null {
@@ -173,10 +173,11 @@ export class GameRenderer {
     const maxSamples = this.renderer.capabilities.maxSamples || 0;
     const samples = this.settings.antialias !== false ? Math.min(POST_MSAA_SAMPLES, maxSamples) : 0;
     const bloomScale = this.quality.bloomScale;
-    const key = `${this.contextVersion}|${samples}|${bloomScale}`;
+    const aoScale = this.quality.aoScale;
+    const key = `${this.contextVersion}|${samples}|${bloomScale}|${aoScale}`;
     if (!this.post || key !== this.postKey) {
       this.releasePost();
-      this.post = new PostPipeline(this.renderer, { samples, bloomScale });
+      this.post = new PostPipeline(this.renderer, { samples, bloomScale, aoScale });
       this.postKey = key;
     }
     if (this.postSizeVersion !== this.sizeVersion) {

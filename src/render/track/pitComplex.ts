@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { poseAt, wrapS } from '../../track/track';
 import { GeoBuilder, addBox } from '../core/geometry';
-import { concreteTexture, fenceTexture, shutterTexture } from '../core/surfaceTextures';
+import { concreteTexture, fenceTexture, noiseNormalTexture, shutterTexture } from '../core/surfaceTextures';
 import { headingAt, segmentRuns, sidePoint, wrapIndex, type Exclusion, type SceneryContext } from './context';
 import { halfWidthAt } from './road';
 import { PIT_BOX_COUNT, PIT_BOX_SPACING } from './trackFrame';
@@ -195,7 +195,13 @@ export function buildPitComplex(ctx: SceneryContext): PitParts {
     group.add(m);
   };
   const conc = disposer.add(concreteTexture(ctx.anisotropy, '#d3d4d6'));
-  addMesh(wall, new THREE.MeshStandardMaterial({ name: 'pit-wall', map: conc, roughness: 0.85 }), 'pitWall', true);
+  const wallMat = new THREE.MeshStandardMaterial({ name: 'pit-wall', map: conc, roughness: 0.85 });
+  if (ctx.quality.surfaceDetail) {
+    wallMat.normalMap = disposer.add(noiseNormalTexture(ctx.anisotropy, 67, 256, 24, 0.55, 1.3));
+    wallMat.normalMap.repeat.set(2, 1);
+    wallMat.normalScale.setScalar(0.6);
+  }
+  addMesh(wall, wallMat, 'pitWall', true);
   addMesh(building, new THREE.MeshStandardMaterial({ name: 'garage', color: '#e7e8ea', roughness: 0.75 }), 'garages', true);
   addMesh(glass, new THREE.MeshStandardMaterial({ name: 'glazing', color: '#1d2b3c', roughness: GLASS_ROUGHNESS, metalness: GLASS_METALNESS, envMapIntensity: 0.6, emissive: new THREE.Color(ctx.timeOfDay === 'day' ? '#000000' : ctx.timeOfDay === 'dusk' ? '#2a2418' : '#3a3220') }), 'glazing', false);
   addMesh(doors, new THREE.MeshStandardMaterial({ name: 'garage-doors', map: disposer.add(shutterTexture()), vertexColors: true, roughness: 0.55, metalness: 0.2 }), 'garageDoors', false);

@@ -46,7 +46,12 @@ function carState(world: WorldState, track: BuiltTrack, car: CarEntry): CarRende
     compound: p.tire.compound,
     rainLight: w.rain > 0.12 || w.wetness > 0.25 || wet,
     limiter: p.limiter,
-    damage: { frontWing: clamp01(fin(p.damage.frontWing)), rearWing: clamp01(fin(p.damage.rearWing)) },
+    damage: {
+      frontWing: clamp01(fin(p.damage.frontWing)),
+      rearWing: clamp01(fin(p.damage.rearWing)),
+      floor: clamp01(fin(p.damage.floor)),
+      suspension: clamp01(fin(p.damage.suspension)),
+    },
     slip: clamp01(Math.max(Math.abs(fin(p.slipAngleRear)) / 0.15, Math.abs(fin(p.slipRatio)) * 3, fin(p.lockup))),
     lockup: clamp01(fin(p.lockup)),
     impact: Math.max(0, fin(p.impact)),

@@ -1,28 +1,105 @@
 /**
- * Racing surface: asphalt ribbon (incl. pit lane & apron), raised striped kerbs, run-off ribbons
- * (grass / gravel / painted asphalt), painted markings (edge lines, grid slots, pit lines & boxes, DRS
- * lines) and the chequered start/finish line. Static geometry is merged per material.
+ * Racing surface: asphalt ribbon (incl. pit lane & apron) with a rubbered racing line (two dark tyre tracks along
+ * BuiltTrack.racingLine, heavier in braking zones and corners, glossier when wet), raised striped kerbs, run-off
+ * ribbons (grass / gravel / painted asphalt), painted markings (edge lines, grid slots, pit lines & boxes, DRS
+ * lines) and the chequered start/finish line. Static geometry is merged per material. With surface detail (quality)
+ * the surfaces get procedural normal / roughness maps (aggregate, kerb ribs, pebbles, grass) that flatten when wet.
  */
 import * as THREE from 'three';
-import type { Biome } from '../../core/types';
-import { smoothstep } from '../../core/math';
+import type { Biome, BuiltTrack } from '../../core/types';
+import { clamp01, smoothstep } from '../../core/math';
 import { poseAt, wrapS } from '../../track/track';
 import { GeoBuilder } from '../core/geometry';
 import {
+  ASPHALT_DETAIL_REPEAT,
+  asphaltDetailMaps,
   asphaltTexture,
   checkerTexture,
   gravelTexture,
   grassTexture,
+  kerbNormalTexture,
   kerbTexture,
+  noiseNormalTexture,
+  pebbleNormalTexture,
   runoffAsphaltTexture,
 } from '../core/surfaceTextures';
+import { hash3 } from './sceneryMath';
 import { GRID_LAYOUT, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
 import { PIT_BOX_COUNT, PIT_BOX_LATERAL, PIT_BOX_SPACING, PIT_LANE_HALF } from './trackFrame';
 
 export interface RoadParts {
   group: THREE.Group;
-  /** materials that react to wetness (roughness / darkening) */
-  wetMaterials: { material: THREE.MeshStandardMaterial; dryRoughness: number; wetRoughness: number; dryColor: THREE.Color }[];
+  /** materials that react to wetness (roughness / darkening; water fills the relief: normal scale × WET_NORMAL_SCALE) */
+  wetMaterials: { material: THREE.MeshStandardMaterial; dryRoughness: number; wetRoughness: number; dryColor: THREE.Color; dryNormalScale?: number }[];
+}
+
+/** Normal-map strength left at full wetness (standing water smooths the surface relief). */
+export const WET_NORMAL_SCALE = 0.35;
+
+/** Rubbered racing line: base laid-down rubber, extra in braking zones / corners (0..1 intensity, see rubberIntensity). */
+export const RUBBER_BASE = 0.45;
+/** Look-ahead (m) and speed drop (m/s) over it that count as a full braking zone. */
+export const RUBBER_BRAKE_LOOKAHEAD = 40;
+export const RUBBER_BRAKE_DROP = 22;
+/** |curvature| (1/m) × gain = corner share (1 at radius ≤ 1 / gain... e.g. 60 m). */
+export const RUBBER_CURVE_GAIN = 60;
+/** Shader: colour darkening and roughness reduction at full rubber; tyre-track offset / width and overall band width (m). */
+export const RUBBER_DARKEN = 0.34;
+export const RUBBER_GLOSS = 0.2;
+export const RUBBER_TRACK_OFFSET = 0.8;
+export const RUBBER_TRACK_WIDTH = 0.3;
+export const RUBBER_BAND_WIDTH = 1.2;
+
+/** Laid-down rubber 0..1 at track sample k: base everywhere on the line, up to 1 where cars brake hard or turn tight. */
+export function rubberIntensity(t: BuiltTrack, k: number): number {
+  const n = t.count;
+  if (n <= 0) return 0;
+  const i = ((k % n) + n) % n;
+  const la = Math.max(1, Math.round(RUBBER_BRAKE_LOOKAHEAD / Math.max(0.01, t.spacing)));
+  const v0 = t.speedProfile?.[i] ?? 0;
+  const v1 = t.speedProfile?.[(i + la) % n] ?? v0;
+  const brake = Number.isFinite(v0 - v1) ? clamp01((v0 - v1) / RUBBER_BRAKE_DROP) : 0;
+  const curv = t.curvature?.[i] ?? 0;
+  const corner = Number.isFinite(curv) ? clamp01(Math.abs(curv) * RUBBER_CURVE_GAIN) : 0;
+  // slow variation along the lap (resurfaced / less used stretches)
+  const vary = 0.85 + 0.3 * hash3(Math.floor((t.s[i] ?? 0) / 25), 7, 99);
+  return clamp01((RUBBER_BASE + 0.55 * Math.max(brake, corner)) * vary);
+}
+
+const RUBBER_VERT_DECL = /* glsl */ `
+attribute vec3 rubber;
+varying vec3 vRubber;`;
+const RUBBER_FRAG_DECL = /* glsl */ `
+varying vec3 vRubber;
+float rubberAmount() {
+  float dl = vRubber.x - vRubber.y;
+  float band = exp(-dl * dl / (2.0 * ${RUBBER_BAND_WIDTH.toFixed(3)} * ${RUBBER_BAND_WIDTH.toFixed(3)}));
+  float tr = abs(dl) - ${RUBBER_TRACK_OFFSET.toFixed(3)};
+  float tracks = exp(-tr * tr / (2.0 * ${RUBBER_TRACK_WIDTH.toFixed(3)} * ${RUBBER_TRACK_WIDTH.toFixed(3)}));
+  return clamp((0.45 * band + 0.55 * tracks) * vRubber.z, 0.0, 1.0);
+}`;
+
+/**
+ * Asphalt shader patch: per-vertex `rubber` = (vertex lateral, racing-line lateral, intensity), interpolated across the
+ * road row so every fragment knows its distance to the line exactly; darkens the colour and lowers the roughness.
+ */
+function applyRubberShader(material: THREE.MeshStandardMaterial): void {
+  material.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>${RUBBER_VERT_DECL}`)
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>${RUBBER_FRAG_DECL}`)
+      .replace('#include <map_fragment>', `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK;`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`);
+  };
+  material.customProgramCacheKey = () => 'asphalt-rubber';
+}
+
+/** Detail maps get their own (finer) repeat; three keeps one transform per map. */
+function detailRepeat<T extends THREE.Texture>(tex: T, repeat: number): T {
+  tex.repeat.set(repeat, repeat);
+  return tex;
 }
 
 const KERB_COLORS: Record<Biome, [string, string]> = {
@@ -69,14 +146,17 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   group.name = 'road';
   const wetMaterials: RoadParts['wetMaterials'] = [];
   const addWet = (m: THREE.MeshStandardMaterial, dry: number, wet: number): void => {
-    wetMaterials.push({ material: m, dryRoughness: dry, wetRoughness: wet, dryColor: m.color.clone() });
+    wetMaterials.push({ material: m, dryRoughness: dry, wetRoughness: wet, dryColor: m.color.clone(), ...(m.normalMap ? { dryNormalScale: m.normalScale.x } : {}) });
   };
+  const detail = ctx.quality.surfaceDetail;
   const pitSide = f.pitSign;
 
   // ── asphalt ribbon + pit lane / apron (one material) ──
   const road = new GeoBuilder();
   const tile = 12;
-  const addRow = (i: number, sOff: number, lats: number[], dy = 0): number => {
+  // per vertex: (lateral, racing-line lateral, rubber intensity); the pit lane / apron gets no racing-line rubber
+  const rubber: number[] = [];
+  const addRow = (i: number, sOff: number, lats: number[], dy = 0, onLine = true): number => {
     const k = wrapIndex(i, n);
     const k1 = wrapIndex(i + 1, n);
     const slope = (t.py[k1] - t.py[k]) / Math.max(0.01, t.spacing);
@@ -88,9 +168,12 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     const nz = -tz * slope;
     const nl = Math.hypot(nx, ny, nz) || 1;
     const first = road.vertexCount;
+    const line = Number.isFinite(t.racingLine?.[k]) ? t.racingLine[k] : 0;
+    const amount = onLine ? rubberIntensity(t, k) : 0;
     for (const lat of lats) {
       sidePoint(t, k, lat, dy, _a);
       road.vertex(_a.x, _a.y, _a.z, nx / nl, ny / nl, nz / nl, lat / tile, sOff / tile);
+      rubber.push(lat, line, amount);
     }
     return first;
   };
@@ -112,16 +195,24 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
       const hw = t.halfWidth[k];
       const outer = pitSide > 0 ? f.barrierR[k] : f.barrierL[k];
       const lats = pitSide > 0 ? [hw, Math.max(hw + 0.5, outer)] : [-Math.max(hw + 0.5, outer), -hw];
-      const row = addRow(i, t.s[k] + (i >= n ? t.length : 0), lats, -0.004);
+      const row = addRow(i, t.s[k] + (i >= n ? t.length : 0), lats, -0.004, false);
       if (prev >= 0) road.quad(prev, prev + 1, row + 1, row);
       prev = row;
     }
   }
-  const asphaltTex = disposer.add(asphaltTexture(ctx.anisotropy));
+  const asphaltTex = disposer.add(asphaltTexture(ctx.anisotropy, 11, ctx.quality.asphaltTexSize));
   const roadMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'asphalt', map: asphaltTex, roughness: 0.92, metalness: 0 }));
+  const asphaltDetail = detail ? asphaltDetailMaps(ctx.anisotropy) : null;
+  if (asphaltDetail) {
+    roadMat.normalMap = disposer.add(detailRepeat(asphaltDetail.normal, ASPHALT_DETAIL_REPEAT));
+    roadMat.normalScale.setScalar(0.35);
+    roadMat.roughnessMap = disposer.add(detailRepeat(asphaltDetail.roughness, ASPHALT_DETAIL_REPEAT));
+  }
+  applyRubberShader(roadMat);
   addWet(roadMat, 0.92, 0.22);
   const roadGeo = road.build();
   if (roadGeo) {
+    roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 3));
     disposer.add(roadGeo);
     const m = new THREE.Mesh(roadGeo, roadMat);
     m.receiveShadow = true;
@@ -221,6 +312,10 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     disposer.add(kerbGeo);
     const [ka, kb] = KERB_COLORS[ctx.biome];
     const kerbMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'kerb', map: disposer.add(kerbTexture(ctx.anisotropy, ka, kb)), roughness: 0.7 }));
+    if (detail) {
+      kerbMat.normalMap = disposer.add(kerbNormalTexture(ctx.anisotropy));
+      kerbMat.normalScale.setScalar(0.8);
+    }
     addWet(kerbMat, 0.7, 0.2);
     const m = new THREE.Mesh(kerbGeo, kerbMat);
     m.receiveShadow = true;
@@ -283,6 +378,18 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     new THREE.MeshStandardMaterial({ name: 'runoff-gravel', map: disposer.add(gravelTexture(ctx.anisotropy)), roughness: 1 }),
     new THREE.MeshStandardMaterial({ name: 'runoff-asphalt', map: disposer.add(runoffAsphaltTexture(ctx.anisotropy, RUNOFF_BAND[ctx.biome])), roughness: 0.85 }),
   ];
+  if (detail) {
+    runoffMats[0].normalMap = disposer.add(detailRepeat(noiseNormalTexture(ctx.anisotropy, 23, 256, 32, 0.6, 1.6), 2));
+    runoffMats[0].normalScale.setScalar(0.7);
+    runoffMats[1].normalMap = disposer.add(pebbleNormalTexture(ctx.anisotropy));
+    runoffMats[1].normalScale.setScalar(0.9);
+    if (asphaltDetail) {
+      // same images as the road (shared GPU source), repeat matched to the 8 m run-off tile
+      runoffMats[2].normalMap = disposer.add(detailRepeat(asphaltDetail.normal.clone(), ASPHALT_DETAIL_REPEAT * (8 / tile)));
+      runoffMats[2].normalScale.setScalar(0.5);
+      runoffMats[2].roughnessMap = disposer.add(detailRepeat(asphaltDetail.roughness.clone(), ASPHALT_DETAIL_REPEAT * (8 / tile)));
+    }
+  }
   builders.forEach((b, idx) => {
     const g = b.build();
     const mat = disposer.add(runoffMats[idx]);

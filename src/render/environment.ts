@@ -2,12 +2,15 @@
  * Scene environment by biome × time of day × weather: gradient sky dome (sun / moon glow / stars and a drifting
  * cloud layer sampled from a tileable canvas noise texture on a high virtual plane: soft scattered clouds by
  * day, thinner at dusk, dense grey under overcast / rain), sun (or night floodlight key) with shadow, hemisphere
- * fill, fog, exposure and a PMREM environment map for reflections. Weather blends smoothly at runtime.
+ * fill, fog, exposure and a PMREM environment map for reflections (the real circuit captured from a probe point, or the
+ * sky alone). Clouds are shaded by their density toward the sun / moon (lit edges, shadowed far sides) and the sky
+ * brightens toward the sun near the horizon (forward scattering). Weather blends smoothly at runtime.
  * Night is floodlit: bright cool key light + strong hemisphere so the track always stays readable.
  */
 import * as THREE from 'three';
 import type { Biome, TimeOfDay, WeatherKind } from '../core/types';
 import { clamp01, damp, lerp } from '../core/math';
+import { CAMERA_FAR } from './core/quality';
 import { cloudNoiseTexture } from './core/surfaceTextures';
 
 interface TimePreset {
@@ -130,6 +133,11 @@ const CLOUD_COLORS: Record<TimeOfDay, { lit: string; shade: string; litOvercast:
 };
 /** Moon halo strength (night): broad glow and tight corona. */
 export const MOON_GLOW: readonly [number, number] = [0.05, 0.16];
+/** Cloud self-shadowing: offset (cloud-texture units) of the density sample toward the light, and its contrast gain. */
+export const CLOUD_LIGHT_STEP = 0.035;
+export const CLOUD_LIGHT_GAIN = 3.0;
+/** Forward-scattering glow toward the sun near the horizon (strength, fades out by this elevation sine). */
+export const HORIZON_SUN_GLOW: readonly [number, number] = [0.1, 0.35];
 
 /** Cloud layer shape for a smoothed cloudiness (0..1) and time of day: coverage, edge softness, opacity. */
 export function cloudLayer(cloud: number, timeOfDay: TimeOfDay, extra = 0): { cover: number; softness: number; opacity: number } {
@@ -195,6 +203,7 @@ void main() {
   col = mix(col, ground, 1.0 - smoothstep(-0.12, 0.0, h));
   float sd = max(dot(dir, sunDir), 0.0);
   col += sunColor * (pow(sd, 6.0) * 0.18 + pow(sd, 120.0) * 0.5) * sunDisc;
+  col += sunColor * pow(sd, 3.0) * HORIZON_GLOW * (1.0 - smoothstep(0.0, HORIZON_GLOW_FADE, abs(h))) * sunDisc;
   col += sunColor * smoothstep(0.99955, 0.99975, sd) * 2.5 * sunDisc;
   float md = max(dot(dir, moonDir), 0.0);
   vec3 moonTint = vec3(0.78, 0.85, 1.0);
@@ -207,11 +216,18 @@ void main() {
   }
   if (h > 0.0 && cloudCover > 0.0) {
     vec2 p = dir.xz / (h + 0.12) * CLOUD_SCALE;
-    float n = texture2D(cloudMap, p + cloudOffset).r * 0.68 + texture2D(cloudMap, p * 2.7 + cloudOffset * 1.6 + vec2(0.37, 0.61)).r * 0.32;
+    vec2 q = p + cloudOffset;
+    float n0 = texture2D(cloudMap, q).r;
+    float n = n0 * 0.68 + texture2D(cloudMap, p * 2.7 + cloudOffset * 1.6 + vec2(0.37, 0.61)).r * 0.32;
     float lo = 1.0 - cloudCover;
     float dens = smoothstep(lo, lo + cloudSoft, n) * smoothstep(0.0, 0.1, h);
     float thick = smoothstep(lo + cloudSoft * 0.35, lo + cloudSoft + 0.25, n);
-    vec3 cc = mix(cloudColor, cloudShade, thick);
+    // self-shadowing: more cloud toward the light (sun, or the moon at night) shades this side, less lights its edge
+    vec3 lightDir = sunDisc > 0.001 ? sunDir : moonDir;
+    float lxz = length(lightDir.xz);
+    vec2 toLight = lxz > 1e-3 ? lightDir.xz / lxz * CLOUD_LIGHT_STEP : vec2(0.0);
+    float lit = clamp(0.5 + (n0 - texture2D(cloudMap, q + toLight).r) * CLOUD_LIGHT_GAIN, 0.0, 1.0);
+    vec3 cc = mix(cloudColor, cloudShade, clamp(thick * 0.6 + (1.0 - lit) * 0.7, 0.0, 1.0));
     cc += sunColor * pow(sd, 5.0) * 0.45 * sunDisc * (1.0 - thick);
     cc += moonTint * pow(md, 6.0) * 0.22 * moon;
     col = mix(col, cc, dens * cloudOpacity);
@@ -269,6 +285,10 @@ export function createSkyMaterial(cloudMap: THREE.Texture | null = null): THREE.
       CLOUD_SCALE: glslFloat(CLOUD_SCALE),
       MOON_GLOW_WIDE: glslFloat(MOON_GLOW[0]),
       MOON_GLOW_CORE: glslFloat(MOON_GLOW[1]),
+      CLOUD_LIGHT_STEP: glslFloat(CLOUD_LIGHT_STEP),
+      CLOUD_LIGHT_GAIN: glslFloat(CLOUD_LIGHT_GAIN),
+      HORIZON_GLOW: glslFloat(HORIZON_SUN_GLOW[0]),
+      HORIZON_GLOW_FADE: glslFloat(HORIZON_SUN_GLOW[1]),
     },
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
@@ -532,11 +552,90 @@ function smooth(x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/** Edge (px) of every PMREM cube face; sky-only and scene-probe maps must match so programs are shared. */
+export const ENV_MAP_SIZE = 256;
+/** Blur (sigma, rad) of the captured circuit: removes aliasing of thin far scenery, keeps shapes readable in the paint. */
+export const SCENE_PROBE_SIGMA = 0.015;
+
+/** A capture of the real race scene for reflections (see buildEnvironmentMap). */
+export interface SceneProbe {
+  /** the full race scene: its sky dome, lights, fog and static scenery */
+  scene: THREE.Scene;
+  /** capture point (world) */
+  position: THREE.Vector3;
+  /** objects hidden while capturing (cars, particles, overlays); their visibility is restored afterwards */
+  hide: THREE.Object3D[];
+  /** current sun shadow-map edge (0 = no shadows) */
+  shadowMapSize: number;
+}
+
+/** Night floodlight panels (bright, unlit) on a ring around `centre`, so paint catches floodlight glints. */
+function floodlightPanels(centre: THREE.Vector3, radius: number, height: number, extras: THREE.BufferGeometry[], mats: THREE.Material[]): THREE.Group {
+  const group = new THREE.Group();
+  const panelGeo = new THREE.PlaneGeometry(8 * (radius / 30), 3 * (radius / 30));
+  const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.1, 1.9), side: THREE.DoubleSide, toneMapped: false, fog: false });
+  extras.push(panelGeo);
+  mats.push(panelMat);
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * Math.PI * 2;
+    const m = new THREE.Mesh(panelGeo, panelMat);
+    m.position.set(centre.x + Math.cos(a) * radius, centre.y + height, centre.z + Math.sin(a) * radius);
+    m.lookAt(centre);
+    group.add(m);
+  }
+  return group;
+}
+
 /**
- * Build a PMREM environment map from the current sky (plus bright floodlight panels at night) so paint
- * and wet asphalt get plausible reflections. Returns the render target (caller disposes it).
+ * Capture the real race scene from `probe.position` into a PMREM map: paint, glass and wet asphalt then reflect the
+ * circuit's own stands, trees, terrain and sky rather than a sky gradient. The scene's current environment stays set
+ * while capturing (same shader programs as the race). Returns null on failure (caller falls back to the sky map).
  */
-export function buildEnvironmentMap(renderer: THREE.WebGLRenderer, env: Environment): THREE.WebGLRenderTarget | null {
+function captureSceneProbe(renderer: THREE.WebGLRenderer, env: Environment, probe: SceneProbe): THREE.WebGLRenderTarget | null {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const visible = probe.hide.map((o) => o.visible);
+  for (const o of probe.hide) o.visible = false;
+  const skyPos = env.sky.position.clone();
+  env.sky.position.copy(probe.position);
+  env.sky.updateMatrixWorld();
+  const extras: THREE.BufferGeometry[] = [];
+  const mats: THREE.Material[] = [];
+  const panels = env.preset.lamps > 0.5 ? floodlightPanels(probe.position, 60, 6, extras, mats) : null;
+  if (panels) probe.scene.add(panels);
+  // shadows of the capture: centre the sun's shadow box on the probe and render the map once
+  if (env.sun.castShadow && probe.shadowMapSize > 0) {
+    env.placeSun(probe.position, probe.shadowMapSize);
+    renderer.shadowMap.needsUpdate = true;
+  }
+  let rt: THREE.WebGLRenderTarget | null = null;
+  try {
+    rt = pmrem.fromScene(probe.scene, SCENE_PROBE_SIGMA, 0.5, CAMERA_FAR, { size: ENV_MAP_SIZE, position: probe.position });
+  } catch (err) {
+    console.warn('render: scene reflection probe failed, sky reflections only', err);
+    rt = null;
+  } finally {
+    renderer.shadowMap.needsUpdate = false;
+    if (panels) probe.scene.remove(panels);
+    probe.hide.forEach((o, i) => (o.visible = visible[i]));
+    env.sky.position.copy(skyPos);
+    env.sky.updateMatrixWorld();
+    pmrem.dispose();
+    for (const g of extras) g.dispose();
+    for (const m of mats) m.dispose();
+  }
+  return rt;
+}
+
+/**
+ * Build a PMREM environment map so paint and wet asphalt get plausible reflections: from the real circuit when a
+ * `probe` is given (falls back to the sky on failure), else from the current sky (plus bright floodlight panels at
+ * night). Returns the render target (caller disposes it).
+ */
+export function buildEnvironmentMap(renderer: THREE.WebGLRenderer, env: Environment, probe: SceneProbe | null = null): THREE.WebGLRenderTarget | null {
+  if (probe) {
+    const rt = captureSceneProbe(renderer, env, probe);
+    if (rt) return rt;
+  }
   const pmrem = new THREE.PMREMGenerator(renderer);
   const scene = new THREE.Scene();
   const skyMat = createSkyMaterial(env.cloudTexture);
@@ -558,22 +657,10 @@ export function buildEnvironmentMap(renderer: THREE.WebGLRenderer, env: Environm
   scene.add(new THREE.Mesh(geo, skyMat));
   const extras: THREE.BufferGeometry[] = [geo];
   const extraMats: THREE.Material[] = [skyMat];
-  if (env.preset.lamps > 0.5) {
-    const panelGeo = new THREE.PlaneGeometry(8, 3);
-    const panelMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 2.1, 1.9), side: THREE.DoubleSide, toneMapped: false });
-    extras.push(panelGeo);
-    extraMats.push(panelMat);
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      const m = new THREE.Mesh(panelGeo, panelMat);
-      m.position.set(Math.cos(a) * 30, 9, Math.sin(a) * 30);
-      m.lookAt(0, 0, 0);
-      scene.add(m);
-    }
-  }
+  if (env.preset.lamps > 0.5) scene.add(floodlightPanels(new THREE.Vector3(0, 0, 0), 30, 9, extras, extraMats));
   let rt: THREE.WebGLRenderTarget | null = null;
   try {
-    rt = pmrem.fromScene(scene, 0.02, 0.1, 100);
+    rt = pmrem.fromScene(scene, 0.02, 0.1, 100, { size: ENV_MAP_SIZE });
   } catch (err) {
     console.error('render: environment map failed', err);
     rt = null;

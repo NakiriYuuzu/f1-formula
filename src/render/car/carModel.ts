@@ -10,6 +10,10 @@
  * shows at every level. The ghost car is LOD0 only. Paint: clear-coated MeshPhysicalMaterial on high / ultra,
  * MeshStandardMaterial below (CAR_PAINT / CAR_SURFACE).
  *
+ * Damage (carDamage.ts): the front wing bends then breaks off, the rear flap droops and twists, bent / broken
+ * suspension splays one wheel and sags the body onto that corner, and scuffs (shared scuff map, per-car amount)
+ * spread over the paint with damage and hard impacts.
+ *
  * Conventions: model faces +Z; local -X is the car's RIGHT. rotation order 'YXZ': y = yaw,
  * x = -pitch (+pitch = nose up), z = +roll (+roll = right side down). A RIGHT steer angle s gives the
  * front pivots rotation.y = -s. Wheels roll forward with rotation.x = +wheelSpin.
@@ -19,6 +23,7 @@ import type { CarRenderState, Livery, LiveryFinish, QualityLevel, Regulation, Ti
 import { clamp, clamp01, damp } from '../../core/math';
 import { liveryTexture, paintLiveryCanvas, type LiveryPaint } from './atlas';
 import { acquireCarGeometry, releaseCarGeometry, type CarGeometrySet } from './carGeometry';
+import { createDamageLook, damagedCorner, damageLook, scuffAfterImpact } from './carDamage';
 import { CarSharedResources } from './carMaterials';
 import { carLodDistances, inferCarQuality, lodFovScale, selectLodLevel, usesClearcoatPaint, CAR_FINISH, CAR_LOD_HYSTERESIS, CAR_PAINT } from './carQuality';
 
@@ -165,6 +170,34 @@ function applyFinish(mat: THREE.MeshStandardMaterial, finish: LiveryFinish | und
   if (mat instanceof THREE.MeshPhysicalMaterial) mat.clearcoat = CAR_PAINT.clearcoat * f.clearcoat;
 }
 
+/**
+ * Scuffs on the livery material: the shared scuff map (R priority, G kind) sampled with the livery UVs; marks whose
+ * priority passes 1 − amount turn the paint into black smears / light scratches, rougher and without clear coat.
+ */
+function applyScuffShader(mat: THREE.MeshStandardMaterial, scuffMap: THREE.Texture, amount: THREE.IUniform<number>): void {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.scuffMap = { value: scuffMap };
+    sh.uniforms.scuffAmount = amount;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform sampler2D scuffMap;\nuniform float scuffAmount;')
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+  float scuffK = 0.0;
+  #ifdef USE_MAP
+  if (scuffAmount > 0.001) {
+    vec2 scuff = texture2D(scuffMap, vMapUv).rg;
+    scuffK = smoothstep(1.0 - scuffAmount, 1.06 - scuffAmount, scuff.r);
+    diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.022, 0.023, 0.026), vec3(0.6, 0.6, 0.58), scuff.g), scuffK * 0.88);
+  }
+  #endif`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.72, scuffK);')
+      .replace('#include <lights_physical_fragment>', '#include <lights_physical_fragment>\n  #ifdef USE_CLEARCOAT\n  material.clearcoat *= 1.0 - scuffK;\n  #endif');
+  };
+  mat.customProgramCacheKey = () => 'car-scuff';
+}
+
 /** Livery material: clear-coated physical paint, or standard (low / medium quality and the translucent ghost). */
 function createLiveryMaterial(map: THREE.Texture, shared: CarSharedResources, ghost: boolean, clearcoat: boolean): THREE.MeshStandardMaterial {
   const params: THREE.MeshStandardMaterialParameters = {
@@ -204,6 +237,8 @@ export function createCarModel(opts: CarModelOptions): CarModel {
   let livTex = liveryTexture(size, d, paint, aniso);
   const bodyMat = createLiveryMaterial(livTex, shared, ghost, usesClearcoatPaint(quality));
   applyFinish(bodyMat, opts.livery.finish, ghost);
+  const scuffAmount: THREE.IUniform<number> = { value: 0 };
+  if (!ghost) applyScuffShader(bodyMat, shared.scuffMap, scuffAmount);
   if (ghost) {
     bodyMat.color.setRGB(0.75, 0.95, 1.25);
     bodyMat.emissive.setRGB(0.05, 0.12, 0.18);
@@ -347,12 +382,31 @@ export function createCarModel(opts: CarModelOptions): CarModel {
     lod,
   };
 
-  const setFlap = (open: number, rearDamage: number): void => {
-    const droop = rearDamage > 0.5 ? 0.35 : 0;
+  const setFlap = (open: number, droop: number, twist: number): void => {
     rearFlapPivot.rotation.x = geo.rearFlapClosed + (geo.rearFlapOpen - geo.rearFlapClosed) * open - droop;
+    rearFlapPivot.rotation.z = twist;
     if (frontFlapPivot) frontFlapPivot.rotation.x = geo.frontFlapClosed + (geo.frontFlapOpen - geo.frontFlapClosed) * open;
   };
-  setFlap(0, 0);
+  setFlap(0, 0, 0);
+
+  // damage presentation state: the corner this car bends, impact scuffs accumulated over the session
+  const look = createDamageLook();
+  let impactScuff = 0;
+  let prevImpact = 0;
+  let damageCorner = -1;
+  const frontFlapBaseY = frontFlapPivot ? frontFlapPivot.position.y : 0;
+  /** Splay the damaged corner's wheel (camber / toe / pushed out); the other three keep their base pose. */
+  const deformWheels = (set: WheelSet): void => {
+    for (let i = 0; i < set.pivots.length; i++) {
+      const pivot = set.pivots[i];
+      const side = corners[i][0] > 0 ? 1 : -1;
+      const hit = i === look.corner;
+      pivot.position.x = corners[i][0] + (hit ? side * look.wheelOut : 0);
+      pivot.rotation.z = hit ? -side * look.camber : 0;
+      // front pivots carry this frame's steer (poseWheels runs first), rear pivots none
+      pivot.rotation.y = (i < 2 ? pivot.rotation.y : 0) + (hit ? side * look.toe : 0);
+    }
+  };
 
   const model: CarModel = {
     root,
@@ -372,17 +426,29 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       const ok = Number.isFinite(state.x) && Number.isFinite(state.y) && Number.isFinite(state.z) && Number.isFinite(state.yaw);
       root.visible = state.visible !== false && ok;
       if (!root.visible) return;
+      // damage: wing bend / flap hang / splayed wheel / body sag / scuffs
+      if (!ghost) {
+        if (damageCorner < 0) damageCorner = damagedCorner(state.carId);
+        impactScuff = scuffAfterImpact(impactScuff, fin(state.impact), prevImpact);
+        prevImpact = fin(state.impact);
+        damageLook(state.damage, damageCorner, impactScuff, look);
+        scuffAmount.value = look.scuff;
+      }
+      const pitch = fin(state.pitch) + look.sagPitch;
+      const roll = fin(state.roll) + look.sagRoll;
       root.position.set(state.x, state.y, state.z);
-      root.rotation.set(-fin(state.pitch), state.yaw, fin(state.roll), 'YXZ');
+      root.rotation.set(-pitch, state.yaw, roll, 'YXZ');
 
       // LOD0 and LOD1 are both kept current: in split-screen each view may show a different level
       const steer = clamp(fin(state.steerAngle), -0.7, 0.7);
       const spin = fin(state.wheelSpin) % (Math.PI * 2);
       poseWheels(w0, steer, spin);
       if (w1) poseWheels(w1, steer, spin);
-      const dynPitch = fin(state.pitch) - groundPitchOf(state);
-      seatWheels(w0, wheelRadii, dynPitch, fin(state.roll));
-      if (w1) seatWheels(w1, wheelRadii, dynPitch, fin(state.roll));
+      deformWheels(w0);
+      if (w1) deformWheels(w1);
+      const dynPitch = pitch - groundPitchOf(state);
+      seatWheels(w0, wheelRadii, dynPitch, roll);
+      if (w1) seatWheels(w1, wheelRadii, dynPitch, roll);
       steeringWheel.rotation.z = clamp(steer * STEER_RATIO, -2.4, 2.4);
 
       // tyre compound (sidewall band)
@@ -394,10 +460,19 @@ export function createCarModel(opts: CarModelOptions): CarModel {
 
       // DRS / active aero flaps
       flap = damp(flap, state.drsOpen ? 1 : 0, 14, dt);
-      setFlap(flap, fin(state.damage?.rearWing));
+      setFlap(flap, look.rearFlapDroop, look.rearFlapTwist);
 
-      // front wing damage
-      const broken = fin(state.damage?.frontWing) > 0.5;
+      // front wing damage: bent (rolled / sagging on the hit side), then broken off
+      const broken = look.frontWingBroken;
+      for (const w of [frontWing, frontWing1]) {
+        if (!w) continue;
+        w.rotation.z = look.frontWingRoll;
+        w.position.y = -look.frontWingDrop;
+      }
+      if (frontFlapPivot) {
+        frontFlapPivot.rotation.z = look.frontWingRoll;
+        frontFlapPivot.position.y = frontFlapBaseY - look.frontWingDrop;
+      }
       frontWing.visible = !broken;
       frontWingDamaged.visible = broken;
       if (frontFlapPivot) frontFlapPivot.visible = !broken;

@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import type { QualityLevel } from '../../core/types';
 import { GeoBuilder, addBox } from '../core/geometry';
-import { concreteTexture, fenceTexture, tyreWallTexture } from '../core/surfaceTextures';
+import { concreteTexture, fenceTexture, noiseNormalTexture, tyreWallTexture } from '../core/surfaceTextures';
 import { headingAt, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
 import { DECK_SLAB, deckOpenings } from './deck';
 
@@ -253,7 +253,14 @@ export function buildBarriers(ctx: SceneryContext, ground?: (x: number, z: numbe
     group.add(m);
   };
   const concreteTint = ctx.street ? '#d8d6d0' : '#c9c8c2';
-  add(concrete, new THREE.MeshStandardMaterial({ name: 'concrete', map: disposer.add(concreteTexture(ctx.anisotropy, concreteTint)), roughness: 0.9 }), 'concrete', true);
+  const concreteMat = new THREE.MeshStandardMaterial({ name: 'concrete', map: disposer.add(concreteTexture(ctx.anisotropy, concreteTint)), roughness: 0.9 });
+  if (ctx.quality.surfaceDetail) {
+    // cast-concrete pores and trowel ripple (the colour map is 2:1, so the square relief repeats twice along u)
+    concreteMat.normalMap = disposer.add(noiseNormalTexture(ctx.anisotropy, 63, 256, 24, 0.55, 1.3));
+    concreteMat.normalMap.repeat.set(2, 1);
+    concreteMat.normalScale.setScalar(0.6);
+  }
+  add(concrete, concreteMat, 'concrete', true);
   add(
     fence,
     new THREE.MeshStandardMaterial({

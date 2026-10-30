@@ -355,6 +355,7 @@ export class ShowroomScene {
     const enabled = size > 0;
     const changed = this.key.castShadow !== enabled;
     this.key.castShadow = enabled;
+    this.key.shadow.radius = this.gr.quality.shadowRadius;
     if (enabled) {
       const s = Math.min(2048, size);
       if (this.key.shadow.mapSize.x !== s) {
@@ -475,7 +476,7 @@ export class ShowroomScene {
     r.setClearColor(0x07090f, 1);
     r.shadowMap.needsUpdate = this.key.castShadow;
     if (post) {
-      showroomLook(this.gr.quality.level, this.gr.quality.vignette, this.look);
+      showroomLook(this.gr.quality.level, this.gr.quality.vignette, this.look, this.gr.quality.aoScale > 0);
       post.render(this.scene, this.camera, this.look, dt);
     } else {
       r.clear(true, true, false);
