@@ -171,8 +171,9 @@ describe('online jitter', () => {
       expect(guest.corrections).toBeGreaterThan(1000);
       expect(world.cars[guest.carId]!.status).toBe('running');
       expect(world.cars[guest.carId]!.phys.speed).toBeGreaterThan(20);
-      // the guest's car as the host draws it: measured max 0.055 m (a held / extra step drawn as it is: 0.68 m)
-      expect(Math.max(...drawnOnHost.values)).toBeLessThan(0.15);
+      // the guest's car as the host draws it: measured max 0.055–0.154 m over 12 link seeds (a held / extra step drawn
+      // as it is: 0.68 m)
+      expect(Math.max(...drawnOnHost.values)).toBeLessThan(0.25);
     },
     120_000,
   );

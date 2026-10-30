@@ -53,6 +53,7 @@ import {
   type InputRecord,
   type NetMessage,
 } from './protocol';
+import { decodeProbe, encodeProbe } from './probe';
 import { StatWindow, byteSize, type HostLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
 
@@ -60,6 +61,8 @@ export const SNAPSHOT_HZ = 30;
 export const MIRROR_HZ = 5;
 /** Ping cadence (s of simulation time). */
 const PING_EVERY = 1;
+/** With no probe echo for this long (ms; a few pings) the reliable pongs time the guest again. */
+const ECHO_STALE_MS = 3000;
 /** Suffix of a car whose player left. */
 export const AI_TAKEOVER_SUFFIX = '（AI 代駕）';
 /** Input timeline: steps played behind the earliest arrival of the last AGE_WINDOW steps. */
@@ -160,8 +163,10 @@ interface Remote {
   snapshotDue: boolean;
   mirrorDueAt: number | null;
   eventSeq: number;
-  /** last round trip (ms), null before the first answer */
+  /** last round trip (ms, a probe on the 'state' channel: probe.ts), null before the first answer */
   ping: number | null;
+  /** clock (ms) of the last probe echo, -Infinity before one: a reliable 'pong' counts only ECHO_STALE_MS after it */
+  echoAt: number;
   connected: boolean;
   /** seq of the next snapshot sent to it */
   snapshotSeq: number;
@@ -235,6 +240,7 @@ export class HostSession {
         mirrorDueAt: null,
         eventSeq: 0,
         ping: null,
+        echoAt: -Infinity,
         connected: true,
         snapshotSeq: 0,
         // (deferred snapshots and guessed inputs are rare on a good link: their rates count from the start)
@@ -356,6 +362,9 @@ export class HostSession {
     this.sendMirror(false);
     if (this.world.time >= this.pingAt) {
       this.pingAt = this.world.time + PING_EVERY;
+      // the round trip of the race data's own channel (probe.ts), not of the reliable one
+      const now = this.clock();
+      for (const r of this.remotes.values()) if (r.connected) this.sendState(r, encodeProbe({ echo: false, at: now }), now);
       // every player's last round trip rides along (each client shows its own)
       const pings: (number | null)[] = [null, null, null, null];
       for (const r of this.remotes.values()) if (r.connected) pings[r.playerIndex] = r.ping;
@@ -626,6 +635,14 @@ export class HostSession {
     if (this.disposed) return;
     r.stats.down.add(this.clock(), byteSize(data));
     if (channel === 'state') {
+      const probe = decodeProbe(data);
+      if (probe) {
+        if (probe.echo) {
+          r.echoAt = this.clock();
+          r.ping = Math.max(0, Math.round(r.echoAt - probe.at));
+        }
+        return;
+      }
       const records = decodeInputPacket(data);
       if (!records) return;
       // (records come newest first: the first packet unwraps against its newest)
@@ -652,7 +669,10 @@ export class HostSession {
     }
     const m = decodeMessage(data);
     if (!m) return;
-    if (m.t === 'pong') r.ping = Math.max(0, Math.round(this.clock() - m.at));
+    if (m.t === 'pong') {
+      // a guest from before the probes, or a state channel gone silent (the ping then reads its outage)
+      if (this.clock() - r.echoAt > ECHO_STALE_MS) r.ping = Math.max(0, Math.round(this.clock() - m.at));
+    }
     else if (m.t === 'cmd' && m.session === this.session) this.command(r, m.command);
   }
 

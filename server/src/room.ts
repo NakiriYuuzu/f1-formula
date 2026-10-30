@@ -8,6 +8,9 @@ export interface Env {
   ROOMS: DurableObjectNamespace;
   /** comma-separated origins allowed to create and join rooms (empty: any), see roomLogic isOriginAllowed */
   ALLOWED_ORIGINS?: string;
+  /** TURN relay (turn.ts): the secret shared with coturn's static-auth-secret (a wrangler secret) and its URLs */
+  TURN_SECRET?: string;
+  TURN_URLS?: string;
 }
 
 export class Room {

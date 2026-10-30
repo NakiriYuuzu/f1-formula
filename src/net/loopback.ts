@@ -18,6 +18,12 @@ export interface LoopbackOptions {
   seed?: number;
   /** bytes per second each way (0 / absent: unlimited) */
   bandwidth?: number;
+  /**
+   * 'reliable' channel (ms): with this set it loses messages as often as 'state' does and sends a lost one again
+   * after this long (doubling on each further loss), holding back everything behind it (SCTP's head-of-line
+   * blocking); absent: the reliable channel never loses anything
+   */
+  retransmitMs?: number;
 }
 
 interface Pending {
@@ -90,6 +96,7 @@ export class LoopbackNetwork {
   private bandwidth: number;
   private readonly loss: number;
   private readonly duplicate: number;
+  private readonly retransmit: number;
   /** messages sent / dropped on the 'state' channel (statistics) */
   sentState = 0;
   droppedState = 0;
@@ -103,6 +110,7 @@ export class LoopbackNetwork {
     this.duplicate = Math.min(1, Math.max(0, opts.duplicate ?? 0));
     this.rng = (opts.seed ?? 1) >>> 0 || 1;
     this.bandwidth = Math.max(0, opts.bandwidth ?? 0);
+    this.retransmit = Math.max(0, opts.retransmitMs ?? 0);
   }
 
   /** One-way delay (ms) for what is sent from now on (a route that got slower / faster; reliable stays in order). */
@@ -176,7 +184,9 @@ export class LoopbackNetwork {
       if (this.random() < this.duplicate) this.push(to, channel, data, from + this.delay + this.random() * this.jitter);
       return;
     }
-    const at = Math.max(from + this.delay + this.random() * this.jitter, to.lastReliable);
+    let at = from + this.delay + this.random() * this.jitter;
+    if (this.retransmit > 0 && this.loss < 1) for (let rto = this.retransmit; this.random() < this.loss; rto *= 2) at += rto;
+    at = Math.max(at, to.lastReliable);
     to.lastReliable = at;
     this.push(to, channel, data, at);
   }

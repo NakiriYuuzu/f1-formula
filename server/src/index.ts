@@ -1,10 +1,13 @@
 /**
  * FORMULA NOVA 25 matchmaking Worker: POST /rooms → { code } (a new room Durable Object), GET /rooms/:code/ws →
- * WebSocket into that room (404 for an unknown code). Signalling only: the game itself runs peer to peer (WebRTC).
- * With ALLOWED_ORIGINS set, both refuse (403, before any room is made) a request whose Origin is not listed.
+ * WebSocket into that room (404 for an unknown code), GET /turn → TURN relay credentials ({ iceServers, ttl }; empty
+ * without TURN_SECRET / TURN_URLS). Signalling only: the game itself runs peer to peer (WebRTC), through the relay
+ * when a player asks for it. With ALLOWED_ORIGINS set, all three refuse (403, before any room is made) a request
+ * whose Origin is not listed.
  */
 import { isOriginAllowed, isRoomCode, makeRoomCode } from './roomLogic';
 import { Room, type Env } from './room';
+import { randomTag, turnServers } from './turn';
 
 export { Room };
 
@@ -40,6 +43,11 @@ export default {
       if (!isRoomCode(code)) return new Response('room not found', { status: 404, headers });
       const stub = env.ROOMS.get(env.ROOMS.idFromName(code));
       return stub.fetch(new Request('https://room/ws', request));
+    }
+    if (url.pathname === '/turn' && request.method === 'GET') {
+      if (!allowed) return new Response('origin not allowed', { status: 403, headers });
+      const body = await turnServers(env.TURN_SECRET, env.TURN_URLS, Date.now(), randomTag());
+      return Response.json(body, { headers: { ...headers, 'Cache-Control': 'no-store' } });
     }
     if (url.pathname === '/' || url.pathname === '/health') return new Response('formula-nova signalling ok', { headers });
     return new Response('not found', { status: 404, headers });

@@ -11,9 +11,10 @@
 |---|---|
 | `POST /rooms` | 建立房間，回傳 `{ "code": "K7MPQ2" }` |
 | `GET /rooms/:code/ws` | WebSocket 進入房間；代碼不存在回 404 |
+| `GET /turn` | 中繼伺服器（TURN）的臨時通行證 `{ "iceServers": [...], "ttl": 86400 }`；沒設定中繼時是 `{ "iceServers": [], "ttl": 0 }`（見下方「中繼伺服器」） |
 | `GET /health` | 健康檢查 |
 
-房間規則（`src/roomLogic.ts`，純函式，`tests/net.room.test.ts` 測試）：第一個連線的人是房主、最多 4 人（房主 + 3）、滿員拒絕、房主離開就關閉房間、閒置 10 分鐘自動關閉。
+房間規則（`src/roomLogic.ts`，純函式，`tests/net.room.test.ts` 測試）：第一個連線的人是房主、最多 4 人（房主 + 3）、滿員拒絕、房主離開就關閉房間、閒置 10 分鐘自動關閉（成員的任何訊息都算活動：房間裡有其他人時，遊戲每分鐘送一次 `keepalive`，所以比賽中沒有連線資料往來時房間也不會被關掉；房主獨自在房間時不送，忘了關的房間照樣關閉）。
 
 ## 部署
 
@@ -29,7 +30,7 @@ bunx wrangler deploy     # 部署；完成後會顯示網址，例如 https://fo
 只允許自己的網站使用（建立與加入房間）：在 `wrangler.toml` 的 `[vars]` 把 `ALLOWED_ORIGINS` 設成遊戲網站的來源
 （協定 + 網域 [+ 埠號]，不含路徑；逗號分隔），再部署一次。目前設為
 `"https://github.yuuzu.net,http://github.yuuzu.net"`（遊戲在 `github.yuuzu.net/f1-formula/`，HTTPS 沒有強制，所以兩個都要）。
-不在名單上的來源建立或加入房間都回 403（不會先建出房間）；沒有 Origin 標頭的請求（curl、腳本）也會被拒絕。
+不在名單上的來源建立或加入房間（以及 `/turn`）都回 403（不會先建出房間）；沒有 Origin 標頭的請求（curl、腳本）也會被拒絕。
 因此本機開發伺服器（`localhost`）在「配對伺服器」模式下不能建房，請用「本機測試」，或暫時把
 `http://localhost:5173` 加進名單。名單清空（`""`）＝不限制。注意 Origin 標頭可以被非瀏覽器程式偽造，這只是
 防止其他網站借用伺服器，不是安全機制。
@@ -49,8 +50,22 @@ bunx wrangler deploy     # 部署；完成後會顯示網址，例如 https://fo
 
 不部署也能測試：配對方式選「本機測試（同一台電腦的分頁）」，在同一個瀏覽器開兩個分頁，一個建立房間、另一個輸入代碼加入。
 
+## 中繼伺服器（TURN，選用）
+
+跨國直連的路由不好（延遲高、常掉包）或有嚴格 NAT 時，可以讓封包經由自己的雲端主機轉送。主機上的 coturn
+安裝腳本與完整步驟在 [`turn/README.md`](turn/README.md)；這台 Worker 只需要兩個設定：
+
+- `wrangler.toml` 的 `TURN_URLS`：主機的 `turn:` 網址（逗號分隔，例如
+  `"turn:203.0.113.7:3478?transport=udp,turn:203.0.113.7:3478?transport=tcp"`）；
+- `bunx wrangler secret put TURN_SECRET`：與 coturn 的 `static-auth-secret` 相同的密鑰（不寫進 `wrangler.toml`
+  或程式碼）。
+
+設定後重新部署，`GET /turn` 就會發 24 小時有效的通行證（`src/turn.ts`，coturn 的 `use-auth-secret` 格式）。
+遊戲在「配對伺服器」模式下建立／加入房間時取一次：「連線路徑」選「自動（直連優先）」時中繼只當備援，選
+「經由中繼伺服器」時這一方只走中繼。
+
 ## 已知限制
 
-- 只有公開 STUN（Cloudflare、Google），沒有 TURN 中繼：部分嚴格 NAT（例如某些行動網路、公司網路）可能連不上。
+- 沒有設定中繼伺服器時只有公開 STUN（Cloudflare、Google）：部分嚴格 NAT（例如某些行動網路、公司網路）可能連不上。
 - 沒有帳號與反作弊；房間代碼就是唯一的門檻。
 - 斷線後不能重新加入同一場比賽（房主斷線則整個房間關閉）。

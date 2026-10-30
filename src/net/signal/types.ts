@@ -37,6 +37,8 @@ export function signalReasonText(reason: string): string {
       return '房間閒置過久，已關閉';
     case 'unreachable':
       return '無法連線到配對伺服器';
+    case 'connection':
+      return '與配對伺服器的連線中斷';
     default:
       return reason || '連線中斷';
   }

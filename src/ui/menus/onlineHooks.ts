@@ -9,6 +9,8 @@ export interface OnlinePrefs {
   name: string;
   mode: SignalMode;
   serverUrl: string;
+  /** every packet through the matchmaking server's TURN relay (mode 'server'); false: direct first */
+  relay: boolean;
   /** what the player races as in a room (falls back to the roster when that save is gone) */
   entry: OnlineEntrySource;
 }

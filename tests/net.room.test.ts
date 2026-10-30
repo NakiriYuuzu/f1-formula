@@ -1,9 +1,10 @@
 /**
  * Matchmaking room logic (server/src/roomLogic.ts, shared by the Cloudflare Durable Object and the local
  * BroadcastChannel test channel): join / host, full room, relay only between members, host leaving closes the room,
- * guests leaving, idle close, room codes, allowed origins.
+ * guests leaving, idle close, room codes, allowed origins; a race longer than the idle limit kept open by the
+ * matchmaking client's keepalives (src/net/signal/cloudflare.ts; none from a host alone in its room).
  */
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, jest, test } from 'bun:test';
 import {
   CODE_ALPHABET,
   CODE_LENGTH,
@@ -17,6 +18,7 @@ import {
   type RoomInput,
   type RoomState,
 } from '../server/src/roomLogic';
+import { CloudflareSignal, KEEPALIVE_MS } from '../src/net/signal/cloudflare';
 
 type Out = { to: string; msg: Record<string, unknown> };
 
@@ -129,5 +131,99 @@ describe('room logic', () => {
     expect(isOriginAllowed('http://localhost:5173', list)).toBe(false);
     expect(isOriginAllowed('null', list)).toBe(false);
     expect(isOriginAllowed(null, list)).toBe(false);
+  });
+});
+
+/** Just enough of a browser WebSocket for CloudflareSignal. */
+class FakeSocket {
+  static readonly OPEN = 1;
+  static last: FakeSocket | null = null;
+  readyState = 1;
+  readonly sent: string[] = [];
+  onmessage: ((e: { data: unknown }) => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+
+  constructor(readonly url: string) {
+    FakeSocket.last = this;
+  }
+
+  send(data: string): void {
+    this.sent.push(data);
+  }
+
+  close(): void {
+    this.readyState = 3;
+  }
+}
+
+describe('a race longer than the idle limit', () => {
+  const keepalive = JSON.stringify({ type: 'keepalive' });
+
+  test('the members\' keepalives keep the room open while no signalling flows; nothing is relayed', () => {
+    const inputs: RoomInput[] = [
+      { kind: 'connect', id: 'h', now: 0 },
+      { kind: 'connect', id: 'a', now: 1 },
+    ];
+    // a 50-minute race: each member's keepalive every minute, the room's alarm every IDLE_MS
+    for (let t = KEEPALIVE_MS; t <= 50 * 60_000; t += KEEPALIVE_MS) {
+      inputs.push({ kind: 'message', from: 'h', data: keepalive, now: t }, { kind: 'message', from: 'a', data: keepalive, now: t + 1 });
+      if (t % IDLE_MS === 0) inputs.push({ kind: 'alarm', now: t + 2 });
+    }
+    const r = run(createRoomState(0), inputs);
+    expect(KEEPALIVE_MS * 2).toBeLessThan(IDLE_MS);
+    expect(r.state.closed).toBe(false);
+    expect(r.out.filter((o) => o.msg.type !== 'welcome' && o.msg.type !== 'peer-joined')).toEqual([]);
+  });
+
+  test('the matchmaking client sends one a minute while anyone else is in the room, until it or the room closes', async () => {
+    const real = globalThis.WebSocket;
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
+    jest.useFakeTimers();
+    try {
+      const count = (ws: FakeSocket): number => ws.sent.filter((d) => d === keepalive).length;
+      const say = (ws: FakeSocket, m: Record<string, unknown>): void => ws.onmessage!({ data: JSON.stringify(m) });
+      // a host: closed by the player
+      const mine = new CloudflareSignal('https://signal.example/', 'K7MPQ2');
+      const hosted = mine.connect();
+      const ws = FakeSocket.last!;
+      expect(ws.url).toBe('wss://signal.example/rooms/K7MPQ2/ws');
+      jest.advanceTimersByTime(3 * KEEPALIVE_MS);
+      say(ws, { type: 'welcome', id: 'h', host: true, hostId: 'h', peers: [] });
+      await hosted;
+      // alone in the room: none (a forgotten room still closes as idle)
+      jest.advanceTimersByTime(15 * KEEPALIVE_MS);
+      expect(count(ws)).toBe(0);
+      say(ws, { type: 'peer-joined', id: 'a' });
+      jest.advanceTimersByTime(30 * KEEPALIVE_MS);
+      expect(count(ws)).toBe(30);
+      say(ws, { type: 'peer-left', id: 'a' });
+      jest.advanceTimersByTime(5 * KEEPALIVE_MS);
+      expect(count(ws)).toBe(30);
+      say(ws, { type: 'peer-joined', id: 'b' });
+      jest.advanceTimersByTime(2 * KEEPALIVE_MS);
+      expect(count(ws)).toBe(32);
+      mine.close();
+      jest.advanceTimersByTime(5 * KEEPALIVE_MS);
+      expect(count(ws)).toBe(32);
+      // a guest (the host is in the room): closed by the room
+      const theirs = new CloudflareSignal('https://signal.example', 'K7MPQ2');
+      const joined = theirs.connect();
+      const ws2 = FakeSocket.last!;
+      say(ws2, { type: 'welcome', id: 'a', host: false, hostId: 'h', peers: ['h'] });
+      await joined;
+      let reason = '';
+      theirs.onClosed = (r) => {
+        reason = r;
+      };
+      jest.advanceTimersByTime(KEEPALIVE_MS);
+      say(ws2, { type: 'closed', reason: 'host-left' });
+      jest.advanceTimersByTime(5 * KEEPALIVE_MS);
+      expect(count(ws2)).toBe(1);
+      expect(reason).toBe('host-left');
+    } finally {
+      jest.useRealTimers();
+      globalThis.WebSocket = real;
+    }
   });
 });

@@ -15,3 +15,7 @@ new_sqlite_classes = ["Room"]
 # comma-separated origins allowed to create and join rooms (empty = any): scheme + host [+ port], no path.
 # The game is served from github.yuuzu.net (GitHub Pages custom domain; https not enforced, so http too).
 ALLOWED_ORIGINS = "https://github.yuuzu.net,http://github.yuuzu.net"
+# TURN relay (GET /turn, server/turn/README.md): comma-separated turn: URLs of the coturn server, e.g.
+# "turn:203.0.113.7:3478?transport=udp,turn:203.0.113.7:3478?transport=tcp". Empty = no relay. The shared secret is
+# not here: `bunx wrangler secret put TURN_SECRET` (the same value as coturn's static-auth-secret).
+TURN_URLS = ""

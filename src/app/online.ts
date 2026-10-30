@@ -39,18 +39,19 @@ export class OnlineController implements OnlineHooks {
       name: typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 16) : '玩家',
       mode: r.mode === 'server' ? 'server' : env && r.mode !== 'local' ? 'server' : 'local',
       serverUrl: typeof r.serverUrl === 'string' && r.serverUrl ? r.serverUrl : env,
+      relay: r.relay === true,
       entry: ONLINE_ENTRY_SOURCES.find((s) => s === r.entry) ?? 'roster',
     };
   }
 
   savePrefs(p: OnlinePrefs): void {
-    writeRecord(PREFS_KEY, { name: p.name.slice(0, 16), mode: p.mode, serverUrl: p.serverUrl.slice(0, 200), entry: p.entry });
+    writeRecord(PREFS_KEY, { name: p.name.slice(0, 16), mode: p.mode, serverUrl: p.serverUrl.slice(0, 200), relay: p.relay, entry: p.entry });
   }
 
   async host(): Promise<OnlineRoom> {
     this.leave();
     const p = this.prefs();
-    const room = await OnlineRoom.host({ mode: p.mode, serverUrl: p.serverUrl, name: p.name }, standardRoster(), defaultLobbySettings());
+    const room = await OnlineRoom.host({ mode: p.mode, serverUrl: p.serverUrl, name: p.name, relay: p.relay }, standardRoster(), defaultLobbySettings());
     this.adopt(room);
     return room;
   }
@@ -59,7 +60,7 @@ export class OnlineController implements OnlineHooks {
     this.leave();
     const p = this.prefs();
     const settings = defaultLobbySettings();
-    const room = await OnlineRoom.join({ mode: p.mode, serverUrl: p.serverUrl, name: p.name }, code, loadOnlineSetup(settings.layoutId), { ...loadProfile().assists });
+    const room = await OnlineRoom.join({ mode: p.mode, serverUrl: p.serverUrl, name: p.name, relay: p.relay }, code, loadOnlineSetup(settings.layoutId), { ...loadProfile().assists });
     // the host always has my online setup for its track and my assists, whatever screen is showing
     const lobby = room.guestLobby;
     if (lobby) {

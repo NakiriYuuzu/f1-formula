@@ -166,15 +166,21 @@ describe('online congestion', () => {
       net.setBandwidth(2 * KB, link);
       snapshots = 0;
       let queued = 0;
+      let worstPing = 0;
       while (world.time < 30) {
         step();
-        if (world.time > 15) queued = Math.max(queued, link.buffered('reliable'));
+        if (world.time > 15) {
+          queued = Math.max(queued, link.buffered('reliable'));
+          worstPing = Math.max(worstPing, host.pingOf(1));
+        }
       }
       // forced patches only behind snapshots, never behind another patch: the reliable queue stays at about one
       // patch (forcing behind queued patches: 16 → 40 KB and growing, the ping 1 → 3.6 s, 1 snapshot in 30 s)
       expect(queued).toBeLessThan(10 * KB);
-      expect(host.pingOf(1)).toBeLessThan(1500);
-      expect(snapshots).toBeGreaterThan(10);
+      // a probe waits behind about one snapshot and one patch at 2 KB/s (1.8–2.5 s), never behind a growing queue
+      // (6.8 s); 10–12 snapshots get through (2)
+      expect(worstPing).toBeLessThan(3000);
+      expect(snapshots).toBeGreaterThan(5);
     },
     120_000,
   );

@@ -42,7 +42,7 @@ export class OnlineScreen extends Screen {
   constructor(host: Host) {
     super(host, { layout: 'panel', className: 'nvm-online' });
     const hooks = onlineHooks();
-    this.prefs = hooks ? hooks.prefs() : { name: '玩家', mode: 'local', serverUrl: '', entry: 'roster' };
+    this.prefs = hooks ? hooks.prefs() : { name: '玩家', mode: 'local', serverUrl: '', relay: false, entry: 'roster' };
     const save = (): void => hooks?.savePrefs(this.prefs);
     const name = textField({ label: '玩家名稱', value: this.prefs.name, maxLength: 16, onInput: (v) => {
       this.prefs.name = v.trim();
@@ -68,10 +68,25 @@ export class OnlineScreen extends Screen {
       onChange: (v) => {
         this.prefs.mode = v;
         server.setDisabled(v !== 'server');
+        relay.setDisabled(v !== 'server');
+        save();
+      },
+    });
+    const relay = cycler<boolean>({
+      label: '連線路徑',
+      options: [
+        { value: false, label: '自動（直連優先）' },
+        { value: true, label: '經由中繼伺服器' },
+      ],
+      value: this.prefs.relay,
+      description: '直連延遲高或常掉封包時（比賽中按 F3 看「網路來回」「快照遺失」），由連線較差的一方改走配對伺服器設定的中繼伺服器（server/turn/README.md）；另一方維持自動（兩邊都選會連不上）。',
+      onChange: (v) => {
+        this.prefs.relay = v;
         save();
       },
     });
     server.setDisabled(this.prefs.mode !== 'server');
+    relay.setDisabled(this.prefs.mode !== 'server');
     const code = textField({
       label: '房間代碼',
       value: '',
@@ -97,7 +112,7 @@ export class OnlineScreen extends Screen {
             'div',
             { class: 'nvm-stack' },
             panel('玩家', name.el),
-            panel('配對', mode.el, server.el, h('p', { class: 'nvm-note', text: this.serverHelp() })),
+            panel('配對', mode.el, server.el, relay.el, h('p', { class: 'nvm-note', text: this.serverHelp() })),
             panel('房間', this.createBtn, code.el, joinBtn, this.statusEl),
           ),
           h(
@@ -107,7 +122,7 @@ export class OnlineScreen extends Screen {
               '說明',
               h('p', { class: 'nvm-note', text: '房主的電腦會模擬整場比賽（含 AI），其他玩家的賽車由自己的鍵盤或手把操控、以點對點方式連到房主。' }),
               h('p', { class: 'nvm-note', text: '本機測試：在同一個瀏覽器開兩個分頁、同一個網址，一個建立房間，另一個輸入代碼加入，不需要伺服器。' }),
-              h('p', { class: 'nvm-note', text: '限制：沒有中繼伺服器（TURN），部分嚴格 NAT 網路可能連不上；沒有反作弊；斷線後無法重新加入；房主的分頁切到背景時比賽會變慢或暫停。' }),
+              h('p', { class: 'nvm-note', text: '限制：配對伺服器沒有設定中繼伺服器（TURN）時，部分嚴格 NAT 網路可能連不上；沒有反作弊；斷線後無法重新加入；房主的分頁切到背景時比賽會變慢或暫停。' }),
             ),
           ),
         ),

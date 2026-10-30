@@ -65,6 +65,7 @@ import {
   type OwnState,
   type Snapshot,
 } from './protocol';
+import { decodeProbe, encodeProbe } from './probe';
 import { SeqTracker, StatWindow, byteSize, type GuestLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
 
@@ -569,6 +570,16 @@ export class ClientSession {
     const now = this.wallClock();
     this.linkDown.add(now, byteSize(data));
     if (channel === 'state') {
+      const probe = decodeProbe(data);
+      if (probe) {
+        // echoed at once: the host times the round trip of this channel
+        if (!probe.echo && this.transport.open) {
+          const echo = encodeProbe({ echo: true, at: probe.at });
+          this.linkUp.add(now, echo.byteLength);
+          this.transport.send('state', echo);
+        }
+        return;
+      }
       const s = decodeSnapshot(data);
       if (s) {
         this.linkSnapshots.arrived(s.seq, now);
@@ -620,6 +631,7 @@ export class ClientSession {
       case 'ping': {
         const own = m.pings?.[this.playerIndex];
         if (typeof own === 'number') this.ping = own;
+        // (a host from before the probes times this one)
         this.send({ t: 'pong', at: m.at });
         return;
       }

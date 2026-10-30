@@ -1,8 +1,9 @@
 /**
- * WebRTC link to one other player as a NetTransport: an RTCPeerConnection (public STUN only — no TURN, so a strict
- * NAT may not connect) with two data channels: 'state' (unordered, no retransmits) and 'reliable' (ordered). The
- * guest makes the offer; signalling payloads go through a SignalClient. Browser only (bun has no RTCPeerConnection,
- * so this thin layer is not unit-tested; everything above it runs on the loopback transport in tests).
+ * WebRTC link to one other player as a NetTransport: an RTCPeerConnection (public STUN, plus the matchmaking server's
+ * TURN relay when it has one: a fallback for a strict NAT, or the only path when the player asks for the relay) with
+ * two data channels: 'state' (unordered, no retransmits) and 'reliable' (ordered). The guest makes the offer;
+ * signalling payloads go through a SignalClient. Browser only (bun has no RTCPeerConnection, so this thin layer is
+ * not unit-tested; everything above it runs on the loopback transport in tests).
  */
 import type { SignalClient } from './signal/types';
 import type { PeerLinkStats } from './stats';
@@ -132,13 +133,26 @@ class PeerTransport implements NetTransport {
   }
 }
 
+/** Extra ICE servers (TURN) and whether this side may only use them (every packet through the relay). */
+export interface PeerOptions {
+  iceServers?: readonly RTCIceServer[];
+  relayOnly?: boolean;
+}
+
 /**
  * Connect to `remoteId` through `signal`. The guest (`initiator`) creates the channels and the offer; the host answers
  * (routeSignal delivers the remote's payloads). Resolves once both channels are open; rejects after
  * CONNECT_TIMEOUT_MS.
  */
-export function connectPeer(signal: SignalClient, remoteId: string, initiator: boolean): { transport: Promise<NetTransport>; routeSignal(payload: unknown): void; abort(): void } {
-  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+export function connectPeer(
+  signal: SignalClient,
+  remoteId: string,
+  initiator: boolean,
+  opts: PeerOptions = {},
+): { transport: Promise<NetTransport>; routeSignal(payload: unknown): void; abort(): void } {
+  const relayOnly = opts.relayOnly === true;
+  const pc = new RTCPeerConnection({ iceServers: [...ICE_SERVERS, ...(opts.iceServers ?? [])], iceTransportPolicy: relayOnly ? 'relay' : 'all' });
+  const unreachable = relayOnly ? '無法經由中繼伺服器連線：請確認中繼伺服器開著，且防火牆開了 UDP 3478 與中繼埠' : null;
   let stateCh: RTCDataChannel | null = null;
   let reliableCh: RTCDataChannel | null = null;
   let finished = false;
@@ -149,7 +163,7 @@ export function connectPeer(signal: SignalClient, remoteId: string, initiator: b
     resolveT = resolve;
     rejectT = reject;
   });
-  const timer = setTimeout(() => fail('連線逾時：對方的網路可能需要中繼伺服器（嚴格 NAT）'), CONNECT_TIMEOUT_MS);
+  const timer = setTimeout(() => fail(unreachable ?? '連線逾時：對方的網路可能需要中繼伺服器（嚴格 NAT）'), CONNECT_TIMEOUT_MS);
   const fail = (msg: string): void => {
     if (finished) return;
     finished = true;
@@ -178,7 +192,7 @@ export function connectPeer(signal: SignalClient, remoteId: string, initiator: b
     if (e.candidate) signal.send(remoteId, { kind: 'ice', candidate: e.candidate.toJSON() });
   };
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed') fail('無法建立點對點連線（可能是嚴格 NAT，需要中繼伺服器）');
+    if (pc.connectionState === 'failed') fail(unreachable ?? '無法建立點對點連線（可能是嚴格 NAT，需要中繼伺服器）');
   };
   if (initiator) {
     adopt(pc.createDataChannel('state', { ordered: false, maxRetransmits: 0 }));

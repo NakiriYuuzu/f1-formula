@@ -95,6 +95,9 @@ function race(opts: LoopbackOptions, seconds: number) {
   const host = new HostSession(world, track, 1, [{ playerIndex: 1, name: 'Ann', transport: h }], { now: () => net.now });
   const guest = new ClientSession(cfg, track, 1, 1, c);
   guest.useClock({ now: () => net.now, owed: (since) => since });
+  // the guest's 2 s loss figures, one sample per window after the first
+  const losses: { snapshot: number; own: number }[] = [];
+  let sampleAt = 4;
   while (world.time < seconds) {
     const inputs: (ControlInput | null)[] = [null, null, null, null];
     inputs[0] = computeAIInput(world, world.cars[getPlayerCarId(world, 0)]!, track, SIM_DT);
@@ -107,18 +110,26 @@ function race(opts: LoopbackOptions, seconds: number) {
     guest.takeEvents();
     guest.renderFrame(SIM_DT);
     net.advance(SIM_DT * 1000);
+    if (world.time >= sampleAt) {
+      sampleAt += 2;
+      const g = guest.linkStats();
+      losses.push({ snapshot: g.snapshotLoss, own: g.ownLoss });
+    }
   }
-  return { host: host.linkStats(), guest: guest.linkStats() };
+  const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+  return { host: host.linkStats(), guest: guest.linkStats(), snapshotLoss: mean(losses.map((l) => l.snapshot)), ownLoss: mean(losses.map((l) => l.own)) };
 }
 
 describe('session link statistics', () => {
   test(
     'a lossy link: the guest reports the loss and ~30 Hz less what was lost; the host sent every snapshot',
     () => {
-      const { host, guest } = race({ delayMs: 60, jitterMs: 10, loss: 0.08, seed: 3 }, 20);
-      expect(guest.snapshotLoss).toBeGreaterThan(0.03);
-      expect(guest.snapshotLoss).toBeLessThan(0.15);
-      expect(guest.ownLoss).toBeGreaterThan(0.03);
+      const { host, guest, snapshotLoss, ownLoss } = race({ delayMs: 60, jitterMs: 10, loss: 0.08, seed: 3 }, 20);
+      // (the 2 s windows of the race averaged: one window alone swings with the dice)
+      expect(snapshotLoss).toBeGreaterThan(0.05);
+      expect(snapshotLoss).toBeLessThan(0.11);
+      expect(ownLoss).toBeGreaterThan(0.05);
+      expect(ownLoss).toBeLessThan(0.11);
       expect(guest.snapshotHz).toBeGreaterThan(24);
       expect(guest.snapshotHz).toBeLessThan(30.5);
       expect(guest.pingMs).toBeGreaterThan(100);
@@ -130,7 +141,9 @@ describe('session link statistics', () => {
       expect(host[0]!.snapshotHz).toBeGreaterThan(29);
       expect(host[0]!.deferredHz).toBe(0);
       expect(host[0]!.inputDelayMs).toBeGreaterThan(40);
-      expect(host[0]!.upBps).toBeCloseTo(guest.downBps, -4);
+      // what the host sent arrives less the 8 % the link drops (the reliable part all of it)
+      expect(guest.downBps / host[0]!.upBps).toBeGreaterThan(0.8);
+      expect(guest.downBps / host[0]!.upBps).toBeLessThan(1.02);
     },
     120_000,
   );

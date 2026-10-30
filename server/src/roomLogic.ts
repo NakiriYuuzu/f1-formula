@@ -3,10 +3,10 @@
  * The Durable Object (room.ts) and the browser-only local test channel (src/net/signal/broadcast.ts) both run it.
  * A room holds the host (first to connect) and up to MAX_GUESTS guests; it only relays `signal` payloads (offer /
  * answer / ICE) between members and never sees game data. The host leaving closes the room; so does
- * IDLE_MS without activity.
+ * IDLE_MS without activity (any member's message counts: clients send a keepalive while no signalling flows).
  *
  * Wire messages (JSON text):
- *   client → room: { type: 'signal', to, payload } | { type: 'leave' }
+ *   client → room: { type: 'signal', to, payload } | { type: 'leave' } | { type: 'keepalive' }
  *   room → client: { type: 'welcome', id, host, hostId, peers } | { type: 'peer-joined', id } | { type: 'peer-left', id }
  *                  | { type: 'signal', from, payload } | { type: 'error', reason } | { type: 'closed', reason }
  */
