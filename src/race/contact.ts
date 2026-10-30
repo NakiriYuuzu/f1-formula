@@ -6,7 +6,7 @@
  */
 import type { BuiltTrack, CarEntry, DamageState, TrackProjection, WorldState } from '../core/types';
 import { angleDiff, rightX, rightZ } from '../core/math';
-import { applyImpactDamage, collideCars, collideWithBarrier, isFrontalContact } from '../physics/index';
+import { applyImpactDamage, collideCars, collideWithBarrier, contactCorner, isFrontalContact } from '../physics/index';
 import { barrierLimits, isInPitStraight, projectToTrack, sameLevel } from '../track/track';
 import { applyProjection, emit, fin } from './events';
 
@@ -82,11 +82,16 @@ export function barrierContact(world: WorldState, track: BuiltTrack, car: CarEnt
     const side = proj.lateral >= 0 ? 1 : -1;
     const rel = angleDiff(proj.heading, p.yaw);
     const frontal = side * -Math.sin(rel) > 0.35;
-    applyImpactDamage(p, impulse, frontal, damageMultiplier(world) * car.spec.damageScale);
+    // the wall lies along the track's right vector on the car's side
+    const corner = contactCorner(p, p.x + rightX(proj.heading) * side, p.z + rightZ(proj.heading) * side);
+    applyImpactDamage(p, impulse, frontal, damageMultiplier(world) * car.spec.damageScale, corner);
     reportContact(world, car, null, impulse);
   }
   return projectToTrack(track, p.x, p.z, proj.index);
 }
+
+/** Contact point of the latest car-vs-car impulse (collideCars fills it). */
+const contactPoint = { x: 0, z: 0 };
 
 const collidable = (car: CarEntry): boolean => (car.status !== 'retired' || car.race.hazard) && car.pit.phase === 'none' && !car.race.netGhost;
 
@@ -112,10 +117,11 @@ export function carContacts(world: WorldState, track: BuiltTrack): void {
       const az = a.phys.z;
       const bx = b.phys.x;
       const bz = b.phys.z;
-      const impulse = collideCars(a.phys, a.spec, b.phys, b.spec);
+      const impulse = collideCars(a.phys, a.spec, b.phys, b.spec, contactPoint);
       if (impulse > 0) {
-        applyImpactDamage(a.phys, impulse, isFrontalContact(a.phys, a.spec, bx, bz), mult * a.spec.damageScale);
-        applyImpactDamage(b.phys, impulse, isFrontalContact(b.phys, b.spec, ax, az), mult * b.spec.damageScale);
+        const { x: cx, z: cz } = contactPoint;
+        applyImpactDamage(a.phys, impulse, isFrontalContact(a.phys, a.spec, bx, bz), mult * a.spec.damageScale, contactCorner(a.phys, cx, cz));
+        applyImpactDamage(b.phys, impulse, isFrontalContact(b.phys, b.spec, ax, az), mult * b.spec.damageScale, contactCorner(b.phys, cx, cz));
         reportContact(world, a, b.id, impulse);
         reportContact(world, b, a.id, impulse);
       }

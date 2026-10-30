@@ -513,6 +513,9 @@ export interface CarPhysicsState {
   ers: ErsState;
   drs: DrsState;
   damage: DamageState;
+  /** corner the damage shows at (0 FL, 1 FR, 2 RL, 3 RR): where the hit that did the most landed, by the suspension
+   * bend once it is bent (physics/collision.ts applyImpactDamage) */
+  damageCorner: number;
   /** pit-lane speed limiter engaged */
   limiter: boolean;
   /** last collision impulse (N·s), decays to 0; for audio/fx */
@@ -910,8 +913,9 @@ export interface CarRenderState {
   rainLight: boolean;
   /** pit limiter light */
   limiter: boolean;
-  /** 0..1 per part (DamageState); floor / suspension optional (absent = intact): the renderer shows them as scuffs and a splayed wheel */
-  damage: { frontWing: number; rearWing: number; floor?: number; suspension?: number };
+  /** 0..1 per part (DamageState); floor / suspension optional (absent = intact): the renderer shows them as scuffs and a
+   * splayed wheel at `corner`, the wings bending to its side (CarPhysicsState.damageCorner, absent = 0) */
+  damage: { frontWing: number; rearWing: number; floor?: number; suspension?: number; corner?: number };
   /** 0..1 tyre slip intensity (smoke/squeal) */
   slip: number;
   /** 0..1 lockup intensity */

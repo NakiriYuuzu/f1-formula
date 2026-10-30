@@ -11,7 +11,7 @@
  * MeshStandardMaterial below (CAR_PAINT / CAR_SURFACE).
  *
  * Damage (carDamage.ts): the front wing bends then breaks off, the rear flap droops and twists, bent / broken
- * suspension splays one wheel and sags the body onto that corner, and scuffs (shared scuff map, per-car amount)
+ * suspension splays the wheel at the corner that was hit and sags the body onto it, and scuffs (shared scuff map, per-car amount)
  * spread over the paint with damage and hard impacts.
  *
  * Conventions: model faces +Z; local -X is the car's RIGHT. rotation order 'YXZ': y = yaw,
@@ -23,7 +23,7 @@ import type { CarRenderState, Livery, LiveryFinish, QualityLevel, Regulation, Ti
 import { clamp, clamp01, damp } from '../../core/math';
 import { liveryTexture, paintLiveryCanvas, type LiveryPaint } from './atlas';
 import { acquireCarGeometry, releaseCarGeometry, type CarGeometrySet } from './carGeometry';
-import { createDamageLook, damagedCorner, damageLook, scuffAfterImpact } from './carDamage';
+import { createDamageLook, damageLook, scuffAfterImpact } from './carDamage';
 import { CarSharedResources } from './carMaterials';
 import { carLodDistances, inferCarQuality, lodFovScale, selectLodLevel, usesClearcoatPaint, CAR_FINISH, CAR_LOD_HYSTERESIS, CAR_PAINT } from './carQuality';
 
@@ -389,11 +389,10 @@ export function createCarModel(opts: CarModelOptions): CarModel {
   };
   setFlap(0, 0, 0);
 
-  // damage presentation state: the corner this car bends, impact scuffs accumulated over the session
+  // damage presentation state: impact scuffs accumulated over the session
   const look = createDamageLook();
   let impactScuff = 0;
   let prevImpact = 0;
-  let damageCorner = -1;
   const frontFlapBaseY = frontFlapPivot ? frontFlapPivot.position.y : 0;
   /** Splay the damaged corner's wheel (camber / toe / pushed out); the other three keep their base pose. */
   const deformWheels = (set: WheelSet): void => {
@@ -428,10 +427,9 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       if (!root.visible) return;
       // damage: wing bend / flap hang / splayed wheel / body sag / scuffs
       if (!ghost) {
-        if (damageCorner < 0) damageCorner = damagedCorner(state.carId);
         impactScuff = scuffAfterImpact(impactScuff, fin(state.impact), prevImpact);
         prevImpact = fin(state.impact);
-        damageLook(state.damage, damageCorner, impactScuff, look);
+        damageLook(state.damage, fin(state.damage?.corner ?? 0), impactScuff, look);
         scuffAmount.value = look.scuff;
       }
       const pitch = fin(state.pitch) + look.sagPitch;

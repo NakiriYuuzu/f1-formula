@@ -37,7 +37,7 @@ export {
 } from './spec';
 export { tyreGrip, wetGrip, temperatureGrip, wearGrip, COMPOUND_PARAMS, SURFACE_GRIP, SURFACE_DRAG_DECEL } from './tyres';
 export { stepCarPhysics, SUBSTEPS, isBroken } from './step';
-export { collideWithBarrier, collideCars, applyImpactDamage, isFrontalContact } from './collision';
+export { collideWithBarrier, collideCars, applyImpactDamage, contactCorner, isFrontalContact } from './collision';
 export { REVERSE_HOLD_TIME, REVERSE_MAX_SPEED, UPSHIFT_TIME, DOWNSHIFT_TIME, assistedErsMode, nextErsMode } from './powertrain';
 
 /** 'running' = 1st gear, free to move; 'grid' = neutral and held until setCarHeld(car, false). */
@@ -83,6 +83,7 @@ export function createCarPhysics(
     ers: { charge: 1, mode: 'medium', deployedLap: 0, harvestedLap: 0, overtakeAvailable: false, overtakeActive: false },
     drs: { eligible: false, available: false, open: false },
     damage: { frontWing: 0, rearWing: 0, floor: 0, suspension: 0 },
+    damageCorner: 0,
     limiter: false,
     impact: 0,
     surface: 'asphalt',

@@ -51,6 +51,8 @@ const FLAG_LIMITER = 4;
 const FLAG_BOOST = 8;
 const FLAG_VISIBLE = 16;
 const FLAG_GHOST = 32;
+/** bits 6–7 of the flags: the bent suspension's corner (0..3) */
+const CORNER_SHIFT = 6;
 
 /**
  * Layout of encodeFrame's packed array for the online snapshot, which quantises it field by field
@@ -130,7 +132,8 @@ export function encodeFrame(frame: RenderFrame): Float32Array {
       (c.limiter ? FLAG_LIMITER : 0) |
       (c.boost ? FLAG_BOOST : 0) |
       (c.visible ? FLAG_VISIBLE : 0) |
-      (c.ghost ? FLAG_GHOST : 0);
+      (c.ghost ? FLAG_GHOST : 0) |
+      ((fin(c.damage?.corner ?? 0) & 3) << CORNER_SHIFT);
   }
   return out;
 }
@@ -169,7 +172,13 @@ function decodeCar(a: Float32Array, oa: number, b: Float32Array | null, ob: numb
     compound: valueOf(COMPOUND_CODES, near[on + F_COMPOUND] ?? 0),
     rainLight: (flags & FLAG_RAIN) !== 0,
     limiter: (flags & FLAG_LIMITER) !== 0,
-    damage: { frontWing: clamp01(v(F_DMG_FRONT)), rearWing: clamp01(v(F_DMG_REAR)), floor: clamp01(v(F_DMG_FLOOR)), suspension: clamp01(v(F_DMG_SUSPENSION)) },
+    damage: {
+      frontWing: clamp01(v(F_DMG_FRONT)),
+      rearWing: clamp01(v(F_DMG_REAR)),
+      floor: clamp01(v(F_DMG_FLOOR)),
+      suspension: clamp01(v(F_DMG_SUSPENSION)),
+      corner: (flags >> CORNER_SHIFT) & 3,
+    },
     slip: clamp01(v(F_SLIP)),
     lockup: clamp01(v(F_LOCKUP)),
     impact: Math.max(0, v(F_IMPACT)),

@@ -7,6 +7,7 @@ import {
   applyImpactDamage,
   collideCars,
   collideWithBarrier,
+  contactCorner,
   createCarPhysics,
   createCarSpec,
   fitTyres,
@@ -958,16 +959,16 @@ describe('collisions and damage', () => {
 
   test('impact damage: thresholds, multiplier 0 = none, front wing hurts front', () => {
     const { car } = makeCar();
-    applyImpactDamage(car, 30_000, true, 0);
+    applyImpactDamage(car, 30_000, true, 0, 0);
     expect(car.damage).toEqual({ frontWing: 0, rearWing: 0, floor: 0, suspension: 0 });
-    applyImpactDamage(car, 1_000, true, 1);
+    applyImpactDamage(car, 1_000, true, 1, 0);
     expect(car.damage.frontWing).toBe(0);
-    applyImpactDamage(car, 12_000, true, 0.5);
+    applyImpactDamage(car, 12_000, true, 0.5, 0);
     const half = car.damage.frontWing;
     expect(half).toBeGreaterThan(0);
-    applyImpactDamage(car, 12_000, true, 1);
+    applyImpactDamage(car, 12_000, true, 1, 0);
     expect(car.damage.frontWing).toBeGreaterThan(half * 2.5);
-    applyImpactDamage(car, 1e9, false, 1);
+    applyImpactDamage(car, 1e9, false, 1, 0);
     expect(car.damage.rearWing).toBeLessThanOrEqual(1);
     expect(car.damage.floor).toBeLessThanOrEqual(1);
   });
@@ -975,7 +976,7 @@ describe('collisions and damage', () => {
   test('suspension: racing contact leaves it intact, one heavy hit breaks it (31k with reduced damage), hits add up', () => {
     const hit = (impulse: number, mult: number, times = 1): number => {
       const { car } = makeCar();
-      for (let i = 0; i < times; i++) applyImpactDamage(car, impulse, false, mult);
+      for (let i = 0; i < times; i++) applyImpactDamage(car, impulse, false, mult, 0);
       return car.damage.suspension;
     };
     // wheel-to-wheel contact in AI races stays below ~4000 N·s
@@ -987,6 +988,61 @@ describe('collisions and damage', () => {
     expect(hit(31_000, 0.5)).toBe(1);
     expect(hit(12_000, 1, 2)).toBe(1);
     expect(hit(1e9, 0)).toBe(0);
+  });
+
+  test('damage corner: the corner facing the contact; it moves only for a hit that does more than all before', () => {
+    const { car } = makeCar('2025', 0.7);
+    const at = (right: number, forward: number): [number, number] => [
+      car.x + rightX(car.yaw) * right + forwardX(car.yaw) * forward,
+      car.z + rightZ(car.yaw) * right + forwardZ(car.yaw) * forward,
+    ];
+    expect(contactCorner(car, ...at(-1, 2))).toBe(0);
+    expect(contactCorner(car, ...at(1, 2))).toBe(1);
+    expect(contactCorner(car, ...at(-1, -2))).toBe(2);
+    expect(contactCorner(car, ...at(1, -2))).toBe(3);
+    // suspension intact: the wing / floor damage decides
+    applyImpactDamage(car, 4000, false, 1, 3);
+    expect(car.damage.suspension).toBe(0);
+    expect(car.damageCorner).toBe(3);
+    applyImpactDamage(car, 3000, false, 1, 0);
+    expect(car.damageCorner).toBe(3);
+    applyImpactDamage(car, 4900, true, 1, 1);
+    expect(car.damageCorner).toBe(1);
+    // the first bend takes it, from then on only the bend counts
+    applyImpactDamage(car, 9000, false, 1, 2);
+    expect(car.damageCorner).toBe(2);
+    applyImpactDamage(car, 4900, true, 1, 0);
+    expect(car.damageCorner).toBe(2);
+    // a lighter hit elsewhere bends further but the splayed wheel stays where most of the bend is
+    applyImpactDamage(car, 7000, false, 1, 1);
+    expect(car.damageCorner).toBe(2);
+    // one heavier than everything before moves it
+    applyImpactDamage(car, 12_000, false, 1, 1);
+    expect(car.damageCorner).toBe(1);
+    // once broken it stays, however hard the next hit
+    const wreck = makeCar().car;
+    applyImpactDamage(wreck, 30_000, false, 1, 0);
+    expect(wreck.damage.suspension).toBe(1);
+    applyImpactDamage(wreck, 20_000, false, 1, 3);
+    expect(wreck.damageCorner).toBe(0);
+  });
+
+  test('car contact: the damage corner is where the cars touched, not where the other car is', () => {
+    const { car: a, spec } = makeCar();
+    const { car: b } = makeCar();
+    // b alongside on the right, its centre just behind a's, nose turned in onto a's front
+    const right = 1.15 * spec.width;
+    b.x = a.x + rightX(a.yaw) * right + forwardX(a.yaw) * -0.2;
+    b.z = a.z + rightZ(a.yaw) * right + forwardZ(a.yaw) * -0.2;
+    b.yaw = a.yaw + 0.45;
+    b.vx = -rightX(a.yaw) * 20;
+    b.vz = -rightZ(a.yaw) * 20;
+    // (by the other car's centre it would be a's rear right)
+    expect(contactCorner(a, b.x, b.z)).toBe(3);
+    const hit = { x: Number.NaN, z: Number.NaN };
+    expect(collideCars(a, spec, b, spec, hit)).toBeGreaterThan(0);
+    expect(contactCorner(a, hit.x, hit.z)).toBe(1);
+    expect(contactCorner(b, hit.x, hit.z)).toBe(0);
   });
 
   test('a broken suspension gives no drive; a bent one costs grip', () => {

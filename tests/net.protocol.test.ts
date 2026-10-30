@@ -185,7 +185,8 @@ describe('snapshots', () => {
   test('round trip: every field of every car as replay packs it, within its quantisation step; seq, tick, marshal panels', () => {
     const { world, track } = raceWorld();
     const frame = buildRenderFrame(world, track);
-    frame.cars[2]!.damage = { frontWing: 0.0004, rearWing: 0.5, floor: 1, suspension: 0 };
+    frame.cars[2]!.damage = { frontWing: 0.0004, rearWing: 0.5, floor: 1, suspension: 0.4, corner: 3 };
+    frame.cars[3]!.damage = { frontWing: 0, rearWing: 1, floor: 0, suspension: 0.999, corner: 1 };
     const s = decodeSnapshot(encodeSnapshot({ seq: 4242, tick: world.tick, time: world.time, frame }))!;
     expect(s).not.toBeNull();
     expect(s.seq).toBe(4242);
@@ -194,6 +195,10 @@ describe('snapshots', () => {
     // what replay's float32 packing keeps of the frame: a field it packs that the snapshot forgot would differ here
     const packed = decodeFrame(world.time, encodeFrame(frame), null, 0);
     expect(s.frame.cars).toHaveLength(frame.cars.length);
+    expect(s.frame.cars[2]!.damage.corner).toBe(3);
+    // a suspension about to break still reads as bent, a broken part as broken
+    expect(s.frame.cars[3]!.damage.suspension).toBeLessThan(1);
+    expect(s.frame.cars[3]!.damage.rearWing).toBe(1);
     for (let i = 0; i < frame.cars.length; i++) {
       const want = packed.cars[i] as unknown as Record<string, unknown>;
       const got = s.frame.cars[i] as unknown as Record<string, unknown>;

@@ -1,8 +1,9 @@
 /**
  * How a car shows its damage (pure, no three.js): CarRenderState.damage (+ impact history) → the deformations
  * carModel.ts applies. A bent front wing rolls and sags on the hit side until it breaks (FRONT_WING_BREAK swaps in the
- * broken mesh); a damaged rear wing lets its flap droop and twist; bent suspension splays one wheel (camber, toe,
- * pushed out) and the body sags onto that corner, fully when broken; paint scuffs and exposed carbon spread with the
+ * broken mesh); a damaged rear wing lets its flap droop and twist; bent suspension splays the wheel at the corner that
+ * was hit (camber, toe, pushed out, in proportion to the bend, like its grip loss) and the body sags onto that corner,
+ * fully once broken; paint scuffs and exposed carbon spread with the
  * damage and with every hard impact (scuffs stay for the rest of the session, pit stops only replace the wings).
  */
 import { clamp01, smoothstep } from '../../core/math';
@@ -15,7 +16,8 @@ export const REAR_WING_BREAK = 0.5;
 export const FRONT_WING_BEND = { roll: 0.075, drop: 0.025 } as const;
 /** Rear flap at full damage: droop (rad, trailing edge down) and twist (rad). */
 export const REAR_FLAP_HANG = { droop: 0.5, twist: 0.2 } as const;
-/** Suspension: camber / toe (rad) and outward push (m) of the wheel when bent (s → 1) and extra once broken. */
+/** Suspension: camber / toe (rad) and outward push (m) of the wheel just before it breaks (linear in the damage, as
+ * the grip loss in physics/step.ts) and once broken (damage 1). */
 export const SUSPENSION_BEND = { camber: 0.12, toe: 0.08, out: 0.03 } as const;
 export const SUSPENSION_BROKEN = { camber: 0.42, toe: 0.22, out: 0.11 } as const;
 /** Body sag onto the broken corner (rad of roll / pitch). */
@@ -57,12 +59,6 @@ export function createDamageLook(): DamageLook {
 
 const fin01 = (v: number | undefined): number => (v !== undefined && Number.isFinite(v) ? clamp01(v) : 0);
 
-/** Corner (0 FL, 1 FR, 2 RL, 3 RR) whose suspension a car bends: fixed per car so the same wheel stays splayed. */
-export function damagedCorner(carId: number): number {
-  const id = Number.isFinite(carId) ? Math.floor(Math.abs(carId)) : 0;
-  return (Math.imul(id + 1, 0x9e3779b1) >>> 29) & 3;
-}
-
 /** Scuff accumulated from impacts: each rising impact above SCUFF_IMPACT_MIN adds impulse × SCUFF_PER_IMPACT (capped). */
 export function scuffAfterImpact(scuff: number, impact: number, previousImpact: number): number {
   const s = Number.isFinite(scuff) ? clamp01(scuff) : 0;
@@ -72,7 +68,7 @@ export function scuffAfterImpact(scuff: number, impact: number, previousImpact: 
   return Math.min(SCUFF_IMPACT_CAP, Math.max(s, s + now * SCUFF_PER_IMPACT));
 }
 
-/** Deformations for a damage state, the car's damaged corner and the scuff from impacts (written into `out`). */
+/** Deformations for a damage state, the bent suspension's corner and the scuff from impacts (written into `out`). */
 export function damageLook(d: CarDamageInput | undefined, corner: number, impactScuff: number, out: DamageLook = createDamageLook()): DamageLook {
   const fw = fin01(d?.frontWing);
   const rw = fin01(d?.rearWing);
@@ -89,8 +85,8 @@ export function damageLook(d: CarDamageInput | undefined, corner: number, impact
   out.rearFlapDroop = REAR_FLAP_HANG.droop * smoothstep(0.25, REAR_WING_BREAK + 0.25, rw);
   out.rearFlapTwist = -side * REAR_FLAP_HANG.twist * smoothstep(REAR_WING_BREAK - 0.1, 1, rw);
   out.corner = c;
-  const bent = smoothstep(0.05, 0.6, susp);
-  const broken = smoothstep(0.85, 1, susp);
+  const bent = susp;
+  const broken = susp >= 1 ? 1 : 0;
   out.camber = SUSPENSION_BEND.camber * bent + (SUSPENSION_BROKEN.camber - SUSPENSION_BEND.camber) * broken;
   out.toe = SUSPENSION_BEND.toe * bent + (SUSPENSION_BROKEN.toe - SUSPENSION_BEND.toe) * broken;
   out.wheelOut = SUSPENSION_BEND.out * bent + (SUSPENSION_BROKEN.out - SUSPENSION_BEND.out) * broken;

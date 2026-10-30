@@ -112,8 +112,9 @@ function pointVelocity(car: CarPhysicsState, ox: number, oz: number): { x: numbe
   return { x: car.vx + car.yawRate * oz, z: car.vz - car.yawRate * ox };
 }
 
-/** Resolve overlap between two cars (two circles each). Returns impulse (N·s), 0 if none. */
-export function collideCars(a: CarPhysicsState, specA: CarSpec, b: CarPhysicsState, specB: CarSpec): number {
+/** Resolve overlap between two cars (two circles each). Returns impulse (N·s), 0 if none; on an impulse the contact
+ * point (world) is written into `contact` when given. */
+export function collideCars(a: CarPhysicsState, specA: CarSpec, b: CarPhysicsState, specB: CarSpec, contact?: { x: number; z: number }): number {
   const ra = specA.width * 0.5;
   const rb = specB.width * 0.5;
   const reach = specA.length * 0.5 + specB.length * 0.5;
@@ -189,6 +190,10 @@ export function collideCars(a: CarPhysicsState, specA: CarSpec, b: CarPhysicsSta
   refreshDerived(b);
   a.impact = Math.max(num(a.impact), j);
   b.impact = Math.max(num(b.impact), j);
+  if (contact) {
+    contact.x = cpx;
+    contact.z = cpz;
+  }
   return j;
 }
 
@@ -198,14 +203,29 @@ export function isFrontalContact(car: CarPhysicsState, spec: CarSpec, px: number
   return loc.forward > spec.length * 0.3;
 }
 
-/** Apply collision damage from an impulse. `frontal` = impact on the nose (front wing). multiplier = env.damageMultiplier. */
-export function applyImpactDamage(car: CarPhysicsState, impulse: number, frontal: boolean, multiplier: number): void {
+/** Corner of the car (0 FL, 1 FR, 2 RL, 3 RR) facing a contact at world point (px, pz): pass as `corner` to
+ * applyImpactDamage. */
+export function contactCorner(car: CarPhysicsState, px: number, pz: number): number {
+  const loc = worldToLocal(car.yaw, num(px) - car.x, num(pz) - car.z);
+  return (loc.forward >= 0 ? 0 : 2) + (loc.right > 0 ? 1 : 0);
+}
+
+/**
+ * Apply collision damage from an impulse. `frontal` = impact on the nose (front wing), `corner` = the corner hit
+ * (contactCorner), multiplier = env.damageMultiplier. The damage shows at the corner (damageCorner) of the hit that
+ * did more than all earlier hits together: once the suspension is bent, by its bend (kept once it broke); before
+ * that, by the wing / floor damage.
+ */
+export function applyImpactDamage(car: CarPhysicsState, impulse: number, frontal: boolean, multiplier: number, corner: number): void {
   const mult = clamp(num(multiplier), 0, 2);
   const imp = num(impulse);
   if (mult <= 0 || imp <= DAMAGE_THRESHOLD) return;
   const amount = ((imp - DAMAGE_THRESHOLD) / DAMAGE_SCALE) * mult;
   const d = car.damage;
-  if (imp > SUSPENSION_THRESHOLD) d.suspension = clamp01(num(d.suspension) + ((imp - SUSPENSION_THRESHOLD) / SUSPENSION_SCALE) * mult);
+  const bentBefore = clamp01(num(d.suspension));
+  const partsBefore = num(d.frontWing) + num(d.rearWing) + num(d.floor);
+  const bend = imp > SUSPENSION_THRESHOLD ? ((imp - SUSPENSION_THRESHOLD) / SUSPENSION_SCALE) * mult : 0;
+  if (bend > 0) d.suspension = clamp01(bentBefore + bend);
   if (frontal) {
     d.frontWing = clamp01(num(d.frontWing) + amount);
     d.floor = clamp01(num(d.floor) + amount * 0.2);
@@ -213,4 +233,7 @@ export function applyImpactDamage(car: CarPhysicsState, impulse: number, frontal
     d.floor = clamp01(num(d.floor) + amount * 0.45);
     d.rearWing = clamp01(num(d.rearWing) + amount * 0.35);
   }
+  const partsAdded = d.frontWing + d.rearWing + d.floor - partsBefore;
+  const moves = bentBefore > 0 ? bentBefore < 1 && bend > bentBefore : bend > 0 || partsAdded > partsBefore;
+  if (moves) car.damageCorner = clamp(Math.floor(num(corner)), 0, 3);
 }

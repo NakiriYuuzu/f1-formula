@@ -59,7 +59,7 @@
 - 橫向偏移、曲率、轉向一律「+ = 右」。
 - WorldState 必須是純資料（可 `structuredClone`）。固定步長 `SIM_DT = 1/120`。
 - 各模組的私有狀態放在自己擁有的型別：`physics/types.ts`（CarSpec、PhysicsInternal）、`ai/types.ts`（AIState）、
-  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；`CarRenderState.damage` 新增選填 `floor` / `suspension`（0..1，渲染車損用）；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
+  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；`CarRenderState.damage` 新增選填 `floor` / `suspension`（0..1，渲染車損用）與 `corner`（損傷顯示的那一角，來自 `CarPhysicsState.damageCorner`）；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
 
 ## 3. F1 25 功能對照（本作要實作的範圍）
 
@@ -216,8 +216,10 @@
 - 車模（程式化，全部 three geometry；合併同材質以降低 draw call）：單體殼、鼻錐、多片前翼 + 端板、前後懸吊連桿、輪胎（側壁配方色環）+ 輪圈 +
   煞車碟（煞車發紅光）、側箱、引擎蓋 + 鯊魚鰭、進氣口、Halo、車手頭盔（隊色）、底板 + 擴散器、尾翼主翼 + 可動 DRS 翼片（2026 前翼也可動）、
   雨燈（雨天閃爍）、後視鏡、方向盤（座艙鏡頭）、塗裝（canvas 貼圖：三色 + 圖樣 + 車號 + 隊名縮寫）。前輪轉向、輪子轉動。
-  損傷外觀（`render/car/carDamage.ts`，依 `CarRenderState.damage`）：前翼先往受撞側彎垂、超過 0.5 斷裂缺件；尾翼翼片下垂扭曲；懸吊受損時固定的一角
-  車輪外傾/偏擺/外推、車身往該角下沉（全斷時最明顯）；漆面刮痕與裸露碳纖維隨損傷與每次重擊累積（整場保留，進站只換翼）。
+  損傷外觀（`render/car/carDamage.ts`，依 `CarRenderState.damage`）：受損角 `damage.corner`（`CarPhysicsState.damageCorner`）＝損傷比之前
+  所有撞擊加總還多的那次撞擊的接觸角（撞牆取朝牆的那一角、車對車取實際接觸點；懸吊彎了以後只看懸吊彎曲量，撞斷後固定，懸吊完好時看翼／底板損傷）。
+  前翼先往受損角那側彎垂、超過 0.5 斷裂缺件；尾翼翼片下垂並往該側扭曲；懸吊受損時受損角的車輪外傾/偏擺/外推、車身往該角下沉，
+  幅度與損傷成正比（和抓地損失一樣線性），損傷到 1 撞斷時才變成斷裂姿態（線上快照的損傷量化也不會把未斷的懸吊送成 1）；漆面刮痕與裸露碳纖維隨損傷與每次重擊累積（整場保留，進站只換翼）。
   2026 規格車更短更窄。幽靈車半透明。
 - 特效：雨滴（跟隨鏡頭）、溼地水霧（車後）、輪胎煙（鎖死/打滑）、碰撞火花、碰撞碎片（重擊噴出碳纖維/塗裝碎片，翼片斷裂掉落大塊殘骸，彈跳後留在路面一段時間）、
   刹車碟發光、溼路面反光（降 roughness）。

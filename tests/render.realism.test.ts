@@ -28,9 +28,9 @@ import { carDims } from '../src/render/car/dims';
 import {
   FRONT_WING_BREAK,
   SCUFF_IMPACT_CAP,
+  SUSPENSION_BEND,
   SUSPENSION_BROKEN,
   damageLook,
-  damagedCorner,
   scuffAfterImpact,
 } from '../src/render/car/carDamage';
 import { createCarModel } from '../src/render/car/carModel';
@@ -286,18 +286,23 @@ describe('car damage presentation', () => {
     expect(s).toBeCloseTo(SCUFF_IMPACT_CAP, 6);
   });
 
-  test('damaged corner is fixed per car and in range', () => {
-    for (let id = -3; id < 40; id++) {
-      const c = damagedCorner(id);
-      expect(c).toBeGreaterThanOrEqual(0);
-      expect(c).toBeLessThanOrEqual(3);
-      expect(damagedCorner(id)).toBe(c);
-    }
-    expect(new Set(Array.from({ length: 22 }, (_, i) => damagedCorner(i))).size).toBe(4);
+  test('a bent suspension splays the wheel in proportion to the bend (as its grip loss), the broken pose only at 1', () => {
+    const at = (s: number) => damageLook({ frontWing: 0, rearWing: 0, suspension: s }, 0, 0);
+    expect(at(0.05).camber).toBeCloseTo(SUSPENSION_BEND.camber * 0.05, 9);
+    expect(at(0.5).camber).toBeCloseTo(SUSPENSION_BEND.camber * 0.5, 9);
+    expect(at(0.5).toe).toBeCloseTo(SUSPENSION_BEND.toe * 0.5, 9);
+    expect(at(0.5).wheelOut).toBeCloseTo(SUSPENSION_BEND.out * 0.5, 9);
+    expect(at(0.99).camber).toBeLessThan(SUSPENSION_BEND.camber);
+    expect(at(1).camber).toBeCloseTo(SUSPENSION_BROKEN.camber, 9);
   });
 
-  test('car model: a broken suspension splays exactly one wheel, a bent front wing rolls, repairs restore', () => {
+  test('car model: a broken suspension splays exactly the wheel at its corner, a bent front wing rolls, repairs restore', () => {
     const model = createCarModel({ livery: { primary: '#d22', secondary: '#fff', accent: '#000' }, number: 7, teamShort: 'TST', helmet: { primary: '#ff0', secondary: '#000', accent: '#fff' }, regulation: '2025', textureSize: 64 });
+    for (const corner of [0, 1, 2, 3]) {
+      model.apply(carState({ carId: 5, damage: { frontWing: 0, rearWing: 0, suspension: 1, corner } }), 0.016);
+      const splayed = model.nodes.wheelPivots.map((p, i) => (Math.abs(p.rotation.z) > 0.2 ? i : -1)).filter((i) => i >= 0);
+      expect(splayed).toEqual([corner]);
+    }
     model.apply(carState({ carId: 5, damage: { frontWing: 0.4, rearWing: 0, suspension: 1 } }), 0.016);
     const splayed = model.nodes.wheelPivots.filter((p) => Math.abs(p.rotation.z) > 0.2);
     expect(splayed.length).toBe(1);

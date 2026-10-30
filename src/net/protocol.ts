@@ -27,7 +27,7 @@ import type {
 import { FRAME_LAYOUT, decodeFrame, encodeFrame } from '../app/replay';
 import { wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -191,10 +191,10 @@ const i16 = (scale: number): FieldCodec => ({
 });
 /** 0..1 in 1/255 steps */
 const UNIT: FieldCodec = { bytes: 1, put: (v, o, x) => v.setUint8(o, clampInt(x * 255, 0, 255)), get: (v, o) => v.getUint8(o) / 255 };
-/** 0..1 damage in 1/255 steps: a scratch never reads as intact */
+/** 0..1 damage in 1/255 steps: a scratch never reads as intact, a bend never as broken (1) */
 const DAMAGE: FieldCodec = {
   bytes: 1,
-  put: (v, o, x) => v.setUint8(o, x > 0 ? clampInt(x * 255, 1, 255) : 0),
+  put: (v, o, x) => v.setUint8(o, x >= 1 ? 255 : x > 0 ? clampInt(x * 255, 1, 254) : 0),
   get: (v, o) => v.getUint8(o) / 255,
 };
 /** heading, wrapped to ±π in 0.1 mrad steps (the client reads headings with angleDiff / wrapAngle only) */
@@ -343,7 +343,8 @@ const OWN_NUMBERS: readonly string[] = [
   'x', 'y', 'z', 'yaw', 'pitch', 'roll', 'vx', 'vz', 'yawRate', 'speed', 'vLong', 'vLat', 'steerAngle', 'throttle', 'brake',
   'gear', 'rpm', 'wheelSpin', 'slipAngleFront', 'slipAngleRear', 'slipRatio', 'lockup', 'gLat', 'gLong',
   'tire.wear', 'tire.temp', 'tire.laps', 'fuelKg', 'ers.charge', 'ers.deployedLap', 'ers.harvestedLap',
-  'damage.frontWing', 'damage.rearWing', 'damage.floor', 'damage.suspension', 'impact', 'trackIndex', 's', 'lateral',
+  'damage.frontWing', 'damage.rearWing', 'damage.floor', 'damage.suspension', 'damageCorner', 'impact', 'trackIndex',
+  's', 'lateral',
   'internal.shiftTimer', 'internal.shiftCooldown', 'internal.brakeHoldTime', 'internal.accelLong', 'internal.accelLat',
   'internal.fyFront', 'internal.fyRear', 'internal.spin', 'internal.odometer', 'internal.ersDeployW',
   'internal.ersHarvestW', 'internal.icePowerW',

@@ -587,6 +587,14 @@ describe('human crashes', () => {
     const k = off.world.session.control.counts;
     expect(k.sc + k.vsc + k.red).toBe(0);
   }, 60000);
+
+  test('a wall on the left bends the suspension at the front-left corner, the one that hit it', () => {
+    const { world, track } = race({ laps: 8, seed: 7 });
+    crash(world, track, { steer: -1, sec: 0.6, until: 60, at: WALL_S });
+    const me = world.cars.find((c) => c.playerIndex === 0)!;
+    expect(me.phys.damage.suspension).toBeGreaterThan(0);
+    expect(me.phys.damageCorner).toBe(0);
+  }, 60000);
 });
 
 describe('incident budget', () => {
