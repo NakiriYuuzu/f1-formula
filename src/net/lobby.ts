@@ -1,17 +1,20 @@
 /**
  * Online lobby logic (pure, over NetTransport): the host keeps the seats (player 0 = host, guests 1–3), each player's
- * team / driver (unique), ready flags, the race settings and every guest's car setup and assists (the host simulates
- * their cars with them); the guest side mirrors the lobby and sends its choices. Between sessions the lobby owns the
+ * team / driver (unique; a My Team entry takes its whole team), what each player races as (meta/onlineEntry.ts), ready
+ * flags, the race settings and every guest's car setup and assists (the host simulates their cars with them); the
+ * guest side mirrors the lobby and sends its choices. Between sessions the lobby owns the
  * transports' message handlers; during a session HostSession / ClientSession do (attach / detach).
  */
 import type { Assists, CarSetup, PlayerIndex, SessionConfig, SessionResult } from '../core/types';
 import { DEFAULT_ASSISTS, DEFAULT_SETUP } from '../core/defaults';
 import { sanitizeAssists, sanitizeSetup } from '../meta/guards';
+import { ROSTER_ENTRY, sanitizeOnlineEntry, type OnlineEntry } from '../meta/onlineEntry';
 import { driverName, type Roster } from '../meta/roster';
 import {
   PROTOCOL_VERSION,
   decodeMessage,
   encodeMessage,
+  type LobbyEntry,
   type LobbyPlayer,
   type LobbyRoster,
   type LobbySettings,
@@ -30,12 +33,40 @@ export function lobbyRoster(roster: Roster): LobbyRoster {
   };
 }
 
+/**
+ * Whether a seat is free for `playerIndex`: a whole team (a team entry) needs no other player in it; a driver needs
+ * its seat free and its team not taken over by another player's team entry.
+ */
+export function seatFree(players: readonly LobbyPlayer[], playerIndex: PlayerIndex, teamId: string, driverId: string, wholeTeam: boolean): boolean {
+  return players.every(
+    (p) => p.playerIndex === playerIndex || (wholeTeam ? p.teamId !== teamId : p.driverId !== driverId && !(p.entry?.kind === 'team' && p.teamId === teamId)),
+  );
+}
+
+/** How the lobby lists an entry the host has checked (undefined: the roster driver). */
+export function lobbyEntry(entry: OnlineEntry): LobbyEntry | undefined {
+  if (entry.kind === 'driver') return { kind: 'driver', source: entry.source, driver: driverName(entry.driver) };
+  if (entry.kind === 'team') return { kind: 'team', driver: driverName(entry.driver), team: entry.team.name, color: entry.team.livery.primary };
+  return undefined;
+}
+
+/** How the lobby will list a player who sent `entry` (the host checks every entry, its own too). */
+export function listedEntry(entry: OnlineEntry): LobbyEntry | undefined {
+  return lobbyEntry(sanitizeOnlineEntry(entry));
+}
+
+/** Whether two lobby listings are the same entry. */
+export function sameListing(a: LobbyEntry | undefined, b: LobbyEntry | undefined): boolean {
+  return a?.kind === b?.kind && a?.source === b?.source && a?.driver === b?.driver && a?.team === b?.team && a?.color === b?.color;
+}
+
 interface Guest {
   playerIndex: PlayerIndex;
   transport: NetTransport;
   joined: boolean;
   setup: CarSetup;
   assists: Assists;
+  entry: OnlineEntry;
   pingSent: number;
 }
 
@@ -53,6 +84,7 @@ export class HostLobby {
   /** lobby changed (players / settings): redraw */
   onChange: (() => void) | null = null;
   private readonly guests = new Map<PlayerIndex, Guest>();
+  private hostEntry: OnlineEntry = ROSTER_ENTRY;
   private attached = true;
   private started = false;
   private readonly now: () => number;
@@ -82,16 +114,18 @@ export class HostLobby {
       transport.close();
       return;
     }
-    const g: Guest = { playerIndex: free, transport, joined: false, setup: { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS }, pingSent: 0 };
+    const g: Guest = { playerIndex: free, transport, joined: false, setup: { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS }, entry: ROSTER_ENTRY, pingSent: 0 };
     this.guests.set(free, g);
     this.listen(g);
     transport.onClose = () => this.removeGuest(g);
   }
 
-  setHostPick(teamId: string, driverId: string): boolean {
-    if (!this.pickOk(0, teamId, driverId)) return false;
-    this.host.teamId = teamId;
-    this.host.driverId = driverId;
+  /** The host's seat and what it races as (entry omitted: unchanged; checked like a guest's); false when the seat is not free. */
+  setHostPick(teamId: string, driverId: string, picked: OnlineEntry = this.hostEntry): boolean {
+    const entry = sanitizeOnlineEntry(picked);
+    if (!this.pickOk(0, teamId, driverId, entry)) return false;
+    this.hostEntry = entry;
+    this.seat(this.host, teamId, driverId, entry);
     this.changed();
     return true;
   }
@@ -115,6 +149,11 @@ export class HostLobby {
   guestCar(playerIndex: PlayerIndex): { setup: CarSetup; assists: Assists } | null {
     const g = this.guests.get(playerIndex);
     return g ? { setup: { ...g.setup }, assists: { ...g.assists } } : null;
+  }
+
+  /** What a player races as (the roster driver for an unknown seat). */
+  entryOf(playerIndex: PlayerIndex): OnlineEntry {
+    return playerIndex === 0 ? this.hostEntry : (this.guests.get(playerIndex)?.entry ?? ROSTER_ENTRY);
   }
 
   /** Joined guests and their links (for HostSession). */
@@ -204,7 +243,7 @@ export class HostLobby {
           return;
         }
         g.joined = true;
-        const free = this.state.roster.drivers.find((d) => !this.state.players.some((p) => p.driverId === d.id));
+        const free = this.state.roster.drivers.find((d) => seatFree(this.state.players, g.playerIndex, d.teamId, d.id, false));
         this.state.players.push({
           playerIndex: g.playerIndex,
           name: m.name.slice(0, 24) || `玩家 ${g.playerIndex + 1}`,
@@ -223,11 +262,13 @@ export class HostLobby {
         if (!g.joined) return;
         if (m.setup !== undefined) g.setup = sanitizeSetup(m.setup);
         if (m.assists !== undefined) g.assists = sanitizeAssists(m.assists);
+        const entry = m.entry !== undefined ? sanitizeOnlineEntry(m.entry) : g.entry;
         const p = this.playerOf(g.playerIndex);
-        if (p && this.pickOk(g.playerIndex, m.teamId, m.driverId)) {
-          p.teamId = m.teamId;
-          p.driverId = m.driverId;
+        if (p && this.pickOk(g.playerIndex, m.teamId, m.driverId, entry)) {
+          g.entry = entry;
+          this.seat(p, m.teamId, m.driverId, entry);
         }
+        if (p && m.seq !== undefined) p.pickSeq = m.seq;
         this.changed();
         return;
       }
@@ -251,10 +292,18 @@ export class HostLobby {
     }
   }
 
-  private pickOk(playerIndex: PlayerIndex, teamId: string, driverId: string): boolean {
+  private pickOk(playerIndex: PlayerIndex, teamId: string, driverId: string, entry: OnlineEntry): boolean {
     const d = this.state.roster.drivers.find((x) => x.id === driverId);
     if (!d || d.teamId !== teamId) return false;
-    return !this.state.players.some((p) => p.playerIndex !== playerIndex && p.driverId === driverId);
+    return seatFree(this.state.players, playerIndex, teamId, driverId, entry.kind === 'team');
+  }
+
+  private seat(p: LobbyPlayer, teamId: string, driverId: string, entry: OnlineEntry): void {
+    p.teamId = teamId;
+    p.driverId = driverId;
+    const shown = lobbyEntry(entry);
+    if (shown) p.entry = shown;
+    else delete p.entry;
   }
 
   private playerOf(pi: PlayerIndex): LobbyPlayer | undefined {
@@ -287,6 +336,8 @@ export interface GuestLobbyCallbacks {
 export class GuestLobby {
   state: LobbyState | null = null;
   playerIndex: PlayerIndex | null = null;
+  /** `seq` of the last pick sent (the host echoes the ones it handled in LobbyPlayer.pickSeq) */
+  pickSeq = 0;
   private closedFlag = false;
 
   constructor(
@@ -306,8 +357,15 @@ export class GuestLobby {
     return this.transport;
   }
 
-  pick(teamId: string, driverId: string, setup?: CarSetup, assists?: Assists): void {
-    send(this.transport, { t: 'pick', teamId, driverId, ...(setup ? { setup } : {}), ...(assists ? { assists } : {}) });
+  pick(teamId: string, driverId: string, setup?: CarSetup, assists?: Assists, entry?: OnlineEntry): void {
+    const seq = ++this.pickSeq;
+    send(this.transport, { t: 'pick', teamId, driverId, ...(setup ? { setup } : {}), ...(assists ? { assists } : {}), ...(entry ? { entry } : {}), seq });
+  }
+
+  /** Every pick sent so far has been handled by the host: the lobby state shows what was taken. */
+  picksSettled(): boolean {
+    const me = this.me;
+    return me !== null && me.pickSeq === this.pickSeq;
   }
 
   setReady(ready: boolean): void {

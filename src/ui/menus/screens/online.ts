@@ -3,17 +3,20 @@
  * - OnlineScreen: player name, matchmaking (local test = tabs of this browser, or a Cloudflare matchmaking server),
  *   create / join a room by code, with clear zh-TW errors (room full, wrong code, unreachable server, NAT);
  * - LobbyScreen: room code (copy), players (name, driver, ready, ping), the host's race settings, each player's driver
- *   (unique) and assists, ready / start / leave. The host starts the weekend through the usual briefing flow; the App
- *   hands every session to the guests.
+ *   (unique), what they race as (a roster driver, their career / My Team driver in a roster seat, or their whole My Team
+ *   in a roster team's place: meta/onlineEntry.ts) and assists, ready / start / leave. The host starts the weekend
+ *   through the usual briefing flow; the App hands every session to the guests.
  */
 import type { Assists, Regulation, SessionRules } from '../../../core/types';
 import { DEFAULT_RULES } from '../../../core/defaults';
 import { FORMAT_LABEL, SAFETY_CAR_LABEL, WEATHER_LABEL, difficultyLabel, lapsLabel } from '../labels';
 import { LAPS_CHOICES, WEATHER_CHOICES, findLayout, listLayouts, resolveLaps, weekendSessions, type LapsChoice, type WeatherChoice, type WeekendFormat } from '../../../meta/options';
-import { loadProfile, loadSetup, saveProfile } from '../../../meta/save';
+import { loadCareer, loadMyTeam, loadProfile, loadSetup, saveProfile } from '../../../meta/save';
 import { standardRoster } from '../../../meta/roster';
+import { applyOnlineEntries, onlineEntryOptions, type OnlineEntryOption, type OnlineEntrySource } from '../../../meta/onlineEntry';
 import { MAX_SPLIT_AI, type PlayerChoice, type SessionRequest } from '../../../meta/sessionBuilder';
-import type { LobbyRules, LobbySettings } from '../../../net/protocol';
+import { listedEntry, sameListing, seatFree } from '../../../net/lobby';
+import type { LobbyPlayer, LobbyRules, LobbySettings, LobbyState } from '../../../net/protocol';
 import type { OnlineRoom } from '../../../net/room';
 import { aeroWakeRow, assistPresetCycler, raceControlRows, REGULATION_OPTIONS } from '../components/editors';
 import { h } from '../dom';
@@ -24,6 +27,8 @@ import { Screen, type Host } from '../screen';
 import { button, cycler, heading, panel, slider, teamChip, textField } from '../widgets';
 
 const FORMATS: readonly WeekendFormat[] = ['raceOnly', 'qualiRace', 'full'];
+/** A guest's entry the host refused (its seat was taken meanwhile) is chosen again this many times before giving up. */
+const ENTRY_RETRIES = 3;
 
 export class OnlineScreen extends Screen {
   readonly title = '線上多人';
@@ -36,7 +41,7 @@ export class OnlineScreen extends Screen {
   constructor(host: Host) {
     super(host, { layout: 'panel', className: 'nvm-online' });
     const hooks = onlineHooks();
-    this.prefs = hooks ? hooks.prefs() : { name: '玩家', mode: 'local', serverUrl: '' };
+    this.prefs = hooks ? hooks.prefs() : { name: '玩家', mode: 'local', serverUrl: '', entry: 'roster' };
     const save = (): void => hooks?.savePrefs(this.prefs);
     const name = textField({ label: '玩家名稱', value: this.prefs.name, maxLength: 16, onInput: (v) => {
       this.prefs.name = v.trim();
@@ -180,10 +185,22 @@ export class LobbyScreen extends Screen {
   private built = false;
   /** what the 我的車手 panel was built for (rebuilt only when it changes: keeps the keyboard focus) */
   private mineKey = '';
+  /** what this player can race as (from their saves) and what they chose (remembered in the online prefs) */
+  private readonly entries: OnlineEntryOption[];
+  private source: OnlineEntrySource;
+  /** the remembered entry was sent once this player had a seat */
+  private entrySent = false;
+  /** refused entry picks chosen again in a row */
+  private retries = 0;
+  /** the last entry the lobby showed me racing as (what a refused change falls back to) */
+  private confirmed: OnlineEntrySource = 'roster';
 
   constructor(host: Host) {
     super(host, { layout: 'panel', className: 'nvm-lobby' });
     this.assists = { ...loadProfile().assists };
+    this.entries = onlineEntryOptions(loadCareer(), loadMyTeam());
+    const remembered = onlineHooks()?.prefs().entry ?? 'roster';
+    this.source = this.entries.some((e) => e.source === remembered) ? remembered : 'roster';
     this.playersEl = h('div', { class: 'nvm-stack' });
     this.settingsEl = h('div', { class: 'nvm-stack' });
     this.rulesEl = h('div', { class: 'nvm-stack' });
@@ -350,39 +367,115 @@ export class LobbyScreen extends Screen {
       const t = d ? state.roster.teams.find((x) => x.id === d.teamId) : undefined;
       return d ? `${d.name}・${t?.name ?? ''}` : '未選擇';
     };
+    const playerLabel = (p: LobbyPlayer): string => {
+      const e = p.entry;
+      if (!e) return driverLabel(p.driverId);
+      const replaced = e.kind === 'team' ? (state.roster.teams.find((t) => t.id === p.teamId)?.name ?? '') : (state.roster.drivers.find((d) => d.id === p.driverId)?.name ?? '');
+      const team = e.kind === 'team' ? (e.team ?? '') : (state.roster.teams.find((t) => t.id === p.teamId)?.name ?? '');
+      return `${e.driver}・${team}（頂替 ${replaced}）`;
+    };
     this.playersEl.replaceChildren(
       ...state.players.map((p) =>
         h(
           'div',
           { class: `nvm-lobby__player${me && p.playerIndex === me.playerIndex ? ' is-me' : ''}` },
-          teamChip(teamColor(p.teamId)),
+          teamChip(p.entry?.color ?? teamColor(p.teamId)),
           h('b', { text: `P${p.playerIndex + 1} ${p.name}${p.playerIndex === 0 ? '（房主）' : ''}` }),
-          h('span', { text: driverLabel(p.driverId) }),
+          h('span', { text: playerLabel(p) }),
           h('small', { text: p.playerIndex === 0 ? '房主' : `${p.ready ? '已準備' : '未準備'}・${p.ping} ms` }),
         ),
       ),
       h('p', { class: 'nvm-note', text: `${state.players.length}/4 名玩家・把房間代碼傳給朋友即可加入` }),
     );
-    // my driver: any not taken by another player
-    const takenKey = me ? `${me.driverId}|${state.players.filter((p) => p.playerIndex !== me.playerIndex).map((p) => p.driverId).sort().join(',')}` : '';
+    // the remembered entry, once this player has a seat
+    if (me && !this.entrySent) {
+      this.entrySent = true;
+      if (this.source !== 'roster') this.chooseSource(this.source, state, me);
+    }
+    // a guest's picks all handled but its entry not taken (another player got the seat first): choose again from the
+    // lobby as it is now; after a few refusals show what the host has
+    const settled = room.role === 'host' || room.guestLobby?.picksSettled() === true;
+    if (me && settled && this.listedAs(me, this.source)) {
+      this.confirmed = this.source;
+      this.retries = 0;
+    } else if (me && settled && room.role === 'guest' && this.retries <= ENTRY_RETRIES) {
+      if (this.retries < ENTRY_RETRIES) {
+        this.retries++;
+        this.chooseSource(this.source, state, me);
+      } else {
+        // given up: no more tries until the player chooses again
+        this.retries++;
+        this.host.toast('參賽身分沒有換成功：選的席位已被其他玩家佔用', 'bad');
+        this.source = this.confirmedSource(me);
+      }
+    }
+    // my driver: any not taken by another player (a whole team for a My Team entry)
+    const others = state.players.filter((p) => p.playerIndex !== me?.playerIndex);
+    const takenKey = me
+      ? `${this.source}|${me.teamId}|${me.driverId}|${others.map((p) => `${p.driverId}:${p.entry?.kind === 'team' ? p.teamId : ''}`).sort().join(',')}`
+      : '';
     if (me && takenKey !== this.mineKey) {
       this.mineKey = takenKey;
-      const taken = new Set(state.players.filter((p) => p.playerIndex !== me.playerIndex).map((p) => p.driverId));
-      const options = state.roster.drivers.filter((d) => !taken.has(d.id)).map((d) => ({ value: d.id, label: driverLabel(d.id) }));
-      const driver = cycler<string>({
-        label: '車手',
-        options,
-        value: me.driverId,
-        onChange: (id) => this.pick(id),
-      });
+      const focused = Array.from(this.mineEl.querySelectorAll('button')).indexOf(document.activeElement as HTMLButtonElement);
+      const option = this.entry();
+      const rows: HTMLElement[] = [];
+      if (this.entries.length > 1) {
+        rows.push(
+          cycler<OnlineEntrySource>({
+            label: '參賽身分',
+            options: this.entries.map((e) => ({ value: e.source, label: e.label })),
+            value: this.source,
+            onChange: (v) => {
+              this.retries = 0;
+              this.chooseSource(v);
+            },
+          }).el,
+        );
+      }
+      if (option.entry.kind === 'team') {
+        const teams = state.roster.teams.filter((t) => seatFree(state.players, me.playerIndex, t.id, '', true));
+        rows.push(
+          cycler<string>({
+            label: '頂替車隊',
+            options: teams.map((t) => ({ value: t.id, label: t.name, swatch: t.color })),
+            value: me.teamId,
+            onChange: (id) => this.pickTeam(id),
+          }).el,
+        );
+      } else {
+        const options = state.roster.drivers
+          .filter((d) => seatFree(state.players, me.playerIndex, d.teamId, d.id, false))
+          .map((d) => ({ value: d.id, label: driverLabel(d.id) }));
+        rows.push(
+          cycler<string>({
+            label: option.entry.kind === 'driver' ? '頂替車手' : '車手',
+            options,
+            value: me.driverId,
+            onChange: (id) => this.pick(id),
+          }).el,
+        );
+      }
       const assists = assistPresetCycler('駕駛輔助', this.assists, (a) => {
         this.assists = a;
         const profile = loadProfile();
         profile.assists = { ...a };
         saveProfile(profile);
-        this.pick(me.driverId);
+        const now = this.lobbyMe();
+        if (now) this.send(now.teamId, now.driverId);
       });
-      this.mineEl.replaceChildren(driver.el, assists.el, h('p', { class: 'nvm-note', text: '賽車設定沿用你在這條賽道上次的設定；輔助只影響你自己的賽車。' }));
+      const note =
+        option.entry.kind === 'team'
+          ? '你的車隊（隊名、塗裝、研發後的賽車性能）整支頂替所選車隊，用它的車庫與兩個席位；隊友由你簽下的車手（AI）駕駛。'
+          : option.entry.kind === 'driver'
+            ? '你的車手（姓名、車號、頭盔）頂替所選車手的席位，開那支車隊的賽車。'
+            : '';
+      this.mineEl.replaceChildren(
+        ...rows,
+        assists.el,
+        ...(note ? [h('p', { class: 'nvm-note', text: note })] : []),
+        h('p', { class: 'nvm-note', text: '賽車設定沿用你在這條賽道上次的設定；輔助只影響你自己的賽車。' }),
+      );
+      if (focused >= 0) this.mineEl.querySelectorAll('button')[focused]?.focus();
     }
     // settings summary for guests
     const s = state.settings;
@@ -407,13 +500,80 @@ export class LobbyScreen extends Screen {
     this.mapBox.replaceChildren(minimapCanvas(s.layoutId, 300, 170, { lineWidth: 3 }));
   }
 
-  private pick(driverId: string): void {
+  private lobbyState(): LobbyState | null {
     const room = this.room;
-    const state = room?.hostLobby?.state ?? room?.guestLobby?.state;
-    const d = state?.roster.drivers.find((x) => x.id === driverId);
-    if (!room || !d) return;
-    if (room.hostLobby) room.hostLobby.setHostPick(d.teamId, d.id);
-    else room.guestLobby?.pick(d.teamId, d.id, loadSetup(state?.settings.layoutId ?? ''), this.assists);
+    return room?.hostLobby?.state ?? room?.guestLobby?.state ?? null;
+  }
+
+  private lobbyMe(): LobbyPlayer | null {
+    const room = this.room;
+    return room?.role === 'host' ? (room.hostLobby?.host ?? null) : (room?.guestLobby?.me ?? null);
+  }
+
+  private entry(): OnlineEntryOption {
+    return this.entries.find((e) => e.source === this.source) ?? (this.entries[0] as OnlineEntryOption);
+  }
+
+  /** Whether the lobby lists me racing as this entry. */
+  private listedAs(me: LobbyPlayer, source: OnlineEntrySource): boolean {
+    const option = this.entries.find((e) => e.source === source);
+    return option !== undefined && sameListing(listedEntry(option.entry), me.entry);
+  }
+
+  /** What the lobby has me racing as: my choice when it is listed, else the last one it showed, else any it matches. */
+  private confirmedSource(me: LobbyPlayer): OnlineEntrySource {
+    if (this.listedAs(me, this.source)) return this.source;
+    if (this.listedAs(me, this.confirmed)) return this.confirmed;
+    const kind = me.entry?.kind ?? 'roster';
+    return (this.entries.find((e) => this.listedAs(me, e.source)) ?? this.entries.find((e) => e.entry.kind === kind))?.source ?? 'roster';
+  }
+
+  /** My seat and entry to the host (the host's own: straight into its lobby). */
+  private send(teamId: string, driverId: string): void {
+    const room = this.room;
+    if (!room) return;
+    const entry = this.entry().entry;
+    if (room.hostLobby) room.hostLobby.setHostPick(teamId, driverId, entry);
+    else room.guestLobby?.pick(teamId, driverId, loadSetup(this.lobbyState()?.settings.layoutId ?? ''), this.assists, entry);
+  }
+
+  private pick(driverId: string): void {
+    const d = this.lobbyState()?.roster.drivers.find((x) => x.id === driverId);
+    if (d) this.send(d.teamId, d.id);
+  }
+
+  /** My Team entry: take over a team (its first roster driver is the seat the lobby keeps). */
+  private pickTeam(teamId: string): void {
+    const d = this.lobbyState()?.roster.drivers.find((x) => x.teamId === teamId);
+    if (d) this.send(d.teamId, d.id);
+  }
+
+  /** Race as another entry: in my seat when it fits the entry (a whole free team for My Team), else the first that does. */
+  private chooseSource(source: OnlineEntrySource, state = this.lobbyState(), me = this.lobbyMe()): void {
+    const option = this.entries.find((e) => e.source === source);
+    if (!option || !state || !me) return;
+    const wholeTeam = option.entry.kind === 'team';
+    const fits = (teamId: string, driverId: string): boolean => seatFree(state.players, me.playerIndex, teamId, driverId, wholeTeam);
+    const seat = fits(me.teamId, me.driverId) ? { teamId: me.teamId, id: me.driverId } : state.roster.drivers.find((d) => fits(d.teamId, d.id));
+    if (!seat) {
+      this.host.sound('error');
+      this.host.toast('沒有可以整支頂替的車隊（每支車隊都有其他玩家）', 'bad');
+      this.source = this.confirmedSource(me);
+      this.mineKey = '';
+      this.render();
+      return;
+    }
+    this.source = source;
+    const hooks = onlineHooks();
+    hooks?.savePrefs({ ...hooks.prefs(), entry: source });
+    this.send(seat.teamId, seat.id);
+    // the host's pick is taken (or not) at once; a guest's shows in a later lobby state (see render)
+    if (this.room?.hostLobby) {
+      this.source = this.confirmedSource(me);
+      this.confirmed = this.source;
+    }
+    this.mineKey = '';
+    this.render();
   }
 
   private toggleReady(): void {
@@ -436,12 +596,17 @@ export class LobbyScreen extends Screen {
     const layout = findLayout(s.layoutId) ?? listLayouts()[0];
     if (!layout) return;
     const profile = loadProfile();
-    const players: PlayerChoice[] = lobby.state.players
-      .filter((p) => p.connected && p.driverId)
-      .map((p) => {
-        const car = p.playerIndex === 0 ? { setup: loadSetup(layout.id), assists: { ...profile.assists } } : (lobby.guestCar(p.playerIndex) ?? { setup: loadSetup(layout.id), assists: { ...profile.assists } });
-        return { playerIndex: p.playerIndex, driverId: p.driverId, teamId: p.teamId, setup: car.setup, assists: car.assists, startCompound: null };
-      });
+    // every player's own driver / My Team takes its seat's place in the roster
+    const field = applyOnlineEntries(
+      standardRoster(),
+      lobby.state.players
+        .filter((p) => p.connected && p.driverId)
+        .map((p) => ({ playerIndex: p.playerIndex, teamId: p.teamId, driverId: p.driverId, entry: lobby.entryOf(p.playerIndex) })),
+    );
+    const players: PlayerChoice[] = field.seats.map((seat) => {
+      const car = seat.playerIndex === 0 ? { setup: loadSetup(layout.id), assists: { ...profile.assists } } : (lobby.guestCar(seat.playerIndex) ?? { setup: loadSetup(layout.id), assists: { ...profile.assists } });
+      return { playerIndex: seat.playerIndex, driverId: seat.driverId, teamId: seat.teamId, setup: car.setup, assists: car.assists, startCompound: null };
+    });
     const base: SessionRequest = {
       mode: 'splitScreen',
       kind: 'race',
@@ -455,7 +620,8 @@ export class LobbyScreen extends Screen {
       rules: { ...DEFAULT_RULES, ...s.rules },
       seed: Date.now() >>> 0,
       players,
-      roster: standardRoster(),
+      roster: field.roster,
+      ...(Object.keys(field.development).length > 0 ? { development: field.development } : {}),
       aiCount: s.aiCount,
       gridOrder: null,
       playerStartPosition: null,

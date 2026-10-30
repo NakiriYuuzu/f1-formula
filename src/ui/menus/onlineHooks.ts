@@ -2,12 +2,15 @@
  * The App's online-room controller as the menus see it (registered by the App; null in tests / without one).
  * Screens call it to host / join / leave and read the current room.
  */
+import type { OnlineEntrySource } from '../../meta/onlineEntry';
 import type { OnlineRoom, SignalMode } from '../../net/room';
 
 export interface OnlinePrefs {
   name: string;
   mode: SignalMode;
   serverUrl: string;
+  /** what the player races as in a room (falls back to the roster when that save is gone) */
+  entry: OnlineEntrySource;
 }
 
 export interface OnlineHooks {

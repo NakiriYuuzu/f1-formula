@@ -1,9 +1,10 @@
 /**
  * The App's online-room controller (menus see it through ui/menus/onlineHooks): saved player name / matchmaking
- * choice, hosting / joining a room and leaving it. Room events (a guest's next session, the room closing) go to the
- * App through `events`.
+ * choice / what the player races as, hosting / joining a room and leaving it. Room events (a guest's next session, the
+ * room closing) go to the App through `events`.
  */
 import type { SessionConfig } from '../core/types';
+import { ONLINE_ENTRY_SOURCES } from '../meta/onlineEntry';
 import { loadProfile, loadSetup } from '../meta/save';
 import { standardRoster } from '../meta/roster';
 import { readRecord, writeRecord } from '../meta/storage';
@@ -38,11 +39,12 @@ export class OnlineController implements OnlineHooks {
       name: typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 16) : '玩家',
       mode: r.mode === 'server' ? 'server' : env && r.mode !== 'local' ? 'server' : 'local',
       serverUrl: typeof r.serverUrl === 'string' && r.serverUrl ? r.serverUrl : env,
+      entry: ONLINE_ENTRY_SOURCES.find((s) => s === r.entry) ?? 'roster',
     };
   }
 
   savePrefs(p: OnlinePrefs): void {
-    writeRecord(PREFS_KEY, { name: p.name.slice(0, 16), mode: p.mode, serverUrl: p.serverUrl.slice(0, 200) });
+    writeRecord(PREFS_KEY, { name: p.name.slice(0, 16), mode: p.mode, serverUrl: p.serverUrl.slice(0, 200), entry: p.entry });
   }
 
   async host(): Promise<OnlineRoom> {

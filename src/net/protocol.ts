@@ -27,7 +27,7 @@ import type {
 import { FRAME_LAYOUT, decodeFrame, encodeFrame } from '../app/replay';
 import { wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -537,6 +537,22 @@ export interface LobbyPlayer {
   /** round trip to the host (ms; host: 0) */
   ping: number;
   connected: boolean;
+  /** the player races as their own driver / My Team (meta/onlineEntry.ts); absent: the roster driver */
+  entry?: LobbyEntry;
+  /** guest: `seq` of its last pick the host has handled, taken or refused (the guest sees which it was) */
+  pickSeq?: number;
+}
+
+/** A player's own driver / team as the lobby lists it: a driver in `driverId`'s seat, or a team in `teamId`'s place. */
+export interface LobbyEntry {
+  kind: 'driver' | 'team';
+  /** driver entry: the save it comes from */
+  source?: 'career' | 'myTeamDriver';
+  /** driver display name */
+  driver: string;
+  /** team entry: its name and #rrggbb colour */
+  team?: string;
+  color?: string;
 }
 
 /** Race settings the host picks in the lobby. */
@@ -582,8 +598,8 @@ export type NetMessage =
   /** host → client: your seat */
   | { t: 'welcome'; playerIndex: PlayerIndex }
   | { t: 'lobby'; lobby: LobbyState }
-  /** client → host: choices (setup / assists: the host runs this car's physics with them) */
-  | { t: 'pick'; teamId: string; driverId: string; setup?: unknown; assists?: unknown }
+  /** client → host: choices (setup / assists: the host runs this car's physics with them; entry: what the guest races as, absent = unchanged) */
+  | { t: 'pick'; teamId: string; driverId: string; setup?: unknown; assists?: unknown; entry?: unknown; seq?: number }
   | { t: 'ready'; ready: boolean }
   /** host → all: a session begins (every player builds the same world from the config) */
   | { t: 'start'; session: number; config: SessionConfig; final: boolean }
@@ -630,7 +646,7 @@ export function decodeMessage(data: unknown): NetMessage | null {
     case 'lobby':
       return isLobby(v.lobby) ? (v as NetMessage) : null;
     case 'pick':
-      return typeof v.teamId === 'string' && typeof v.driverId === 'string' ? (v as NetMessage) : null;
+      return typeof v.teamId === 'string' && typeof v.driverId === 'string' && (v.seq === undefined || isInt(v.seq)) ? (v as NetMessage) : null;
     case 'ready':
       return typeof v.ready === 'boolean' ? (v as NetMessage) : null;
     case 'start':
@@ -681,7 +697,26 @@ function isLobby(v: unknown): v is LobbyState {
   const s = v.settings;
   if (typeof s.layoutId !== 'string' || !isNum(s.laps) || !isNum(s.aiCount) || !isNum(s.aiDifficulty) || !isObj(s.rules)) return false;
   return v.players.every(
-    (p) => isObj(p) && isSeat(p.playerIndex) && typeof p.name === 'string' && typeof p.teamId === 'string' && typeof p.driverId === 'string' && typeof p.ready === 'boolean',
+    (p) =>
+      isObj(p) &&
+      isSeat(p.playerIndex) &&
+      typeof p.name === 'string' &&
+      typeof p.teamId === 'string' &&
+      typeof p.driverId === 'string' &&
+      typeof p.ready === 'boolean' &&
+      (p.entry === undefined || isLobbyEntry(p.entry)) &&
+      (p.pickSeq === undefined || isInt(p.pickSeq)),
+  );
+}
+
+function isLobbyEntry(v: unknown): v is LobbyEntry {
+  return (
+    isObj(v) &&
+    (v.kind === 'driver' || v.kind === 'team') &&
+    (v.source === undefined || v.source === 'career' || v.source === 'myTeamDriver') &&
+    typeof v.driver === 'string' &&
+    (v.team === undefined || typeof v.team === 'string') &&
+    (v.color === undefined || (typeof v.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(v.color)))
   );
 }
 
