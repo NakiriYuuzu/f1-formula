@@ -1,19 +1,21 @@
 /**
  * Per-player HUD for one view region (full screen or a split-screen half): telemetry cluster, timing panel with
  * live delta, toasts, team radio, MFD, first-sessions key hints and a view banner. Split-screen halves use the
- * compact layout.
+ * compact layout. Spectating (the player's car out of a multiplayer race) the cluster and timing show the watched
+ * car, the MFD gives way to a 觀戰中 card (who, where, the switch keys).
  */
 import type { BuiltTrack, CarEntry, DamageState, ErsMode, SpeedUnit, TireCompound, WorldState } from '../../core/types';
-import { AttrSlot, ShowSlot, el } from './dom';
+import type { HelpRow } from './controls';
+import { AttrSlot, ShowSlot, StyleSlot, TextSlot, el } from './dom';
 import { DeltaTracker } from './delta';
 import type { LapTrace } from './delta';
 import { Banner, RadioPanel, ToastStack } from './feed';
 import type { Tone } from './feed';
 import { HintStrip } from './hintStrip';
-import { DAMAGE_PART_LABEL, fin } from './labels';
+import { DAMAGE_PART_LABEL, fin, safeColor } from './labels';
 import { MfdPanel } from './mfd';
 import { FlagStack } from './raceControl';
-import { TelemetryPanel } from './telemetry';
+import { TelemetryPanel, type FuelEstimator } from './telemetry';
 import { TimingPanel } from './timing';
 
 export interface ViewRegion {
@@ -56,6 +58,11 @@ export class ViewHud {
   private readonly timing: TimingPanel;
   private readonly teleShow: ShowSlot;
   private readonly noCar: AttrSlot;
+  private readonly watchCard: WatchCard;
+  /** car shown instead of the player's own while spectating (null = the own car) */
+  private watched: number | null = null;
+  /** the own car's live delta and fuel measure, kept aside while spectating (back after a split-screen flashback) */
+  private ownMeasures: { delta: DeltaTracker | null; fuel: FuelEstimator } | null = null;
   private delta: DeltaTracker | null = null;
   private clock = 0;
   private readonly damageAt: Record<keyof DamageState, number> = {
@@ -99,8 +106,39 @@ export class ViewHud {
       pitLoss,
       !compact ? 'all' : view.playerIndex === 0 ? 'digit' : 'numpad',
     );
+    this.watchCard = new WatchCard(bottom);
     this.hints = new HintStrip(bottom);
     this.banner = new Banner(this.el);
+  }
+
+  /** Car the cluster and timing show: the watched one while spectating, else the player's own. */
+  get shownCarId(): number {
+    return this.watched ?? this.view.carId;
+  }
+
+  get watching(): boolean {
+    return this.watched !== null;
+  }
+
+  /** Spectating: show car `carId` instead of the player's own (null = back to it); `keys` = the switch keys. */
+  watch(carId: number | null, keys: readonly HelpRow[]): void {
+    if (carId !== this.watched) {
+      const kept = this.ownMeasures;
+      if (this.watched === null) this.ownMeasures = { delta: this.delta, fuel: this.telemetry.swapFuelMeasure() };
+      else if (carId !== null) this.telemetry.swapFuelMeasure();
+      this.watched = carId;
+      if (carId === null && kept) {
+        this.delta = kept.delta;
+        this.telemetry.swapFuelMeasure(kept.fuel);
+        this.ownMeasures = null;
+      } else {
+        // another car: its live delta and fuel use are measured afresh
+        this.delta = null;
+        this.mfd.close();
+      }
+    }
+    this.watchCard.setKeys(keys);
+    this.watchCard.show.set(carId !== null);
   }
 
   /** Feeds (toasts, radio, banner, hints) advance even during replays so nothing gets stuck on screen. */
@@ -113,7 +151,7 @@ export class ViewHud {
   }
 
   update(world: WorldState, dt: number, frame: ViewFrame): void {
-    const car = world.cars[this.view.carId];
+    const car = world.cars[this.shownCarId];
     this.noCar.set(car ? null : '1');
     if (!car) {
       this.flags.hide();
@@ -131,7 +169,8 @@ export class ViewHud {
       units: frame.units,
       pitLimit: fin(this.track.pit?.speedLimit, PIT_LIMIT_FALLBACK),
     });
-    this.mfd.sync(car, world);
+    if (this.watched === null) this.mfd.sync(car, world);
+    else this.watchCard.update(car, world);
     this.flags.update(car, world);
   }
 
@@ -154,5 +193,55 @@ export class ViewHud {
     const advice =
       v < 0.35 ? '' : part === 'frontWing' ? '建議進站更換前翼' : part === 'suspension' ? '抓地力下降，維修站無法修復' : '建議進站維修';
     this.toasts.push(`${DAMAGE_PART_LABEL[part]}受損 ${pct}%`, advice, v >= 0.6 ? 'bad' : 'warn');
+  }
+}
+
+/** 觀戰中 card (bottom stack, in place of the MFD): the watched car's position, driver and team, and the switch keys. */
+class WatchCard {
+  readonly el: HTMLElement;
+  readonly show: ShowSlot;
+  private readonly pos: TextSlot;
+  private readonly name: TextSlot;
+  private readonly team: TextSlot;
+  private readonly human: ShowSlot;
+  private readonly color: StyleSlot;
+  private readonly keys: HTMLElement;
+  private keysText = '';
+
+  constructor(parent: Element) {
+    this.el = el('div', 'nvh-watch', parent);
+    const head = el('div', 'nvh-watch-head', this.el);
+    el('span', 'nvh-watch-title', head, '觀戰中');
+    this.pos = new TextSlot(el('span', 'nvh-watch-pos', head));
+    const car = el('div', 'nvh-watch-car', this.el);
+    this.color = new StyleSlot(car, '--nvh-team');
+    this.name = new TextSlot(el('span', 'nvh-watch-name', car));
+    this.human = new ShowSlot(el('span', 'nvh-watch-human', car, '玩家'));
+    this.team = new TextSlot(el('div', 'nvh-watch-team', this.el));
+    this.keys = el('div', 'nvh-hint-items nvh-watch-keys', this.el);
+    this.show = new ShowSlot(this.el);
+    this.show.set(false);
+  }
+
+  setKeys(items: readonly HelpRow[]): void {
+    const text = JSON.stringify(items);
+    if (text === this.keysText) return;
+    this.keysText = text;
+    this.keys.replaceChildren();
+    for (const item of items) {
+      if (item.keys.length === 0) continue;
+      const node = el('div', 'nvh-hint-item', this.keys);
+      el('span', 'nvh-hint-label', node, item.label);
+      for (const k of item.keys) el('kbd', 'nvh-key', node, k);
+    }
+  }
+
+  update(car: CarEntry, world: WorldState): void {
+    const pos = Math.max(0, Math.round(fin(car.timing.position)));
+    this.pos.set(car.status === 'finished' ? `P${pos}・完賽` : pos > 0 ? `P${pos}` : '');
+    this.name.set(`${car.abbr}　${car.displayName}`);
+    this.team.set(world.config.teams.find((t) => t.id === car.teamId)?.name ?? '');
+    this.human.set(car.playerIndex >= 0);
+    this.color.set(safeColor(car.livery?.primary));
   }
 }

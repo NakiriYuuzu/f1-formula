@@ -205,6 +205,20 @@ export function hintItems(settings: BindingSettings, playerIndex: 0 | 1, split: 
   ];
 }
 
+/** Spectating (own car out of a multiplayer race): the steer keys and the D-pad switch car, the camera key cycles. */
+export function spectateHintItems(settings: BindingSettings, playerIndex: 0 | 1, split: boolean): HelpRow[] {
+  return [
+    { label: '切換車手', keys: [...steerPairs(settings, playerIndex, split), '十字鍵 ←→'] },
+    {
+      label: '鏡頭',
+      keys: [
+        ...firstKeys(settings, playerIndex, split, 'camera'),
+        ...PAD_BUTTON_ACTIONS.filter(([, a]) => a === 'camera').map(([index]) => PAD_BUTTON_LABEL[index] ?? `按鈕 ${index}`),
+      ],
+    },
+  ];
+}
+
 // ───────────── first-sessions counter ─────────────
 
 export interface HintStore {

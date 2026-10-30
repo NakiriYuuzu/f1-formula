@@ -2,7 +2,7 @@
  * Timing tower: every car in classification order (car rows glide to their new slot while the position numbers stay
  * fixed per slot, so the column always reads 1..N even mid-glide), team colour, abbreviation,
  * tyre letter, gap-to-leader / interval toggle (race) or best-lap gap (other sessions), pit / finished /
- * retired / penalty markers, fastest-lap marker and player highlight. Refreshed at 5 Hz.
+ * retired / penalty markers, fastest-lap marker, player highlight and the spectated car's outline. Refreshed at 5 Hz.
  */
 import type { CarEntry, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
@@ -29,6 +29,7 @@ interface Row {
   tagKind: AttrSlot;
   status: AttrSlot;
   fastest: AttrSlot;
+  watched: AttrSlot;
 }
 
 interface NumberSlot {
@@ -62,6 +63,8 @@ export class TimingTower {
   private mode: TowerMode = 'interval';
   private accum = REFRESH;
   private isRace = true;
+  /** cars a spectating player watches */
+  private watched: readonly number[] = [];
 
   constructor(parent: Element) {
     this.el = el('div', 'nvh-tower nvh-panel', parent);
@@ -75,6 +78,12 @@ export class TimingTower {
     this.toggle.title = '切換差距 / 間隔';
     this.toggleText = new TextSlot(this.toggle);
     this.body = el('div', 'nvh-tw-body', this.el);
+  }
+
+  /** Cars a spectating player watches (outlined). */
+  setWatched(carIds: readonly number[]): void {
+    this.watched = carIds.slice();
+    this.accum = REFRESH;
   }
 
   /** Switch between interval (to the car ahead) and gap to the leader. */
@@ -120,6 +129,7 @@ export class TimingTower {
       row.value.set(this.valueText(car, i, order, leaderBest));
       row.status.set(car.status);
       row.fastest.set(car.id === fastestId && car.timing.bestLap != null ? '1' : null);
+      row.watched.set(this.watched.includes(car.id) ? '1' : null);
       const inPit = car.pit.phase !== 'none' || car.status === 'pitting';
       // unserved time penalties only (a served one is no longer added to the race time)
       const pen = Math.max(0, fin(car.penalties.timeSec) - fin(car.penalties.servedSec ?? 0));
@@ -238,6 +248,7 @@ export class TimingTower {
       tagKind: new AttrSlot(tag, 'data-kind'),
       status: new AttrSlot(node, 'data-status'),
       fastest: new AttrSlot(node, 'data-fl'),
+      watched: new AttrSlot(node, 'data-watched'),
     };
   }
 }

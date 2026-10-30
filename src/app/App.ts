@@ -318,7 +318,7 @@ export class App {
     if (typeof setSpeed !== 'function') return;
     // online: this computer's player is input 0 (a guest's car may be any seat)
     if (s.onlineRole) {
-      const car = s.world.cars[s.viewCarId];
+      const car = s.world.cars[s.ownCarId];
       if (car) Reflect.apply(setSpeed, this.input, [0, car.phys.speed]);
       return;
     }
@@ -755,8 +755,8 @@ export class App {
         world = null;
       }
     }
-    const viewCarId = s ? s.viewCarId : (r?.world.cars.find((c) => c.playerIndex === 0)?.id ?? 0);
-    const player2CarId = s ? s.secondViewCarId : (r?.world.cars.find((c) => c.playerIndex === 1)?.id ?? null);
+    const viewCarId = s ? s.ownCarId : (r?.world.cars.find((c) => c.playerIndex === 0)?.id ?? 0);
+    const player2CarId = s ? s.secondOwnCarId : (r?.world.cars.find((c) => c.playerIndex === 1)?.id ?? null);
     return JSON.stringify(
       buildTextState({
         screen: this.state,
@@ -766,6 +766,7 @@ export class App {
         track,
         viewCarId,
         player2CarId,
+        watching: s ? s.watching : [],
         replay: this.replay ? this.replay.info : null,
       }),
     );

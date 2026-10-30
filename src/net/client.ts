@@ -14,7 +14,8 @@
  *   BLEND s, so the drawn motion stays continuous in both). While the host drives the
  *   own car (pit autopilot, formation, parking) it is extrapolated the same way, so taking over and handing back
  *   keep one timeline (the prediction starts with the unacknowledged inputs replayed). Before the first snapshot of
- *   the own car everything is interpolated INTERP_DELAY s behind the host clock. The view time is a clock of its own,
+ *   the own car, and while the player spectates (setSpectating), everything is interpolated INTERP_DELAY s behind
+ *   the host clock. The view time is a clock of its own,
  *   steered toward its target by running at most VIEW_WARP faster or slower than the steps (set at once only when
  *   VIEW_SNAP off, also by a frame that runs no step), so network jitter does not shake the other cars. The host clock
  *   estimate is the earliest arrival of the last CLOCK_WINDOW s, timed with the steps the frame clock still owes
@@ -184,6 +185,8 @@ export class ClientSession {
   private ownSnapTime: number | null = null;
   /** visual correction of each other car: the jumps new snapshots made in the extrapolation, being blended out */
   private othersBlend = new Map<number, Blend[]>();
+  /** the player watches the others (own car out of the race; setSpectating) */
+  private spectating = false;
   private events: GameEvent[] = [];
   private eventSeq = 0;
   private mirrorSeq = 0;
@@ -296,6 +299,12 @@ export class ClientSession {
         // race distance follows the own car between mirror patches (fuel per lap and gap read it every frame)
         car.timing.progress = raceDistance(car.timing.progress, car.timing.lapsCompleted, car.phys.s, this.track.length);
       }
+      // the other cars' lap timers (not mirrored) as the host keeps them: a spectator's HUD shows the watched car's
+      for (const c of this.world.cars) {
+        if (c.id !== this.carId && (c.status === 'running' || c.status === 'pitting') && c.timing.lap >= 1) {
+          c.timing.currentLapTime = Math.max(0, this.world.time - c.timing.lapStart);
+        }
+      }
     }
     this.stepCount++;
     this.lastStepAt = this.clock ? this.clock.now() : null;
@@ -328,6 +337,19 @@ export class ClientSession {
 
   retire(): void {
     this.command({ cmd: 'retire' });
+  }
+
+  /**
+   * The player's view follows another car (their own is out of the race) / their own again. Spectating, the view
+   * time drops back to INTERP_DELAY behind the host clock at once — the camera changes car at this moment anyway —
+   * and the others are interpolated as the host had them; the blends of the extrapolated timeline no longer apply.
+   */
+  setSpectating(on: boolean): void {
+    if (on === this.spectating) return;
+    this.spectating = on;
+    this.othersBlend.clear();
+    const target = this.viewTarget();
+    if (target !== null) this.view = target;
   }
 
   /**
@@ -412,10 +434,13 @@ export class ClientSession {
     return Number.isFinite(owed) ? Math.max(0, Math.floor(owed / SIM_DT + 1e-6)) : 0;
   }
 
-  /** Where the view time should be: the own car's timeline (interpolation delay before its first snapshot). */
+  /**
+   * Where the view time should be: the own car's timeline (interpolation delay before its first snapshot, and while
+   * spectating: with no own car to line the others up with, they are shown as the host had them).
+   */
   private viewTarget(): number | null {
     if (this.hostClock === null) return null;
-    if (this.ownSnapTime === null) return this.hostClock - INTERP_DELAY;
+    if (this.ownSnapTime === null || this.spectating) return this.hostClock - INTERP_DELAY;
     const own = this.ownSnapTime + this.pending.length * SIM_DT;
     return this.hostClock + clamp(own - this.hostClock, -INTERP_DELAY, MAX_EXTRAPOLATION);
   }

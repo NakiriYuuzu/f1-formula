@@ -1,7 +1,7 @@
 /**
  * Minimap (2D canvas): track outline from track px/pz + bounds (top view: +X right, +Z down), DRS zones and
- * start/finish line pre-rendered once per size; team-coloured car dots (players larger, ringed) and the
- * time-trial ghost redrawn at most 30 times per second.
+ * start/finish line pre-rendered once per size; team-coloured car dots (players larger, ringed; a spectated car
+ * circled) and the time-trial ghost redrawn at most 30 times per second.
  */
 import type { BuiltTrack, CarEntry, GhostData, WorldState } from '../../core/types';
 import { el } from './dom';
@@ -41,6 +41,8 @@ export class Minimap {
   private measured = false;
   /** car id -> world time of an 'incident' event, until the car drives off again */
   private readonly incidents = new Map<number, number>();
+  /** cars a spectating player watches */
+  private watched: readonly number[] = [];
 
   constructor(
     parent: Element,
@@ -84,6 +86,11 @@ export class Minimap {
       this.resize(r.width, r.height);
     }
     this.draw(world);
+  }
+
+  /** Cars a spectating player watches (circled). */
+  setWatched(carIds: readonly number[]): void {
+    this.watched = carIds.slice();
   }
 
   /** An 'incident' event: mark the car with a warning triangle while it is stopped. */
@@ -271,6 +278,18 @@ export class Minimap {
       ctx.fillStyle = safeColor(car.livery?.primary, '#ffffff');
       ctx.fill();
       ctx.lineWidth = 1.4 * dpr;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    }
+    for (const id of this.watched) {
+      const car = world.cars[id];
+      if (!car || car.status === 'retired') continue;
+      const x = car.phys.x * scale + offX;
+      const y = car.phys.z * scale + offY;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      ctx.beginPath();
+      ctx.arc(x, y, r * 2.4, 0, Math.PI * 2);
+      ctx.lineWidth = 1.6 * dpr;
       ctx.strokeStyle = '#ffffff';
       ctx.stroke();
     }

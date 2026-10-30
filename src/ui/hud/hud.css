@@ -386,6 +386,10 @@
 .nvh-tw-row[data-status='retired'] {
   opacity: 0.42;
 }
+/* the car a spectating player watches */
+.nvh-tw-row[data-watched] {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+}
 /* position numbers sit in a fixed column above the gliding rows (same box as the rows' first grid column) */
 .nvh-tw-pos {
   position: absolute;
@@ -1274,6 +1278,66 @@
   text-align: center;
   white-space: nowrap;
   color: var(--nv-text);
+}
+
+/* 觀戰中 card (bottom stack, in place of the MFD while the player's car is out of a multiplayer race) */
+.nvh-watch {
+  --nvh-team: var(--nv-accent-2);
+  padding: 0.5em 0.85em 0.6em;
+  border-radius: var(--nv-radius);
+  border: 1px solid var(--nv-line);
+  border-top: 0.18em solid var(--nv-accent);
+  background: rgba(8, 11, 17, 0.88);
+  box-shadow: 0 0.5em 1.2em rgba(0, 0, 0, 0.35);
+  animation: nvh-rise 320ms var(--nv-ease) both;
+}
+.nvh-watch-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+  font-size: 0.7em;
+  letter-spacing: 0.12em;
+}
+.nvh-watch-title {
+  font-weight: 800;
+  color: var(--nv-accent);
+}
+.nvh-watch-pos {
+  font: italic 800 1.25em/1 var(--nv-font-display);
+  letter-spacing: 0.04em;
+  color: var(--nv-text);
+}
+.nvh-watch-car {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.3em;
+  padding-left: 0.5em;
+  border-left: 0.32em solid var(--nvh-team);
+  font-size: 1.05em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nvh-watch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nvh-watch-human {
+  padding: 0.05em 0.4em;
+  border-radius: 0.3em;
+  font-size: 0.68em;
+  letter-spacing: 0.08em;
+  color: var(--nv-accent-ink);
+  background: var(--nv-accent);
+}
+.nvh-watch-team {
+  margin: 0.1em 0 0 0.82em;
+  font-size: 0.78em;
+  color: var(--nv-text-2);
+}
+.nvh-watch-keys {
+  margin-top: 0.45em;
 }
 
 .nvh-banner {

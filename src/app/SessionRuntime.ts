@@ -5,7 +5,8 @@
  * Per frame: controls per human (one-shots only in the first sub-step) → stepWorld sub-steps → drain events to
  * HUD + audio → input actions (pause, camera, flashback, MFD, Box, fullscreen, HUD) → RenderFrame → scene →
  * audio → HUD. When every human car has finished (or retired from) a race the rest of the field is fast-forwarded
- * off screen; past a simulated-time cap the remaining cars are classified at their projected finish.
+ * off screen; past a simulated-time cap the remaining cars are classified at their projected finish. In a multiplayer
+ * session (online, split-screen) a player whose car is out while others still race spectates (spectate.ts).
  */
 import type {
   BuiltTrack,
@@ -45,12 +46,13 @@ import {
 import { computeAIInput } from '../ai/index';
 import { RaceScene, type RaceSceneOptions } from '../render/RaceScene';
 import type { GameRenderer } from '../render/GameRenderer';
-import { CRASH_FLASHBACK_OFFER, HudLayer, type HudCallbacks, type HudFrameInfo, type HudView } from '../ui/hud/index';
+import { CRASH_FLASHBACK_OFFER, HudLayer, OUT_BANNER_SECONDS, type HudCallbacks, type HudFrameInfo, type HudView } from '../ui/hud/index';
 import { FixedStepClock, MAX_FRAME_DT, MAX_SUBSTEPS, ONLINE_MAX_BACKLOG, ONLINE_MAX_FRAME_DT, ONLINE_MAX_SUBSTEPS } from './clock';
 import { substepInputs, withPendingOneShots } from './controls';
 import { FlashbackBuffer, REWIND_SECONDS, flashbacksLeft, rewindableCrash } from './flashback';
 import { ReplayRecorder, type ReplayClip } from './replay';
 import { sceneCarsFor, sceneTeamColors } from './sceneCars';
+import { Spectator } from './spectate';
 import { buildViews, nextCamera } from './views';
 import { HostSession } from '../net/host';
 import type { ClientSession } from '../net/client';
@@ -75,6 +77,8 @@ const MANUAL_CHUNK_STEPS = Math.max(1, Math.round(1 / 60 / SIM_DT));
 /** Collision rumble: impulse (N·s) for full strength, duration (ms). */
 const RUMBLE_FULL_IMPULSE = 6000;
 const RUMBLE_MS = 200;
+/** Cameras a spectating player cycles through: the driving ones plus the trackside TV camera. */
+const SPECTATE_CAMERAS: readonly CameraMode[] = [...RaceScene.CAMERA_CYCLE, 'tv'];
 
 export interface SessionDeps {
   readonly gr: GameRenderer;
@@ -174,6 +178,10 @@ export class SessionRuntime {
   private readonly online: 'host' | 'client' | null;
   /** online host whose page is hidden: its own car is AI-driven meanwhile (see setAway) */
   private away = false;
+  /** multiplayer (online, split-screen): per view, who it watches once its player's car is out (empty otherwise) */
+  private readonly spectators: Spectator[];
+  /** per view: the camera its player drove with, back once spectating ends */
+  private readonly drivingCamera: (CameraMode | null)[] = [null, null];
 
   constructor(deps: SessionDeps, config: SessionConfig, ctx: SessionContext, track: BuiltTrack, net: SessionNet | null = null) {
     this.deps = deps;
@@ -205,6 +213,7 @@ export class SessionRuntime {
     const { views, hudViews } = buildViews(local, settings.defaultCamera, 0);
     this.views = views;
     this.hudViews = hudViews;
+    this.spectators = this.online || this.humans.length > 1 ? views.map((v) => new Spectator(v.carId)) : [];
     const p0 = config.players.find((p) => p.playerIndex === 0);
     this.racingLine = p0 ? p0.assists.racingLine : 'off';
     this.sceneOptions = {
@@ -264,6 +273,7 @@ export class SessionRuntime {
       this.handleMenuInput(m);
     }
     if (this.disposed) return;
+    if (!this.pausedFlag) this.readSpectateKeys();
     if (!timing.background) this.present(this.pausedFlag ? 0 : dt, fps);
     this.watchFinish();
   }
@@ -292,6 +302,7 @@ export class SessionRuntime {
       if (this.disposed || this.fastForward) return;
       this.handleAction(a);
     }
+    if (!this.pausedFlag) this.readSpectateKeys();
     this.present(this.pausedFlag ? 0 : Math.min(MAX_FRAME_DT, n * SIM_DT), fps);
     this.watchFinish();
   }
@@ -306,13 +317,24 @@ export class SessionRuntime {
     return this.fastForward;
   }
 
+  /** Car the (first) view shows: the player's own, or the one they watch while spectating. */
   get viewCarId(): number {
     return this.views[0]?.carId ?? 0;
   }
 
-  /** split-screen: the second view's car (player 2), else null */
-  get secondViewCarId(): number | null {
-    return this.views[1]?.carId ?? null;
+  /** This computer's (player 1's) own car, whichever car the view shows. */
+  get ownCarId(): number {
+    return this.spectators[0]?.ownCarId ?? this.viewCarId;
+  }
+
+  /** split-screen: player 2's own car (second view), whichever car that view shows; else null */
+  get secondOwnCarId(): number | null {
+    return this.spectators[1]?.ownCarId ?? this.views[1]?.carId ?? null;
+  }
+
+  /** Per view: the car its player watches while spectating (null = their own). */
+  get watching(): (number | null)[] {
+    return this.views.map((_, i) => this.spectators[i]?.watching ?? null);
   }
 
   isOver(): boolean {
@@ -434,6 +456,10 @@ export class SessionRuntime {
     this.flashbacks.clear();
     this.recorder.clear();
     this.quit.clear();
+    this.spectators.forEach((s, i) => {
+      if (s.watching !== null) this.showCar(i, null);
+      s.reset();
+    });
     this.clock.reset();
     this.pending = [null, null];
     this.humansDoneAt = null;
@@ -452,7 +478,7 @@ export class SessionRuntime {
       result,
       world: this.world,
       ctx: this.ctx,
-      replay: clip ? { clip, track: this.track, scene: { ...this.sceneOptions, racingLine: 'off' }, focusCarId: this.viewCarId } : null,
+      replay: clip ? { clip, track: this.track, scene: { ...this.sceneOptions, racingLine: 'off' }, focusCarId: this.ownCarId } : null,
     };
   }
 
@@ -526,8 +552,12 @@ export class SessionRuntime {
   /** Current controls of every human player, indexed by playerIndex (null = no such player). */
   private readControls(): (ControlInput | null)[] {
     const out: (ControlInput | null)[] = [null, null];
-    // D-pad left/right on a pad steps the tyre compound of that player's open MFD
-    for (const s of this.deps.input.consumePadSteps()) this.hud.stepMfdCompound(s.playerIndex, s.step);
+    // D-pad left/right on a pad steps the tyre compound of that player's open MFD (spectating: switches car)
+    for (const s of this.deps.input.consumePadSteps()) {
+      const spectator = this.spectators[this.viewIndexOf(s.playerIndex)];
+      if (spectator?.isOut(this.world)) spectator.step(s.step);
+      else this.hud.stepMfdCompound(s.playerIndex, s.step);
+    }
     for (const v of this.hudViews) {
       if (!this.humans.includes(v.carId)) continue;
       const pi = v.playerIndex;
@@ -612,11 +642,11 @@ export class SessionRuntime {
     if (events.length === 0) return;
     this.hud.handleEvents(events, w);
     // online: sound and rumble are for this computer's car only (the others are remote players)
-    this.deps.audio.handleEvents(events, this.online ? [this.viewCarId] : this.humans);
+    this.deps.audio.handleEvents(events, this.online ? [this.ownCarId] : this.humans);
     for (const ev of events) {
       if (ev.type !== 'collision') continue;
       if (this.online) {
-        if (ev.carId === this.viewCarId) this.deps.input.rumble(0, clamp01(ev.impulse / RUMBLE_FULL_IMPULSE), RUMBLE_MS);
+        if (ev.carId === this.ownCarId) this.deps.input.rumble(0, clamp01(ev.impulse / RUMBLE_FULL_IMPULSE), RUMBLE_MS);
         continue;
       }
       const pi = w.cars[ev.carId]?.playerIndex;
@@ -642,8 +672,9 @@ export class SessionRuntime {
     if (this.pausedFlag) return;
     switch (a.action) {
       case 'camera': {
-        const view = this.views[this.viewIndexOf(pi)];
-        if (view) view.camera = nextCamera(RaceScene.CAMERA_CYCLE, view.camera);
+        const i = this.viewIndexOf(pi);
+        const view = this.views[i];
+        if (view) view.camera = nextCamera(this.isWatching(i) ? SPECTATE_CAMERAS : RaceScene.CAMERA_CYCLE, view.camera);
         break;
       }
       case 'flashback':
@@ -692,6 +723,7 @@ export class SessionRuntime {
 
   private present(dt: number, fps: number): void {
     const w = this.world;
+    this.updateSpectating();
     for (let i = 0; i < this.views.length; i++) {
       const view = this.views[i] as ViewSpec;
       const pi = this.hudViews[i]?.playerIndex ?? 0;
@@ -699,13 +731,15 @@ export class SessionRuntime {
     }
     const frame = this.client ? this.client.renderFrame(dt) : buildRenderFrame(w, this.track);
     this.scene.render(frame, this.views, dt);
-    const v0 = this.views[0];
+    // the listening view: P1's, unless P1 spectates while P2 still drives (P2's on-board sound stays P2's camera's)
+    const li = this.views.length > 1 && this.isWatching(0) && !this.isWatching(1) ? 1 : 0;
+    const v0 = this.views[li];
     if (!this.pausedFlag && v0) {
       // split-screen: P2's car is a co-listener so its own engine never fades out with distance from P1's camera
       // and shares the ambience / on-board mix (wind, surface, interior engine) with P1
-      const second = this.views[1];
-      const others = this.views.slice(1).map((v) => v.carId);
-      this.deps.audio.update(frame, v0.carId, v0.camera, this.scene.getCameraPosition(0), dt, others, second ? { carId: second.carId, camera: second.camera } : undefined);
+      const second = this.views[1 - li];
+      const others = second ? [second.carId] : [];
+      this.deps.audio.update(frame, v0.carId, v0.camera, this.scene.getCameraPosition(li), dt, others, second ? { carId: second.carId, camera: second.camera } : undefined);
     }
     const info: HudFrameInfo = {
       fps,
@@ -720,6 +754,48 @@ export class SessionRuntime {
       ...(this.client ? { net: () => ({ role: 'guest' as const, link: (this.client as ClientSession).linkStats() }) } : {}),
     };
     this.hud.update(w, dt, info);
+  }
+
+  /** Spectating players: the steer keys switch car (a key going down = one step). */
+  private readSpectateKeys(): void {
+    this.spectators.forEach((s, i) => {
+      const pi = this.hudViews[i]?.playerIndex ?? 0;
+      s.keys(this.deps.input.isHeld('steerLeft', pi), this.deps.input.isHeld('steerRight', pi));
+    });
+  }
+
+  /**
+   * Multiplayer: a view whose player's car is out follows another car once the 退賽 banner has had its time (or at the
+   * first switch press), and its own car again whenever that races on (a split-screen flashback).
+   */
+  private updateSpectating(): void {
+    this.spectators.forEach((s, i) => {
+      if (s.update(this.world, this.spectateDelay(s.ownCarId))) this.showCar(i, s.watching);
+    });
+  }
+
+  /** View `i` shows car `watching` (null = its player's own car; the driving camera comes back). */
+  private showCar(i: number, watching: number | null): void {
+    const view = this.views[i];
+    const own = this.spectators[i]?.ownCarId;
+    if (!view || own === undefined) return;
+    if (view.carId === own) this.drivingCamera[i] = view.camera;
+    else if (watching === null) view.camera = this.drivingCamera[i] ?? view.camera;
+    view.carId = watching ?? own;
+    this.hud.watchCar(this.hudViews[i]?.playerIndex ?? 0, watching);
+    // a guest's one view: the others are shown as the host had them while it spectates
+    this.client?.setSpectating(watching !== null);
+  }
+
+  private isWatching(i: number): boolean {
+    return (this.spectators[i]?.watching ?? null) !== null;
+  }
+
+  /** Seconds car `carId`'s 退賽 banner stays (as the HUD shows it): longer while a flashback can undo the crash. */
+  private spectateDelay(carId: number): number {
+    const car = this.world.cars[carId];
+    if (!car || car.status !== 'retired' || car.penalties?.disqualified === true) return OUT_BANNER_SECONDS;
+    return !this.online && !this.quit.has(carId) && this.flashbackBlock() === null ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS;
   }
 
   /** Race / practice / qualifying: once every human car is done, fast-forward the rest of the field after a short grace. */

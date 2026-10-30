@@ -23,7 +23,7 @@ import type {
 import { COMPOUND_INFO } from '../../core/defaults';
 import { formatLapTime } from '../../core/math';
 import { AttrSlot, ShowSlot, TextSlot, el } from './dom';
-import { claimHintSession, controlsHelpPages, hintItems, HUD_HINT_SECONDS } from './controls';
+import { claimHintSession, controlsHelpPages, hintItems, HUD_HINT_SECONDS, spectateHintItems } from './controls';
 import { ControlsHelp } from './controlsHelp';
 import { buildGhostTrace } from './delta';
 import type { LapTrace } from './delta';
@@ -115,6 +115,11 @@ const RADIO_FALLBACK_COLOR = '#19d3c5';
  * before it fast-forwards the rest of the race (SessionRuntime.watchFinish).
  */
 export const CRASH_FLASHBACK_OFFER = 15;
+/**
+ * Seconds the 退賽 / 賽車報廢 / 取消資格 banner stays without a flashback offer; in a multiplayer race the view then
+ * switches to spectating (SessionRuntime).
+ */
+export const OUT_BANNER_SECONDS = 6;
 /** Keys that close the 操作說明 panel directly (unless bound to 暫停, see handleBack). */
 const HELP_CLOSE_KEYS: ReadonlySet<string> = new Set(['Escape', 'Backspace', 'Enter', 'NumpadEnter', 'Space']);
 
@@ -297,11 +302,26 @@ export class HudLayer {
   toggleMfd(playerIndex: 0 | 1): void {
     if (this.destroyed) return;
     const idx = this.views.findIndex((v) => v.view.playerIndex === playerIndex);
-    if (idx < 0) return;
+    // (spectating: the watched car is not the player's to command)
+    if (idx < 0 || this.views[idx].watching) return;
     const mfd = this.views[idx].mfd;
     mfd.toggle();
     this.mfdOrder = this.mfdOrder.filter((i) => i !== idx);
     if (mfd.isOpen()) this.mfdOrder.push(idx);
+  }
+
+  /**
+   * Spectating: the player's view shows car `carId` (null = back to the player's own car) — the cluster, timing and
+   * 觀戰中 card follow it, the tower and minimap mark it.
+   */
+  watchCar(playerIndex: 0 | 1, carId: number | null): void {
+    if (this.destroyed) return;
+    const v = this.views.find((x) => x.view.playerIndex === playerIndex);
+    if (!v) return;
+    v.watch(carId, spectateHintItems(this.settings, playerIndex, this.split));
+    const watched = this.views.filter((x) => x.watching).map((x) => x.shownCarId);
+    this.tower.setWatched(watched);
+    this.minimap.setWatched(watched);
   }
 
   /** Gamepad D-pad left/right for a player's open MFD: previous / next tyre compound. True when consumed. */
@@ -346,6 +366,7 @@ export class HudLayer {
     this.help.setBackKeys((settings.keyBindings.pause ?? []).map(keyLabel));
     for (const v of this.views) {
       if (v.hints.isShowing()) v.hints.setItems(hintItems(settings, v.view.playerIndex, this.split));
+      if (v.watching) v.watch(v.shownCarId, spectateHintItems(settings, v.view.playerIndex, this.split));
     }
   }
 
@@ -704,14 +725,14 @@ export class HudLayer {
         if (world.cars[ev.carId]?.penalties?.disqualified === true) break;
         const v = this.viewByCar.get(ev.carId);
         const hint = this.flashbackHint(ev.reason);
-        if (v) v.banner.show('retired', '退賽', `${ev.reason}${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : 6);
+        if (v) v.banner.show('retired', '退賽', `${ev.reason}${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
         else this.toastAll(`${abbr(ev.carId)} 退賽`, ev.reason, 'info', 3);
         break;
       }
       case 'terminalDamage': {
         const v = this.viewByCar.get(ev.carId);
         const hint = this.flashbackHint('');
-        if (v) v.banner.show('terminal', '賽車報廢', `懸吊斷裂，無法繼續比賽${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : 6);
+        if (v) v.banner.show('terminal', '賽車報廢', `懸吊斷裂，無法繼續比賽${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
         break;
       }
       case 'blackOrangeFlag': {
@@ -721,7 +742,7 @@ export class HudLayer {
       }
       case 'disqualified': {
         const v = this.viewByCar.get(ev.carId);
-        if (v) v.banner.show('dsq', '取消資格', ev.reason, 'bad', 6);
+        if (v) v.banner.show('dsq', '取消資格', ev.reason, 'bad', OUT_BANNER_SECONDS);
         else this.toastAll(`${abbr(ev.carId)} 取消資格`, ev.reason, 'info', 3.5);
         break;
       }

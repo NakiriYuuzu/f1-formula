@@ -6,7 +6,8 @@
  * Each receiver gets its own view (mirrorView's `ownCarId`) holding only what it reads, so a patch carries few of the
  * values that change every step: its own car's physics comes whole with each snapshot (the own-state datagram), the
  * other cars' motion with every snapshot (ClientSession.syncOthers, which also works out their race distance from the
- * mirrored laps), and their live lap time is read for no car but its own (which it moves on between patches).
+ * mirrored laps); a live lap time comes for its own car only (which it moves on between patches), the others' it
+ * works out from their mirrored lap start (a spectator's HUD reads the watched car's).
  */
 import type { CarEntry, CarPhysicsState, WorldState } from '../core/types';
 

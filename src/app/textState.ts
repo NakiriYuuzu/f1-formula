@@ -1,7 +1,7 @@
 /**
  * window.render_game_to_text() payload (pure): a concise, JSON-safe description of what is on screen — app
  * screen, session state, the viewed player car (and player 2's car in split-screen), the nearest cars ahead /
- * behind on track, weather and replay.
+ * behind on track, who a spectating player watches, weather and replay.
  */
 import type { BuiltTrack, CarEntry, GameMode, WorldState } from '../core/types';
 import { msToKmh } from '../core/math';
@@ -17,10 +17,12 @@ export interface TextStateInput {
   paused: boolean;
   world: WorldState | null;
   track: BuiltTrack | null;
-  /** car followed by the first view (player 0's car) */
+  /** player 0's car (the first view's own car, whichever car it shows while spectating) */
   viewCarId: number;
   /** split-screen: player 1's car (second view); null / omitted otherwise */
   player2CarId?: number | null;
+  /** per view: the car its player watches while spectating (null = their own); omitted = none */
+  watching?: readonly (number | null)[];
   replay: { time: number; duration: number; playing: boolean; speed: number } | null;
 }
 
@@ -135,7 +137,7 @@ export function buildTextState(input: TextStateInput): Record<string, unknown> {
       ? { time: r2(input.replay.time), duration: r2(input.replay.duration), playing: input.replay.playing, speed: input.replay.speed }
       : null,
   };
-  if (!world) return { ...base, mode: null, session: null, player: null, player2: null, ahead: null, behind: null, weather: null };
+  if (!world) return { ...base, mode: null, session: null, player: null, player2: null, spectating: [], ahead: null, behind: null, weather: null };
 
   const s = world.session;
   const mode: GameMode = world.config.mode;
@@ -164,6 +166,11 @@ export function buildTextState(input: TextStateInput): Record<string, unknown> {
     player: car ? describePlayer(car) : null,
     /** split-screen second player (same fields + its own nearest cars), null otherwise */
     player2: car2 ? { ...describePlayer(car2), ahead: near2.ahead, behind: near2.behind } : null,
+    /** per view: the car watched while that player spectates (own car out of a multiplayer race), else null */
+    spectating: (input.watching ?? []).map((id) => {
+      const w = id === null ? undefined : world.cars[id];
+      return w ? { carId: w.id, abbr: w.abbr, position: w.timing.position } : null;
+    }),
     ahead: near.ahead,
     behind: near.behind,
     weather: { kind: world.weather.kind, rain: r2(world.weather.rain), wetness: r2(world.weather.wetness) },

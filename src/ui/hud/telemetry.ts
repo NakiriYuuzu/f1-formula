@@ -29,7 +29,7 @@ export function wakeIndicator(wake: AeroWake | undefined, speed: number, gLat: n
 }
 
 /** Measures real fuel consumption per metre from consecutive frames. */
-class FuelEstimator {
+export class FuelEstimator {
   private prevFuel = NaN;
   private prevProgress = NaN;
   private usedFuel = 0;
@@ -91,7 +91,7 @@ export class TelemetryPanel {
   private readonly fuelLaps: TextSlot;
   private readonly fuelMargin: TextSlot;
   private readonly fuelMarginState: AttrSlot;
-  private readonly fuelEst = new FuelEstimator();
+  private fuelEst = new FuelEstimator();
 
   constructor(parent: Element) {
     this.el = el('div', 'nvh-tele nvh-panel', parent);
@@ -194,6 +194,13 @@ export class TelemetryPanel {
     const margin = el('div', 'nvh-fuel-margin', fuel);
     this.fuelMargin = new TextSlot(margin);
     this.fuelMarginState = new AttrSlot(margin, 'data-state');
+  }
+
+  /** Another car is shown from now on (spectating): measure its fuel use with `next`; returns the replaced measure. */
+  swapFuelMeasure(next: FuelEstimator = new FuelEstimator()): FuelEstimator {
+    const prev = this.fuelEst;
+    this.fuelEst = next;
+    return prev;
   }
 
   update(car: CarEntry, world: WorldState, units: SpeedUnit, trackLength: number): void {
