@@ -75,7 +75,7 @@ describe('online congestion', () => {
     'a link slower than the host sends for 3 s: the guest sees the race at the link delay, not seconds late',
     () => {
       const track = getLayout('monza');
-      // a full field: ~3 KB snapshots at 30 Hz + ~5 KB mirror patches at 5 Hz ≈ 115 KB/s to the guest
+      // a full field: ~1.4 KB snapshots (frame + own car) at 30 Hz + ~5 KB mirror patches at 5 Hz ≈ 70 KB/s to the guest
       const cfg = config('monza', [0, 1], 20);
       const net = new LoopbackNetwork({ delayMs: 40, jitterMs: 5, loss: 0.01, seed: 5, bandwidth: 400 * KB });
       const [h, c] = net.pair();

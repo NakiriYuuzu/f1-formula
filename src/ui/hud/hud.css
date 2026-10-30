@@ -227,6 +227,42 @@
   color: var(--nv-danger);
 }
 
+/* connection diagnostics (online, F3) */
+.nvh-net {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  translate: -50% 0;
+  margin-top: 0.3em;
+  min-width: 15em;
+  padding: 0.4em 0.6em;
+  border-radius: 0.35em;
+  font: 600 0.7em/1.45 var(--nv-font-mono);
+  color: var(--nv-text-2);
+  background: rgba(5, 7, 10, 0.78);
+}
+.nvh-net-title {
+  margin-bottom: 0.25em;
+  color: var(--nv-text-3);
+  font-size: 0.9em;
+}
+.nvh-net-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.2em;
+  white-space: nowrap;
+}
+.nvh-net-head {
+  margin-top: 0.3em;
+  color: var(--nv-text);
+}
+.nvh-net-value[data-level='warn'] {
+  color: var(--nv-warning);
+}
+.nvh-net-value[data-level='bad'] {
+  color: var(--nv-danger);
+}
+
 /* ───────────── session strip & weather ───────────── */
 .nvh-session {
   padding: 0.5em 0.7em 0.5em;

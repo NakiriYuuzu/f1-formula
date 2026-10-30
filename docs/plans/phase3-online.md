@@ -26,7 +26,7 @@
 - `peer.ts`：WebRTC 包裝（`RTCPeerConnection`，STUN：`stun:stun.cloudflare.com:3478`、`stun:stun.l.google.com:19302`；建立兩個 data channel；把它包成 `NetTransport`）。不提供 TURN（說明：嚴格 NAT 可能連不上）。
 - `protocol.ts`：
   - **輸入封包**（客→主，`state` 通道，60 Hz）：`seq`（uint16 環繞）、`tick`、量化的 throttle / brake（uint8）、steer（int8）、按鈕位元（overtakeHeld）、**一次性動作計數器**（shiftUp / shiftDown / drsPressed / ersCycle / limiterToggle 各一個 uint8 累計計數；房主比較計數差值觸發，所以掉包不會漏、重複封包不會重複觸發）。最近 3 筆輸入冗餘附帶以抗掉包。
-  - **快照封包**（主→客，`state` 通道，30 Hz）：`tick`、世界時間、每台車的量化渲染狀態（參考 `src/app/replay.ts` 的打包欄位，加上 `groundPitch`、安全車位姿、賽事管制旗號），以及「接收者自己那台車」的完整物理狀態子集（位置、速度、yaw、yawRate、gear、rpm、轉向角、ERS、輪胎溫度／磨耗、limiter…）和**最後處理的輸入 seq**（供預測回放）。
+  - **快照封包**（主→客，`state` 通道，30 Hz；2026-10-30 起拆成「全車畫面」與「接收者自車狀態（float64）」兩個各自一個封包的訊息，見 docs/FEATURES.md §3.13）：`tick`、世界時間、每台車的量化渲染狀態（參考 `src/app/replay.ts` 的打包欄位，加上 `groundPitch`、安全車位姿、賽事管制旗號），以及「接收者自己那台車」的完整物理狀態子集（位置、速度、yaw、yawRate、gear、rpm、轉向角、ERS、輪胎溫度／磨耗、limiter…）和**最後處理的輸入 seq**（供預測回放）。
   - **可靠訊息**（JSON）：大廳（加入、玩家資料：名稱、車隊／車手選擇、設定、輔助、準備）、開賽（完整 `SessionConfig` + 玩家席位對應）、事件（`GameEvent` 加序號，客戶端依序號去重）、指令（進站請求／取消、ERS 模式、退賽）、HUD 鏡像狀態（5 Hz：計時、名次、進站、罰則、輪胎、旗號、天氣、session 狀態）、節次結束／成績、下一節、房主暫停／繼續、斷線通知。
   - 所有編解碼都要有往返測試與壞封包防護（長度不符、NaN → 丟棄）。
 - `host.ts`：`HostSession` —— 包住本機 `SessionRuntime`（或其世界步進）；每個遠端玩家一個輸入緩衝（依 seq 排序、套用最新、計數差觸發一次性動作）；固定步長時把遠端輸入放進 `inputs[playerIndex]`；30 Hz 廣播快照、5 Hz HUD 鏡像、事件立即可靠送出；處理指令（呼叫現有 `requestPit` / `cancelPit` / `setErsMode` / `retireCar`）。

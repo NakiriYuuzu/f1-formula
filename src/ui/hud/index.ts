@@ -46,6 +46,7 @@ import {
   type PingItem,
 } from './labels';
 import { Minimap } from './minimap';
+import { NET_PANEL_KEY, NetPanel, netPanelRows, type NetDiagnostics } from './netPanel';
 import { estimatePitLoss } from '../../race/index';
 import { RETIRE_BY_CHOICE } from '../../race/index';
 import { PauseMenu } from './pauseMenu';
@@ -99,11 +100,15 @@ export interface HudFrameInfo {
   replay: { time: number; duration: number; playing: boolean; speed: number } | null;
   /** online round trips: a guest's own link to the host, or the host's link to each connected guest */
   ping?: readonly PingItem[];
+  /** online: the links' statistics for the diagnostics panel (asked for only while it is open) */
+  net?: () => NetDiagnostics;
 }
 
 /** Timed-session warnings (seconds remaining). */
 const TIME_WARNINGS = [300, 60];
 const FPS_REFRESH = 0.25;
+/** Seconds between two refreshes of the open connection diagnostics panel. */
+const NET_REFRESH = 0.5;
 const RADIO_FALLBACK_COLOR = '#19d3c5';
 /**
  * Seconds a crash-out offers the flashback: the 「按 R 回溯」 banner stays this long, and the runtime waits as long
@@ -145,6 +150,10 @@ export class HudLayer {
   private readonly fpsShow: ShowSlot;
   /** online only: round trip(s) beside the FPS counter */
   private readonly ping: { text: TextSlot; show: ShowSlot; level: AttrSlot } | null = null;
+  /** online only: connection diagnostics under the ping (NET_PANEL_KEY) */
+  private readonly netPanel: NetPanel | null = null;
+  private netOpen = false;
+  private netAccum = 0;
   private readonly replayAttr: AttrSlot;
   private settings: Settings;
   private lastInfo: HudFrameInfo | null = null;
@@ -212,6 +221,7 @@ export class HudLayer {
     if (online) {
       const ping = el('div', 'nvh-ping', topCentre);
       this.ping = { text: new TextSlot(ping), show: new ShowSlot(ping), level: new AttrSlot(ping, 'data-level') };
+      this.netPanel = new NetPanel(topCentre);
     }
     this.replayBar = new ReplayBar(this.rootEl);
     this.pause = new PauseMenu(this.rootEl);
@@ -238,6 +248,13 @@ export class HudLayer {
       this.ping.show.set(items.length > 0);
       this.ping.text.set(pingText(items));
       this.ping.level.set(pingLevel(items));
+    }
+    if (this.netPanel && this.netOpen && info.net) {
+      this.netAccum += step;
+      if (this.netAccum >= NET_REFRESH) {
+        this.netAccum = 0;
+        this.netPanel.render(netPanelRows(info.net(), info.fps));
+      }
     }
 
     const replay = info.replay ?? null;
@@ -791,6 +808,20 @@ export class HudLayer {
         this.cb.setRacingLine(mode);
       },
     });
+    if (this.netPanel) {
+      // (F3 is Mission Control on a Mac keyboard: the menu always works)
+      items.push({
+        kind: 'cycle',
+        id: 'netPanel',
+        label: `連線診斷（${NET_PANEL_KEY}）`,
+        options: [
+          { value: 'off', label: '關閉' },
+          { value: 'on', label: '顯示' },
+        ],
+        get: () => (this.netOpen ? 'on' : 'off'),
+        set: (value) => this.setNetOpen(value === 'on'),
+      });
+    }
     if (s.kind === 'race') {
       // split-screen: one retire item per player still racing, so one player never retires the other
       for (const v of this.views) {
@@ -825,6 +856,15 @@ export class HudLayer {
     return items;
   }
 
+  /** Show / hide the connection diagnostics panel (online: NET_PANEL_KEY or the pause menu). */
+  private setNetOpen(open: boolean): void {
+    if (!this.netPanel) return;
+    this.netOpen = open;
+    this.netPanel.el.classList.toggle('nvh-hidden', !open);
+    // the first rows at the next frame
+    this.netAccum = NET_REFRESH;
+  }
+
   /** Keys bound to 暫停 (P1; P2 cannot bind it): the App turns them into its pause toggle. */
   private isPauseKey(code: string): boolean {
     return (this.settings.keyBindings.pause ?? []).includes(code);
@@ -833,6 +873,12 @@ export class HudLayer {
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (this.destroyed || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
     if (isEditableTarget(e.target)) return;
+    if (this.netPanel && e.code === NET_PANEL_KEY) {
+      // (the browser's own F3 is find-next)
+      e.preventDefault();
+      if (!e.repeat) this.setNetOpen(!this.netOpen);
+      return;
+    }
     if (this.help.isOpen()) {
       if (this.help.handleKey(e.code)) e.preventDefault();
       else if (!e.repeat && HELP_CLOSE_KEYS.has(e.code) && !this.isPauseKey(e.code)) {

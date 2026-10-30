@@ -4,6 +4,8 @@
  * - 'reliable': ordered and reliable — lobby, session start, events, commands, HUD mirror, results.
  * WebRTC (peer.ts) and the in-memory loopback (loopback.ts, tests) implement it; everything above is pure logic.
  */
+import type { PeerLinkStats } from './stats';
+
 export type NetChannel = 'state' | 'reliable';
 
 export type NetPayload = ArrayBuffer | string;
@@ -17,6 +19,8 @@ export interface NetTransport {
    * Real-time state is sent only while this stays small, so it never waits behind stale state.
    */
   buffered(channel: NetChannel): number;
+  /** What the link itself reports (WebRTC: round trip, route); absent where there is nothing to ask (loopback). */
+  stats?(): Promise<PeerLinkStats | null>;
   onMessage: ((channel: NetChannel, data: NetPayload) => void) | null;
   onClose: (() => void) | null;
   close(): void;

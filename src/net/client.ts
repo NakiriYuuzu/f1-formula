@@ -4,9 +4,10 @@
  * - every fixed step it quantises the local input into a record (cumulative one-shot counters), predicts its own car
  *   with the same per-car step the host runs (race predictHumanStep) and sends the last INPUT_REDUNDANCY records
  *   every other step;
- * - snapshots carry the own car's authoritative state right after the last input the host's state is final for (its
- *   seq and host time; inputs the host still guesses are replayed on its side once they arrive): the state is taken and
- *   the unacknowledged inputs replayed on top; the visual jump is smoothed out (beyond TELEPORT m: shown at once);
+ * - beside each snapshot (a datagram of its own, the newest seq taken) comes the own car's authoritative state right
+ *   after the last input the host's state is final for (its seq and host time; inputs the host still guesses are
+ *   replayed on its side once they arrive): the state is taken and the unacknowledged inputs replayed on top; the
+ *   visual jump is smoothed out (beyond TELEPORT m: shown at once);
  * - the other cars are shown on the own car's timeline: its prediction stands for the host time of the newest
  *   snapshot plus the unacknowledged inputs, so they are extrapolated along the track that far past the newest
  *   snapshot (at most MAX_EXTRAPOLATION s; the jump in place and speed a new snapshot makes is blended out over
@@ -48,6 +49,7 @@ import {
   INPUT_REDUNDANCY,
   ONE_SHOTS,
   decodeMessage,
+  decodeOwnState,
   decodeSnapshot,
   encodeInputPacket,
   encodeMessage,
@@ -59,8 +61,10 @@ import {
   type ClientCommand,
   type InputRecord,
   type NetMessage,
+  type OwnState,
   type Snapshot,
 } from './protocol';
+import { SeqTracker, StatWindow, byteSize, type GuestLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
 
 /** While the host drives the own car: render everything this far (s) behind the estimated host clock (interpolation). */
@@ -150,6 +154,16 @@ export class ClientSession {
   /** statistics: largest own-car correction (m) and reconciliations done */
   maxCorrection = 0;
   corrections = 0;
+  /** link statistics (diagnostics panel): frame snapshots and own-car states by seq, bytes, corrections */
+  private readonly linkSnapshots = new SeqTracker();
+  private readonly linkOwn = new SeqTracker();
+  private readonly linkDown = new StatWindow();
+  private readonly linkUp = new StatWindow();
+  private readonly linkCorrections = new StatWindow();
+  private peer: PeerLinkStats | null = null;
+  private peerAt: number | null = null;
+  /** seq of the own-car state last reconciled to (older ones arriving late are dropped) */
+  private ownSeq: number | null = null;
 
   private seq = 0;
   private readonly counters: number[] = ONE_SHOTS.map(() => 0);
@@ -202,6 +216,32 @@ export class ClientSession {
 
   get car(): CarEntry | undefined {
     return this.world.cars[this.carId];
+  }
+
+  /**
+   * The link to the host as this side measures it (diagnostics panel); also asks WebRTC for its view of the link, at
+   * most once a second (its answer shows in a later call).
+   */
+  linkStats(): GuestLinkStats {
+    const now = this.wallClock();
+    if (this.transport.stats && (this.peerAt === null || now - this.peerAt >= 1000)) {
+      this.peerAt = now;
+      this.transport.stats().then(
+        (p) => (this.peer = p),
+        () => (this.peer = null),
+      );
+    }
+    return {
+      pingMs: this.ping,
+      peer: this.peer,
+      snapshotHz: this.linkSnapshots.rate(now),
+      snapshotLoss: this.linkSnapshots.loss(now),
+      ownLoss: this.linkOwn.loss(now),
+      maxGapMs: this.linkSnapshots.maxGap(now),
+      correctionM: this.linkCorrections.max(now),
+      downBps: this.linkDown.perSecond(now),
+      upBps: this.linkUp.perSecond(now),
+    };
   }
 
   /** Inputs not yet acknowledged by the host. */
@@ -491,14 +531,33 @@ export class ClientSession {
   }
 
   private flushInputs(): void {
-    if (this.sent.length > 0 && this.transport.open) this.transport.send('state', encodeInputPacket(this.sent));
+    if (this.sent.length === 0 || !this.transport.open) return;
+    const packet = encodeInputPacket(this.sent);
+    this.linkUp.add(this.wallClock(), packet.byteLength);
+    this.transport.send('state', packet);
+  }
+
+  /** Wall clock (ms) of the link statistics: the frame clock's, else the steps run. */
+  private wallClock(): number {
+    return this.clock ? this.clock.now() : this.stepCount * SIM_DT * 1000;
   }
 
   private receive(channel: string, data: ArrayBuffer | string): void {
     if (this.disposed) return;
+    const now = this.wallClock();
+    this.linkDown.add(now, byteSize(data));
     if (channel === 'state') {
       const s = decodeSnapshot(data);
-      if (s) this.onSnapshot(s);
+      if (s) {
+        this.linkSnapshots.arrived(s.seq, now);
+        this.onSnapshot(s);
+        return;
+      }
+      const own = decodeOwnState(data);
+      if (own) {
+        this.linkOwn.arrived(own.seq, now);
+        this.reconcile(own);
+      }
       return;
     }
     const m = decodeMessage(data);
@@ -599,19 +658,21 @@ export class ClientSession {
     if (this.hostClock === null || Math.abs(clock - this.hostClock) > 0.5) this.hostClock = clock;
     else this.hostClock += (clock - this.hostClock) * CLOCK_GAIN;
     if (this.view === null) this.advanceView();
-    this.reconcile(s);
     this.syncOthers();
   }
 
-  private reconcile(s: Snapshot): void {
+  /** The host's state of the own car (newest seq only): taken, the unacknowledged inputs replayed on top. */
+  private reconcile(own: OwnState): void {
     const car = this.car;
-    if (!s.own || !car || s.own.carId !== this.carId) return;
+    if (!car || own.carId !== this.carId) return;
+    if (this.ownSeq !== null && !seqNewer(own.seq, this.ownSeq)) return;
+    this.ownSeq = own.seq;
     const wasPredicting = this.ownPredicted;
     const before = { x: car.phys.x, y: car.phys.y, z: car.phys.z };
-    this.ownSnapTime = s.own.time ?? s.time;
-    assignDeep(car.phys as unknown as Record<string, unknown>, s.own.phys as unknown as Record<string, unknown>);
-    if (s.ack !== null) {
-      const ack = s.ack;
+    this.ownSnapTime = own.time;
+    assignDeep(car.phys as unknown as Record<string, unknown>, own.phys as unknown as Record<string, unknown>);
+    if (own.ack !== null) {
+      const ack = own.ack;
       this.pending = this.pending.filter((p) => seqNewer(p.rec.seq, ack));
     }
     const predicting = this.canPredict(car);
@@ -623,6 +684,7 @@ export class ClientSession {
     const d = Math.hypot(err.x, err.z);
     this.corrections++;
     this.maxCorrection = Math.max(this.maxCorrection, d);
+    if (Number.isFinite(d)) this.linkCorrections.add(this.wallClock(), d);
     if (d > TELEPORT || !Number.isFinite(d)) this.smooth = { x: 0, y: 0, z: 0 };
     else {
       this.smooth.x += err.x;
@@ -632,7 +694,10 @@ export class ClientSession {
   }
 
   private send(m: NetMessage): void {
-    if (this.transport.open) this.transport.send('reliable', encodeMessage(m));
+    if (!this.transport.open) return;
+    const data = encodeMessage(m);
+    this.linkUp.add(this.wallClock(), byteSize(data));
+    this.transport.send('reliable', data);
   }
 
   private lost(): void {

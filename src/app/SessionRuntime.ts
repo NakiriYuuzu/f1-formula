@@ -716,6 +716,8 @@ export class SessionRuntime {
       replay: null,
       ...(this.host ? { ping: this.host.pings().map((p) => ({ name: p.name, ms: p.ms })) } : {}),
       ...(this.client ? { ping: [{ name: null, ms: this.client.ping }] } : {}),
+      ...(this.host ? { net: () => ({ role: 'host' as const, links: (this.host as HostSession).linkStats() }) } : {}),
+      ...(this.client ? { net: () => ({ role: 'guest' as const, link: (this.client as ClientSession).linkStats() }) } : {}),
     };
     this.hud.update(w, dt, info);
   }

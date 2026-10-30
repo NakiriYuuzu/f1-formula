@@ -21,8 +21,9 @@
  *   than GHOST_AFTER in a row and the car is a ghost to the other cars (netGhost), more than REWIND_STEPS (nothing
  *   left to replay: a frozen tab) and the AI controller drives it. A sender whose records keep arriving behind what
  *   was played (it lost time) is taken back on its own timeline at once;
- * - snapshots at SNAPSHOT_HZ (the packed render frame + the receiver's car before its first guess still open to a
- *   replay, the seq before it and the host time of that state), the HUD mirror at MIRROR_HZ (patches), game events as
+ * - snapshots at SNAPSHOT_HZ, two datagrams of one packet each with the receiver's snapshot seq (the frame, and the
+ *   receiver's car before its first guess still open to a replay with the seq before it and the host time of that
+ *   state), the HUD mirror at MIRROR_HZ (patches), game events as
  *   they happen, pings. Newest wins: a snapshot or patch that is due waits (the next step tries again) while the link
  *   still has more than LINK_BACKLOG bytes queued, so a link slower than what the host sends gets fewer, fresh
  *   snapshots instead of a queue of stale ones that every message waits behind. Snapshots go first; a mirror patch
@@ -44,12 +45,15 @@ import {
   decodeInputPacket,
   decodeMessage,
   encodeMessage,
+  encodeOwnState,
   encodeSnapshot,
+  nextSeq,
   oneShotsBetween,
   recordToInput,
   type InputRecord,
   type NetMessage,
 } from './protocol';
+import { StatWindow, byteSize, type HostLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
 
 export const SNAPSHOT_HZ = 30;
@@ -159,6 +163,13 @@ interface Remote {
   /** last round trip (ms), null before the first answer */
   ping: number | null;
   connected: boolean;
+  /** seq of the next snapshot sent to it */
+  snapshotSeq: number;
+  /** link statistics (diagnostics panel) */
+  stats: { snapshots: StatWindow; deferred: StatWindow; up: StatWindow; down: StatWindow; guesses: StatWindow };
+  /** what WebRTC last reported of the link (polled while someone looks: linkStats) */
+  peer: PeerLinkStats | null;
+  peerAt: number | null;
 }
 
 export interface HostCallbacks {
@@ -194,6 +205,7 @@ export class HostSession {
     private readonly cb: HostCallbacks = {},
   ) {
     this.session = session;
+    const start = this.clock();
     for (const p of players) {
       const r: Remote = {
         playerIndex: p.playerIndex,
@@ -224,6 +236,11 @@ export class HostSession {
         eventSeq: 0,
         ping: null,
         connected: true,
+        snapshotSeq: 0,
+        // (deferred snapshots and guessed inputs are rare on a good link: their rates count from the start)
+        stats: { snapshots: new StatWindow(), deferred: new StatWindow(start), up: new StatWindow(), down: new StatWindow(), guesses: new StatWindow(start) },
+        peer: null,
+        peerAt: null,
       };
       this.remotes.set(p.playerIndex, r);
       p.transport.onMessage = (channel, data) => this.receive(r, channel, data);
@@ -267,6 +284,39 @@ export class HostSession {
       .map((r) => ({ playerIndex: r.playerIndex, name: r.name, ms: r.ping }));
   }
 
+  /**
+   * The link to each connected remote player as the host measures it (diagnostics panel); also asks WebRTC for its
+   * view of the link, at most once a second (its answer shows in a later call).
+   */
+  linkStats(): ({ playerIndex: PlayerIndex } & HostLinkStats)[] {
+    const now = this.clock();
+    return [...this.remotes.values()]
+      .filter((r) => r.connected)
+      .sort((a, b) => a.playerIndex - b.playerIndex)
+      .map((r) => {
+        if (r.transport.stats && (r.peerAt === null || now - r.peerAt >= 1000)) {
+          r.peerAt = now;
+          r.transport.stats().then(
+            (p) => (r.peer = p),
+            () => (r.peer = null),
+          );
+        }
+        return {
+          playerIndex: r.playerIndex,
+          name: r.name,
+          pingMs: r.ping,
+          peer: r.peer,
+          snapshotHz: r.stats.snapshots.perSecond(now),
+          deferredHz: r.stats.deferred.perSecond(now),
+          upBps: r.stats.up.perSecond(now),
+          downBps: r.stats.down.perSecond(now),
+          backlogBytes: this.backlog(r),
+          inputDelayMs: r.delay * SIM_DT * 1000,
+          guessHz: r.stats.guesses.perSecond(now),
+        };
+      });
+  }
+
   /** Fill `inputs[playerIndex]` for every remote player for the coming world step. */
   fillInputs(inputs: (ControlInput | null)[]): void {
     for (const r of this.remotes.values()) {
@@ -293,8 +343,13 @@ export class HostSession {
     }
     const snapshot = this.steps % this.snapshotEvery === 0;
     const mirror = this.steps % this.mirrorEvery === 0;
+    const now = this.clock();
     for (const r of this.remotes.values()) {
-      if (snapshot) r.snapshotDue = true;
+      if (snapshot) {
+        // the previous one still waits for a clear link: this one takes its place
+        if (r.snapshotDue) r.stats.deferred.add(now);
+        r.snapshotDue = true;
+      }
       if (mirror && r.mirrorDueAt === null) r.mirrorDueAt = this.steps;
     }
     this.sendSnapshots();
@@ -455,6 +510,7 @@ export class HostSession {
     r.slots.push({ seq, rec, time: this.world.time, car: saveCar(car), counters: r.lastCounters, last: r.last });
     if (r.slots.length > REWIND_STEPS) r.slots.shift();
     r.guessRun = rec ? 0 : r.guessRun + 1;
+    if (!rec) r.stats.guesses.add(this.clock());
     car.race.netGuess = r.guessRun > 0;
     car.race.netGhost = r.guessRun > GHOST_AFTER;
     return r.guessRun > REWIND_STEPS ? computeAIInput(this.world, car, this.track, SIM_DT) : this.play(r, rec);
@@ -483,6 +539,7 @@ export class HostSession {
     const rec = seq !== null ? (r.records.get(seq) ?? null) : null;
     if (seq !== null) r.records.delete(seq);
     if (rec) r.real = seq as number;
+    else if (seq !== null) r.stats.guesses.add(this.clock());
     r.slots = [];
     r.guessRun = rec ? 0 : r.guessRun + 1;
     if (car) {
@@ -567,6 +624,7 @@ export class HostSession {
 
   private receive(r: Remote, channel: string, data: ArrayBuffer | string): void {
     if (this.disposed) return;
+    r.stats.down.add(this.clock(), byteSize(data));
     if (channel === 'state') {
       const records = decodeInputPacket(data);
       if (!records) return;
@@ -635,26 +693,41 @@ export class HostSession {
     return r.transport.buffered('state') + r.transport.buffered('reliable');
   }
 
-  /** Due snapshots to the remotes whose link is clear (see the header: newest wins). */
+  /** Due snapshots to the remotes whose link is clear (see the header: newest wins): the frame, then the own car. */
   private sendSnapshots(): void {
     let frame: RenderFrame | null = null;
     for (const r of this.remotes.values()) {
       if (!r.connected || !r.snapshotDue || this.backlog(r) > LINK_BACKLOG) continue;
       r.snapshotDue = false;
       frame ??= buildRenderFrame(this.world, this.track);
+      const seq = r.snapshotSeq;
+      r.snapshotSeq = nextSeq(seq);
+      const now = this.clock();
+      r.stats.snapshots.add(now);
+      this.sendState(r, encodeSnapshot({ seq, tick: this.world.tick, time: this.world.time, frame }), now);
       const car = this.carOf(r);
+      if (!car) continue;
       // the car before its first guess still open to a replay (the steps after it are the client's to predict)
       const guess = r.slots.find((s) => s.rec === null);
       const ack = guess ? guess.seq - 1 : r.played;
-      const buf = encodeSnapshot({
-        tick: this.world.tick,
-        time: this.world.time,
-        ack: ack === null ? null : ((ack % SEQ_MOD) + SEQ_MOD) % SEQ_MOD,
-        frame,
-        own: car ? { carId: car.id, phys: guess ? guess.car.phys : car.phys, time: guess ? guess.time : this.world.time } : null,
-      });
-      r.transport.send('state', buf);
+      this.sendState(
+        r,
+        encodeOwnState({
+          seq,
+          ack: ack === null ? null : ((ack % SEQ_MOD) + SEQ_MOD) % SEQ_MOD,
+          carId: car.id,
+          time: guess ? guess.time : this.world.time,
+          phys: guess ? guess.car.phys : car.phys,
+        }),
+        now,
+      );
     }
+  }
+
+  private sendState(r: Remote, buf: ArrayBuffer, now: number): void {
+    if (!r.transport.open) return;
+    r.stats.up.add(now, buf.byteLength);
+    r.transport.send('state', buf);
   }
 
   /** Due mirror patches (`force`: every remote now, e.g. before the result) to the remotes whose link is clear. */
@@ -696,7 +769,10 @@ export class HostSession {
   }
 
   private send(r: Remote, m: NetMessage): void {
-    if (r.transport.open) r.transport.send('reliable', encodeMessage(m));
+    if (!r.transport.open) return;
+    const data = encodeMessage(m);
+    r.stats.up.add(this.clock(), byteSize(data));
+    r.transport.send('reliable', data);
   }
 }
 

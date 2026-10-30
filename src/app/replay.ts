@@ -52,6 +52,31 @@ const FLAG_BOOST = 8;
 const FLAG_VISIBLE = 16;
 const FLAG_GHOST = 32;
 
+/**
+ * Layout of encodeFrame's packed array for the online snapshot, which quantises it field by field
+ * (src/net/protocol.ts; a field not named here travels as float32).
+ */
+export const FRAME_LAYOUT = {
+  header: HEADER,
+  carFields: CAR_FIELDS,
+  id: F_ID,
+  yaw: F_YAW,
+  pitch: F_PITCH,
+  roll: F_ROLL,
+  speed: F_SPEED,
+  steer: F_STEER,
+  throttle: F_THROTTLE,
+  brake: F_BRAKE,
+  rpm: F_RPM,
+  gear: F_GEAR,
+  damage: [F_DMG_FRONT, F_DMG_REAR, F_DMG_FLOOR, F_DMG_SUSPENSION],
+  slip: F_SLIP,
+  lockup: F_LOCKUP,
+  compound: F_COMPOUND,
+  surface: F_SURFACE,
+  flags: F_FLAGS,
+} as const;
+
 const fin = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
 
 function codeOf<T>(list: readonly T[], value: T): number {

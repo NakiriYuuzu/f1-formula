@@ -5,6 +5,7 @@
  * so this thin layer is not unit-tested; everything above it runs on the loopback transport in tests).
  */
 import type { SignalClient } from './signal/types';
+import type { PeerLinkStats } from './stats';
 import type { NetChannel, NetPayload, NetTransport } from './transport';
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }, { urls: 'stun:stun.l.google.com:19302' }];
@@ -73,6 +74,30 @@ class PeerTransport implements NetTransport {
   buffered(channel: NetChannel): number {
     if (this.closed) return 0;
     return (channel === 'state' ? this.state : this.reliable).bufferedAmount;
+  }
+
+  /** The selected candidate pair: WebRTC's own round trip (STUN, the network alone) and whether it goes via TURN. */
+  async stats(): Promise<PeerLinkStats | null> {
+    if (this.closed) return null;
+    const report = await this.pc.getStats();
+    // (RTCStatsReport entries by type; the DOM typings give them as plain records)
+    type Entry = Record<string, unknown>;
+    let pair: Entry | undefined;
+    report.forEach((s: Entry) => {
+      if (s.type === 'transport' && typeof s.selectedCandidatePairId === 'string') pair = report.get(s.selectedCandidatePairId) as Entry | undefined;
+    });
+    // (Firefox marks the pair instead)
+    if (!pair) report.forEach((s: Entry) => {
+      if (s.type === 'candidate-pair' && s.selected === true) pair = s;
+    });
+    if (!pair) return { rttMs: null, route: null };
+    const local = report.get(String(pair.localCandidateId)) as Entry | undefined;
+    const remote = report.get(String(pair.remoteCandidateId)) as Entry | undefined;
+    const rtt = pair.currentRoundTripTime;
+    return {
+      rttMs: typeof rtt === 'number' && Number.isFinite(rtt) ? rtt * 1000 : null,
+      route: local?.candidateType === 'relay' || remote?.candidateType === 'relay' ? 'relay' : 'direct',
+    };
   }
 
   send(channel: NetChannel, data: NetPayload): void {
