@@ -732,12 +732,12 @@ export class HostSession {
 
   /** Due mirror patches (`force`: every remote now, e.g. before the result) to the remotes whose link is clear. */
   private sendMirror(force: boolean): void {
-    let view: ReturnType<typeof mirrorView> | null = null;
     for (const r of this.remotes.values()) {
       if (!r.connected) continue;
       if (!force && (r.mirrorDueAt === null || (this.backlog(r) > LINK_BACKLOG && (this.steps - r.mirrorDueAt < MIRROR_MAX_WAIT || r.transport.buffered('reliable') > LINK_BACKLOG)))) continue;
       r.mirrorDueAt = null;
-      view ??= mirrorView(this.world);
+      // (each receiver's own view: see mirror.ts)
+      const view = mirrorView(this.world, this.carOf(r)?.id ?? -1);
       const patch = diffMirror(r.mirror as never, view);
       r.mirror = view;
       if (patch === undefined) continue;

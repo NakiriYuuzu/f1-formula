@@ -5,7 +5,7 @@
  * sent for a while and lets it through in a burst (a lag spike). With a `bandwidth` each direction is a serial link
  * of that many bytes per second: messages queue behind each other (both channels, like one SCTP association) and
  * `buffered()` reports what has not left yet; `setBandwidth` changes it for what is sent from then on (a congested
- * link). Deterministic (seeded).
+ * link), both ways or one end's upload only. Deterministic (seeded).
  */
 import type { NetChannel, NetPayload, NetTransport } from './transport';
 
@@ -37,6 +37,8 @@ class LoopbackEnd implements NetTransport {
   lastReliable = 0;
   /** outgoing link: busy until (ms), and what is still leaving (time it has left, bytes, channel) */
   linkFreeAt = 0;
+  /** bytes per second of this end's outgoing link (null: the network's) */
+  bandwidth: number | null = null;
   outgoing: { leftAt: number; bytes: number; channel: NetChannel }[] = [];
 
   constructor(private readonly net: LoopbackNetwork) {}
@@ -108,9 +110,10 @@ export class LoopbackNetwork {
     this.delay = Math.max(0, ms);
   }
 
-  /** Bytes per second each way for what is sent from now on (0: unlimited). */
-  setBandwidth(bytesPerSecond: number): void {
-    this.bandwidth = Math.max(0, bytesPerSecond);
+  /** Bytes per second each way for what is sent from now on (0: unlimited); with `from`: only what that end sends. */
+  setBandwidth(bytesPerSecond: number, from?: NetTransport): void {
+    if (from instanceof LoopbackEnd) from.bandwidth = Math.max(0, bytesPerSecond);
+    else this.bandwidth = Math.max(0, bytesPerSecond);
   }
 
   /** A connected pair of transports (a ↔ b). */
@@ -154,10 +157,11 @@ export class LoopbackNetwork {
 
   enqueue(sender: LoopbackEnd, to: LoopbackEnd, channel: NetChannel, data: NetPayload): void {
     let from = Math.max(this.now, this.stallUntil);
-    if (this.bandwidth > 0) {
+    const bandwidth = sender.bandwidth ?? this.bandwidth;
+    if (bandwidth > 0) {
       // the sender's link: behind what it is still sending (a lost message used the link all the same)
       const bytes = typeof data === 'string' ? utf8Length(data) : data.byteLength;
-      from = Math.max(from, sender.linkFreeAt) + (bytes * 1000) / this.bandwidth;
+      from = Math.max(from, sender.linkFreeAt) + (bytes * 1000) / bandwidth;
       sender.linkFreeAt = from;
       sender.outgoing = sender.outgoing.filter((o) => o.leftAt > this.now);
       sender.outgoing.push({ leftAt: from, bytes, channel });

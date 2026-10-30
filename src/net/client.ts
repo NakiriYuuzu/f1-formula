@@ -294,12 +294,7 @@ export class ClientSession {
       if (car && car.status === 'running' && car.timing.lap >= 1) {
         car.timing.currentLapTime += SIM_DT;
         // race distance follows the own car between mirror patches (fuel per lap and gap read it every frame)
-        const L = this.track.length;
-        const mirrored = car.timing.progress;
-        let progress = car.timing.lapsCompleted * L + car.phys.s;
-        if (progress < mirrored - L / 2) progress += L;
-        else if (progress > mirrored + L / 2) progress -= L;
-        if (Number.isFinite(progress)) car.timing.progress = progress;
+        car.timing.progress = raceDistance(car.timing.progress, car.timing.lapsCompleted, car.phys.s, this.track.length);
       }
     }
     this.stepCount++;
@@ -461,6 +456,8 @@ export class ClientSession {
       if (at) {
         p.s = at.s;
         p.lateral = at.lat;
+        // (not mirrored: the mirrored laps and this place; the AI driving the own car reads it to see a car lap it)
+        car.timing.progress = raceDistance(car.timing.progress, car.timing.lapsCompleted, at.s, this.track.length);
       }
     }
   }
@@ -705,6 +702,17 @@ export class ClientSession {
     this.hostLeft = true;
     this.cb.hostLost?.();
   }
+}
+
+/**
+ * Race distance (m) from the completed laps and the place on the lap, taken within half a lap of `prev` (around the
+ * line the place and the lap count change at different moments: one from a snapshot, the other from a mirror patch).
+ */
+function raceDistance(prev: number, laps: number, s: number, length: number): number {
+  let progress = laps * length + s;
+  if (progress < prev - length / 2) progress += length;
+  else if (progress > prev + length / 2) progress -= length;
+  return Number.isFinite(progress) ? progress : prev;
 }
 
 /** A record's input with the one-shots fired since `prev` counters (what the host applies for it). */

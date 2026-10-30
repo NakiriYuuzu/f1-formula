@@ -11,7 +11,8 @@ import { REAL_GRID } from '../src/data/realGrid';
 import { getLayout } from '../src/data/tracks/index';
 import { angleDiff } from '../src/core/math';
 import { decodeFrame, encodeFrame } from '../src/app/replay';
-import { buildRenderFrame, createWorld, stepWorld } from '../src/race/index';
+import { computeAIInput } from '../src/ai/index';
+import { buildRenderFrame, createWorld, getPlayerCarId, stepWorld } from '../src/race/index';
 import { HostSession } from '../src/net/host';
 import { LoopbackNetwork } from '../src/net/loopback';
 import { applyMirrorPatch, applyMirrorToWorld, diffMirror, mirrorView } from '../src/net/mirror';
@@ -343,6 +344,8 @@ describe('HUD mirror', () => {
     state = applyMirrorPatch(state, patch);
     expect(state).toEqual(JSON.parse(JSON.stringify(v1)));
     expect(diffMirror(v1, mirrorView(host))).toBeUndefined();
+    // (a distinctive own-car value the mirror must not overwrite)
+    client.cars[0]!.phys.fuelKg = 42.125;
     applyMirrorToWorld(client, state as Record<string, unknown>, 0);
     expect(client.session.phase).toBe(host.session.phase);
     expect(client.race.order).toEqual(host.race.order);
@@ -351,7 +354,63 @@ describe('HUD mirror', () => {
       expect(client.cars[i]!.timing.lapsCompleted).toBe(host.cars[i]!.timing.lapsCompleted);
       if (i !== 0) expect(client.cars[i]!.phys.tire.compound).toBe(host.cars[i]!.phys.tire.compound);
     }
-    // the skipped car keeps its own (predicted) physics
-    expect(client.cars[0]!.phys.s).not.toBeCloseTo(host.cars[0]!.phys.s, 0);
+    // the skipped car keeps its own (predicted) physics; the others take the mirrored one
+    expect(client.cars[0]!.phys.fuelKg).toBe(42.125);
+    expect(client.cars[1]!.phys.fuelKg).toBeCloseTo(host.cars[1]!.phys.fuelKg, 1);
   });
+
+  test("each receiver's view: its own car's live timing and no physics; the other cars' tower data, not what the snapshots carry", () => {
+    const track = getLayout('monza');
+    const world = createWorld(config('monza'), track);
+    for (let i = 0; i < 2400; i++) stepWorld(world, track, [control({ throttle: 1 }), control({ throttle: 1 })], SIM_DT);
+    type View = { cars: { timing: Record<string, number>; phys?: Record<string, unknown> & { ers: Record<string, unknown>; tire: Record<string, unknown> } }[] };
+    const v = mirrorView(world, 1) as unknown as View;
+    const own = v.cars[1]!;
+    const host1 = world.cars[1]!;
+    expect(own.phys).toBeUndefined();
+    expect(own.timing.currentLapTime).toBeCloseTo(host1.timing.currentLapTime, 3);
+    expect(own.timing.progress).toBeCloseTo(host1.timing.progress, 3);
+    const other = v.cars[2]!;
+    const host2 = world.cars[2]!;
+    expect(other.timing.currentLapTime).toBeUndefined();
+    expect(other.timing.progress).toBeUndefined();
+    // motion comes with every snapshot (ClientSession.syncOthers), the per-lap energy counters are the car's own
+    for (const k of ['speed', 'gear', 'rpm', 'throttle', 'brake', 's', 'lateral']) expect(other.phys![k]).toBeUndefined();
+    expect(other.phys!.ers.deployedLap).toBeUndefined();
+    expect(other.phys!.ers.harvestedLap).toBeUndefined();
+    // what the tower shows, exact; the rest in coarse steps
+    expect(other.timing.position).toBe(host2.timing.position);
+    expect(other.timing.gapToLeader).toBeCloseTo(host2.timing.gapToLeader, 3);
+    expect(other.timing.interval).toBeCloseTo(host2.timing.interval, 3);
+    expect(other.phys!.tire.compound).toBe(host2.phys.tire.compound);
+    expect(Math.abs((other.phys!.fuelKg as number) - host2.phys.fuelKg)).toBeLessThanOrEqual(0.05 + 1e-9);
+    expect(Math.abs((other.phys!.tire.temp as number) - host2.phys.tire.temp)).toBeLessThanOrEqual(0.5 + 1e-9);
+    expect(Math.abs((other.phys!.ers.charge as number) - host2.phys.ers.charge)).toBeLessThanOrEqual(0.05 + 1e-9);
+  });
+
+  test(
+    "a 22-car race as a guest gets it: patches of about half a packet, past the start nearly all in one packet",
+    () => {
+      const track = getLayout('monza');
+      const world = createWorld(config('monza', [0, 1], 30, 22), track);
+      const own = getPlayerCarId(world, 1);
+      let prev: ReturnType<typeof mirrorView> | undefined;
+      const sizes: number[] = [];
+      for (let i = 0; world.time < 70; i++) {
+        const inputs = [0, 1].map((pi) => computeAIInput(world, world.cars[getPlayerCarId(world, pi as PlayerIndex)]!, track, SIM_DT));
+        stepWorld(world, track, inputs, SIM_DT);
+        if (i % 24 !== 0) continue;
+        const view = mirrorView(world, own);
+        const patch = diffMirror(prev, view);
+        // (the start: every car's top speed and gaps still forming)
+        if (prev !== undefined && patch !== undefined && world.time > 20) sizes.push(JSON.stringify(patch).length);
+        prev = view;
+      }
+      expect(sizes.length).toBeGreaterThan(200);
+      // (measured 517 B on average; the view for every car's own HUD sent 5.7 KB)
+      expect(sizes.reduce((a, b) => a + b, 0) / sizes.length).toBeLessThan(800);
+      expect(sizes.filter((n) => n <= ONE_PACKET_BYTES).length / sizes.length).toBeGreaterThan(0.95);
+    },
+    60_000,
+  );
 });

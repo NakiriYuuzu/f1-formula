@@ -75,7 +75,7 @@ describe('online congestion', () => {
     'a link slower than the host sends for 3 s: the guest sees the race at the link delay, not seconds late',
     () => {
       const track = getLayout('monza');
-      // a full field: ~1.4 KB snapshots (frame + own car) at 30 Hz + ~5 KB mirror patches at 5 Hz ≈ 70 KB/s to the guest
+      // a full field: ~1.4 KB snapshots (frame + own car) at 30 Hz + ~0.5 KB mirror patches at 5 Hz ≈ 45 KB/s to the guest
       const cfg = config('monza', [0, 1], 20);
       const net = new LoopbackNetwork({ delayMs: 40, jitterMs: 5, loss: 0.01, seed: 5, bandwidth: 400 * KB });
       const [h, c] = net.pair();
@@ -114,7 +114,8 @@ describe('online congestion', () => {
         net.advance(SIM_DT * 1000);
         if (!dipped && world.time >= DIP_FROM) {
           dipped = true;
-          net.setBandwidth(50 * KB);
+          // (about 40 % of what the host sends)
+          net.setBandwidth(20 * KB);
         }
         if (!restored && world.time >= DIP_TO) {
           restored = true;
@@ -133,12 +134,12 @@ describe('online congestion', () => {
       const pingDuring = Math.max(...pings.filter((p) => p.at >= DIP_FROM && p.at < DIP_TO + 2).map((p) => p.ms));
       // healthy: 40–45 ms link + up to one snapshot interval of the guest's frame
       expect(before).toBeLessThan(0.1);
-      // congested: one snapshot's transmission at 50 KB/s on top (~60 ms), never a queue of them (sending all: 3–4 s)
+      // congested: one snapshot's transmission at 20 KB/s on top (~70 ms), never a queue of them
       expect(during).toBeLessThan(0.25);
       expect(after).toBeLessThan(0.1);
       // the reliable channel (events, pings, results) is not stuck behind HUD patches either (sending all: seconds)
       expect(pingDuring).toBeLessThan(400);
-      // healthy: every snapshot (30 Hz); congested: fewer, not none (measured 13 / s at 50 KB/s, positions first)
+      // healthy: every snapshot (30 Hz); congested: fewer, not none (measured 13 / s at 20 KB/s, positions first)
       expect(ages.filter((a) => a.at >= 10 && a.at < DIP_FROM).length).toBeGreaterThanOrEqual(29 * 10);
       expect(ages.filter((a) => a.at >= DIP_FROM && a.at < DIP_TO).length).toBeGreaterThan(30);
       // the HUD mirror: 5 Hz healthy, still about every 0.6–0.9 s while congested (snapshots first)
@@ -151,7 +152,7 @@ describe('online congestion', () => {
   );
 
   test(
-    'a very slow link (8 KB/s, less than the HUD patches alone): nothing piles up, snapshots still get through',
+    "a very slow host upload (2 KB/s, less than the HUD patches alone): nothing piles up, snapshots still get through",
     () => {
       const { world, net, host, link, guestEnd, step } = setup(400 * KB);
       let snapshots = 0;
@@ -161,7 +162,8 @@ describe('online congestion', () => {
         deliver?.(channel, data);
       };
       while (world.time < 10) step();
-      net.setBandwidth(8 * KB);
+      // (the host's upload only: the guest's own inputs alone take ≈ 4 KB/s; its HUD patches ≈ 2.5 KB/s)
+      net.setBandwidth(2 * KB, link);
       snapshots = 0;
       let queued = 0;
       while (world.time < 30) {

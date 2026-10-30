@@ -3,28 +3,19 @@
  * results and audio read — session, weather, race order / best sectors and per car timing, pit, penalties, status,
  * flags, control mode and a physics subset — as plain JSON, sent as patches (only the leaves that changed since the
  * previous one; arrays replace whole) on the reliable channel, and applied onto the client's mirror world.
+ * Each receiver gets its own view (mirrorView's `ownCarId`) holding only what it reads, so a patch carries few of the
+ * values that change every step: its own car's physics comes whole with each snapshot (the own-state datagram), the
+ * other cars' motion with every snapshot (ClientSession.syncOthers, which also works out their race distance from the
+ * mirrored laps), and their live lap time is read for no car but its own (which it moves on between patches).
  */
-import type { CarEntry, WorldState } from '../core/types';
+import type { CarEntry, CarPhysicsState, WorldState } from '../core/types';
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 
-/** Physics fields of every car the client shows (its own car is predicted locally on top). */
-const PHYS_KEYS = [
-  'speed',
-  'gear',
-  'rpm',
-  'throttle',
-  'brake',
-  'fuelKg',
-  'limiter',
-  'surface',
-  's',
-  'lateral',
-  'tire',
-  'ers',
-  'drs',
-  'damage',
-] as const;
+/** Physics fields of the other cars (speed, gear, rpm, pedals, s, lateral come with every snapshot instead). */
+const PHYS_KEYS = ['fuelKg', 'limiter', 'surface', 'tire', 'ers', 'drs', 'damage'] as const;
+/** Timing sent for the receiver's own car only (its HUD lap timer; the others' race distance it works out itself). */
+const OWN_TIMING_KEYS = ['currentLapTime', 'progress'] as const;
 
 const round = (v: number, k: number): number => Math.round(v * k) / k;
 
@@ -45,18 +36,40 @@ function plain(v: unknown, digits = 1000): Json {
   return null;
 }
 
-function carView(c: CarEntry): { [k: string]: Json } {
+/**
+ * Another car's physics subset. Continuous values the guest shows for no car but its own come in coarse steps (fuel
+ * 0.1 kg, tyre temperature 1 °C, battery 10 %), so they change now and then instead of in every patch; the per-lap ERS
+ * energy counters (that car's own physics' business) not at all.
+ */
+function otherPhys(p: CarPhysicsState): { [k: string]: Json } {
   const phys: { [k: string]: Json } = {};
-  for (const k of PHYS_KEYS) phys[k] = plain(c.phys[k]);
+  for (const k of PHYS_KEYS) phys[k] = plain(p[k]);
+  phys.fuelKg = plain(p.fuelKg, 10);
+  (phys.tire as { [k: string]: Json }).temp = plain(p.tire.temp, 1);
+  const ers = phys.ers as { [k: string]: Json };
+  ers.charge = plain(p.ers.charge, 10);
+  delete ers.deployedLap;
+  delete ers.harvestedLap;
+  return phys;
+}
+
+function carView(c: CarEntry, own: boolean): { [k: string]: Json } {
+  const timing = plain(c.timing) as { [k: string]: Json };
+  if (!own) {
+    for (const k of OWN_TIMING_KEYS) delete timing[k];
+    // (read on no guest: whole m/s, not a change for every patch of each car still speeding up)
+    timing.topSpeed = plain(c.timing.topSpeed, 1);
+  }
   return {
     playerIndex: c.playerIndex,
     displayName: c.displayName,
     status: c.status,
-    timing: plain(c.timing),
+    timing,
     pit: plain(c.pit),
     penalties: plain(c.penalties),
     flags: plain(c.flags),
-    phys,
+    // (the receiver's own car: its physics is the own-state datagram's)
+    ...(own ? {} : { phys: otherPhys(c.phys) }),
     assists: plain(c.assists),
     // timing tower / pit HUD read these race internals; the client's prediction checks who drives (pit / formation)
     race: plain({
@@ -71,8 +84,8 @@ function carView(c: CarEntry): { [k: string]: Json } {
   };
 }
 
-/** The mirrored part of a world. */
-export function mirrorView(world: WorldState): { [k: string]: Json } {
+/** The mirrored part of a world as the receiver driving car `ownCarId` reads it (-1: none, every car another's). */
+export function mirrorView(world: WorldState, ownCarId = -1): { [k: string]: Json } {
   return {
     time: round(world.time, 1000),
     tick: world.tick,
@@ -80,7 +93,7 @@ export function mirrorView(world: WorldState): { [k: string]: Json } {
     weather: plain(world.weather),
     flashbacksUsed: world.flashbacksUsed,
     race: plain({ order: world.race.order, bestSectors: world.race.bestSectors, benchLap: world.race.benchLap }),
-    cars: world.cars.map(carView),
+    cars: world.cars.map((c) => carView(c, c.id === ownCarId)),
   };
 }
 

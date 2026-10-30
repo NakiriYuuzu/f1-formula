@@ -83,6 +83,9 @@ describe('online session (loopback)', () => {
       const drawn: { t: number; cars: { id: number; x: number; z: number }[] }[] = [];
       const othersErr: number[] = [];
       const ownErr: number[] = [];
+      // client A's own lap timer and the other cars' race distance (worked out on the guest) against the host's
+      const lapTimerErr: number[] = [];
+      const distanceErr: number[] = [];
       let pitAsked = false;
       let dropped = false;
       let steps = 0;
@@ -132,6 +135,11 @@ describe('online session (loopback)', () => {
         const frame = a.hostLeft ? null : a.renderFrame(SIM_DT);
         if (frame && steps % 60 === 0 && world.session.phase === 'running' && world.time > 10) {
           drawn.push({ t: frame.time, cars: frame.cars.map((c) => ({ id: c.carId, x: c.x, z: c.z })) });
+          const own = world.cars[a.carId]!;
+          if (own.status === 'running') lapTimerErr.push(Math.abs(a.car!.timing.currentLapTime - own.timing.currentLapTime));
+          for (const c of world.cars) {
+            if (c.id !== a.carId && c.status === 'running') distanceErr.push(Math.abs(a.world.cars[c.id]!.timing.progress - c.timing.progress));
+          }
         }
       }
       expect(isSessionOver(world)).toBe(true);
@@ -177,6 +185,13 @@ describe('online session (loopback)', () => {
       expect(p95(ownErr)).toBeLessThan(2);
       expect(mean(othersErr)).toBeLessThan(1);
       expect(p95(othersErr)).toBeLessThan(3);
+      // the mirror is per receiver: A's own lap timer comes with A's view, the others' race distance is A's own work
+      // (measured p95 0.10 s and 9.7 m; a view without A's timing left its lap timer running on: 211 s at lap 3)
+      expect(lapTimerErr.length).toBeGreaterThan(100);
+      expect(p95(lapTimerErr)).toBeLessThan(0.5);
+      expect(distanceErr.length).toBeGreaterThan(1000);
+      expect(p95(distanceErr)).toBeLessThan(30);
+      expect(Math.max(...distanceErr)).toBeLessThan(60);
       // round trips: the host measures each guest, the guest learns its own (80 ± 30 ms each way); B is gone
       expect(a.ping).not.toBeNull();
       expect(a.ping!).toBeGreaterThan(80);
