@@ -706,9 +706,13 @@ export class App {
 
   private readonly onVisibility = (): void => {
     this.audio.setMusicHidden(document.hidden);
-    if (document.visibilityState === 'hidden') this.autoPause();
-    // back: the hidden time is not a slow frame to catch up (the online host's ran on the background timer)
-    else this.skipDt = true;
+    if (document.visibilityState === 'hidden') {
+      this.autoPause();
+      this.session?.pageHidden();
+    } else {
+      // back: the hidden time is not a slow frame to catch up (the online host's ran on the background timer)
+      this.skipDt = true;
+    }
     this.syncAway();
   };
 

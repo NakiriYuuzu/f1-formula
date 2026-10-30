@@ -90,6 +90,8 @@ function stepCar(world: WorldState, track: BuiltTrack, car: CarEntry, inputs: re
   }
   const proj = projectToTrack(track, p.x, p.z, p.trackIndex);
   applyProjection(car, proj);
+  // online host: the player's next input is not due yet — the car waits a step rather than drive on one never sent
+  if (r.netHold) return;
   const human = isHuman(car) && !r.formationAuto;
   let input = human ? (inputs[car.playerIndex] ?? COAST_INPUT) : computeAIInput(world, car, track, dt);
   if (human && car.assists.scLimiter && car.status === 'running') input = limitToSafetyCar(world, track, car, input);

@@ -117,6 +117,10 @@ export interface CarRaceInternal {
    * nothing that a replay cannot undo */
   netGuess?: boolean;
   netGhost?: boolean;
+  /** online host: the car waits this step (its player's timeline slipped a step later: no input of theirs is due) */
+  netHold?: boolean;
+  /** online host: drawn offset (m) of the car's held / extra steps, decaying (render only: the step spread out) */
+  netDraw?: { x: number; y: number; z: number };
   /** world time of the last car-vs-car overlap handled, whatever its impulse (online host: ends a replay window) */
   touchAt?: number;
 }

@@ -3,7 +3,14 @@
  * (every car, AI included); this class only connects it to the remote players:
  * - per remote player an input timeline: record seq q is played at host step q + delay, the delay being the earliest
  *   arrival of the last AGE_WINDOW steps plus PLAYOUT_MARGIN (re-anchored when the records keep arriving later,
- *   shortened a step at a time when they arrive earlier); one-shots fire on counter changes. An arrival's age counts
+ *   shortened a step at a time when they arrive earlier); one-shots fire on counter changes. On the open road the
+ *   car steps once per record as the delay moves with the link's jitter — a longer delay holds the car a step (race
+ *   netHold), a shorter one gives it an extra step of the next record (predictHumanStep), one every SHRINK_EVERY
+ *   steps, the host drawing both spread out (race netDraw) — so the player's own prediction never meets an input
+ *   skipped or one it did not send, while the car's steps stay within LEAD_MAX of the world's in all. A change of
+ *   more than LEAD_MAX still to take (the host or the sender lost time) and the part of one past that band are taken
+ *   at once, as off the open road: records skipped, or the timeline taken back — a record already played is never
+ *   played again (its step on the last input: no one-shot fires twice). An arrival's age counts
  *   the steps the host still has to run (what its clock still simulates given the wall-clock time since its last
  *   step: HostCallbacks.owed): records that arrive while the host's frame stalls are not early, and the delay stays
  *   the link's. A record not there in
@@ -57,14 +64,22 @@ const AGE_WINDOW = 240;
 /** Arrivals later than the delay allows by more than LATE_TOLERANCE steps, LATE_STREAK steps in a row: re-anchor. */
 const LATE_TOLERANCE = 6;
 const LATE_STREAK = 8;
-/** A too long delay shrinks one step every SHRINK_EVERY steps; more than SHRINK_JUMP steps too long, at once. */
+/** A delay change is taken one step every SHRINK_EVERY steps; off the open road more than SHRINK_JUMP steps too long, at once. */
 const SHRINK_EVERY = 4;
 const SHRINK_JUMP = 30;
+/** On the open road a car's steps stay within this many of the world's in all (holds and extra steps, ±0.25 s on the
+ * field): room for the jitter, a route that gets up to 0.25 s slower or faster, a few small time losses, and no more
+ * than that for a sender whose clock runs fast. A delay change of more than this still to take is somebody losing
+ * time: taken at once. */
+const LEAD_MAX = 30;
+/** Host view: a held or extra step is drawn spread out over about this time (s) (race netDraw), not stood still / jumped. */
+const DRAW_SMOOTH = 0.1;
 /** Steps a late input can still be replayed (0.75 s). */
 export const REWIND_STEPS = 90;
 /** Guessed steps in a row after which the car is a ghost on the host (race netGhost) until a real input is back. */
 const GHOST_AFTER = 6;
-/** Steps the delay may grow by holding; the sender further behind what was played is re-anchored at once. */
+/** Off the open road: steps the delay may grow by holding the last input; the sender further behind what was played
+ * is re-anchored at once (it lost time: the guesses so far final). */
 const HOLD_STEPS = 2;
 /** Records further ahead of the newest one (steps) are ignored. */
 const MAX_AHEAD = 1200;
@@ -90,9 +105,9 @@ interface SavedCar {
 
 /** One step of a remote car that can still be replayed. */
 interface Slot {
-  /** unwrapped seq played (null: a step held while the delay grew) */
-  seq: number | null;
-  /** the record played (null: guessed / held) */
+  /** unwrapped seq played */
+  seq: number;
+  /** the record played (null: guessed) */
   rec: InputRecord | null;
   /** world time before the step and the car then */
   time: number;
@@ -112,6 +127,8 @@ interface Remote {
   newest: number | null;
   playSeq: number | null;
   played: number | null;
+  /** newest seq played with its real record: never played again (its one-shots fired, its step taken) */
+  real: number;
   /** playout delay (steps): step k plays seq k − delay */
   delay: number;
   /** earliest arrival age (steps) before each step of the window; the one since the last step */
@@ -119,6 +136,8 @@ interface Remote {
   arrival: number | null;
   late: number[];
   shrinkAt: number;
+  /** open-road car steps minus world steps (extra steps − holds), within ±LEAD_MAX */
+  lead: number;
   /** a late record waits for its guessed step */
   rewind: boolean;
   lastCounters: number[];
@@ -184,11 +203,13 @@ export class HostSession {
         newest: null,
         playSeq: null,
         played: null,
+        real: -Infinity,
         delay: 0,
         ages: [],
         arrival: null,
         late: [],
         shrinkAt: 0,
+        lead: 0,
         rewind: false,
         lastCounters: ONE_SHOTS.map(() => 0),
         last: null,
@@ -231,6 +252,11 @@ export class HostSession {
   /** Playout delay of a remote player's inputs (steps). */
   inputDelayOf(playerIndex: PlayerIndex): number {
     return this.remotes.get(playerIndex)?.delay ?? 0;
+  }
+
+  /** Newest seq of a remote player's inputs its car has played with the record (-Infinity: none yet). */
+  playedRecordOf(playerIndex: PlayerIndex): number {
+    return this.remotes.get(playerIndex)?.real ?? -Infinity;
   }
 
   /** The connected remote players in seat order with their last round trip (ms; null: not measured yet). */
@@ -333,44 +359,137 @@ export class HostSession {
       r.rewind = false;
       if (car) this.replay(r, car);
     }
+    if (car) {
+      car.race.netHold = false;
+      const d = car.race.netDraw;
+      if (d) {
+        const f = Math.exp(-SIM_DT / DRAW_SMOOTH);
+        d.x *= f;
+        d.y *= f;
+        d.z *= f;
+        if (Math.hypot(d.x, d.y, d.z) < 1e-3) car.race.netDraw = undefined;
+      }
+    }
     if (r.playSeq === null) {
       if (r.newest === null) return null;
       r.playSeq = k - r.delay;
     }
-    // the seq due now; behind it the delay grew (a held step, no record used), ahead of it it shrank (records skipped:
-    // their one-shots fire with the next one, the counters being cumulative)
+    const open = car !== undefined && openRoad(this.world, car);
+    // the seq due now: behind it the delay grew, ahead of it it shrank
     const due = k - r.delay;
-    if (due < r.playSeq - HOLD_STEPS) {
-      // far behind what was played (the sender lost time): its own timeline from here, the guesses so far final
-      r.playSeq = due;
-      r.slots = [];
+    if (!open && due < r.playSeq - HOLD_STEPS) this.back(r, due);
+    const input = open ? this.openRoadStep(r, car, k, due) : this.offRoadStep(r, car, k, due);
+    for (const q of r.records.keys()) if (q < r.playSeq - REWIND_STEPS) r.records.delete(q);
+    return input;
+  }
+
+  /**
+   * On the open road: one car step per record (see the header). A grown delay holds the car this step, a shrunk one
+   * runs the next record first in a step of its own, one every SHRINK_EVERY steps, as long as the car's steps stay
+   * within LEAD_MAX of the world's (r.lead). A change of more than LEAD_MAX still to take (the host or the sender lost
+   * time), or the part of a change beyond the band, is taken at once as off the open road — the seqs since played
+   * again (grown: guesses replaced by their records, the ones already played on the last input) or skipped (shrunk) —
+   * so no car gains or loses more than LEAD_MAX steps on the field. Returns the input of the world step (null: the car
+   * waits).
+   */
+  private openRoadStep(r: Remote, car: CarEntry, k: number, due: number): ControlInput | null {
+    const gap = (r.playSeq as number) - due;
+    if (gap > LEAD_MAX) this.back(r, due);
+    else if (gap > LEAD_MAX + r.lead) this.back(r, due + LEAD_MAX + r.lead);
+    else if (-gap > LEAD_MAX) r.playSeq = due;
+    else if (-gap > LEAD_MAX - r.lead) r.playSeq = due - (LEAD_MAX - r.lead);
+    const playSeq = r.playSeq as number;
+    if (due !== playSeq && k >= r.shrinkAt) {
+      r.shrinkAt = k + SHRINK_EVERY;
+      // the host draws the car's lost / extra step spread out (the step it did not take, or took on top)
+      const p = car.phys;
+      if (due < playSeq) {
+        r.lead--;
+        car.race.netHold = true;
+        this.drawShift(car, p.x - car.race.prevX, p.y - car.race.prevY, p.z - car.race.prevZ);
+        return null;
+      }
+      r.lead++;
+      const x = p.x;
+      const y = p.y;
+      const z = p.z;
+      predictHumanStep(this.world, this.track, car, this.carStep(r, car) ?? COAST_INPUT, SIM_DT);
+      this.drawShift(car, x - p.x, y - p.y, z - p.z);
     }
+    return this.carStep(r, car);
+  }
+
+  /** The timeline taken back to `to` (the delay grew past what holds take): every step since final; a seq already
+   * played with its record is not played again (see carStep). */
+  private back(r: Remote, to: number): void {
+    r.playSeq = to;
+    r.played = Math.max(r.real, to - 1);
+    r.slots = [];
+  }
+
+  private drawShift(car: CarEntry, x: number, y: number, z: number): void {
+    const d = (car.race.netDraw ??= { x: 0, y: 0, z: 0 });
+    d.x += x;
+    d.y += y;
+    d.z += z;
+  }
+
+  /**
+   * The next record of an open-road car step (a guess if it is not there; the AI's input once nothing can be
+   * replayed). A seq already played with its record (the timeline taken back over it) is a step on the last input:
+   * no record, no one-shot, final.
+   */
+  private carStep(r: Remote, car: CarEntry): ControlInput | null {
+    const seq = r.playSeq as number;
+    r.playSeq = seq + 1;
+    if (seq <= r.real) {
+      r.slots = [];
+      car.race.netGuess = false;
+      car.race.netGhost = false;
+      return this.play(r, null);
+    }
+    r.played = seq;
+    const rec = r.records.get(seq) ?? null;
+    r.records.delete(seq);
+    if (rec) r.real = seq;
+    r.slots.push({ seq, rec, time: this.world.time, car: saveCar(car), counters: r.lastCounters, last: r.last });
+    if (r.slots.length > REWIND_STEPS) r.slots.shift();
+    r.guessRun = rec ? 0 : r.guessRun + 1;
+    car.race.netGuess = r.guessRun > 0;
+    car.race.netGhost = r.guessRun > GHOST_AFTER;
+    return r.guessRun > REWIND_STEPS ? computeAIInput(this.world, car, this.track, SIM_DT) : this.play(r, rec);
+  }
+
+  /**
+   * Off the open road (pit lane, formation, parking — nothing is replayed): one record per step as it is due; a grown
+   * delay holds the last input (no record used), a shrunk one skips records (their one-shots fire with the next one,
+   * the counters being cumulative).
+   */
+  private offRoadStep(r: Remote, car: CarEntry | undefined, k: number, due: number): ControlInput | null {
     let seq: number | null = null;
-    if (due >= r.playSeq) {
-      if (due - r.playSeq > SHRINK_JUMP) r.playSeq = due;
-      else if (due > r.playSeq && k >= r.shrinkAt) {
-        r.playSeq++;
+    let playSeq = r.playSeq as number;
+    if (due >= playSeq) {
+      if (due - playSeq > SHRINK_JUMP) playSeq = due;
+      else if (due > playSeq && k >= r.shrinkAt) {
+        playSeq++;
         r.shrinkAt = k + SHRINK_EVERY;
       }
-      seq = r.playSeq++;
-      r.played = seq;
+      seq = playSeq++;
+      r.playSeq = playSeq;
+      // (a seq already played with its record — the timeline taken back over it — holds the last input)
+      if (seq <= r.real) seq = null;
+      else r.played = seq;
     }
     const rec = seq !== null ? (r.records.get(seq) ?? null) : null;
     if (seq !== null) r.records.delete(seq);
-    const open = car !== undefined && openRoad(this.world, car);
-    const slot: Slot | null = car && open ? { seq, rec, time: this.world.time, car: saveCar(car), counters: r.lastCounters, last: r.last } : null;
+    if (rec) r.real = seq as number;
+    r.slots = [];
     r.guessRun = rec ? 0 : r.guessRun + 1;
     if (car) {
-      car.race.netGuess = open && r.guessRun > 0;
-      car.race.netGhost = open && r.guessRun > GHOST_AFTER;
+      car.race.netGuess = false;
+      car.race.netGhost = false;
     }
-    const input = car && open && r.guessRun > REWIND_STEPS ? computeAIInput(this.world, car, this.track, SIM_DT) : this.play(r, rec);
-    if (slot) {
-      r.slots.push(slot);
-      if (r.slots.length > REWIND_STEPS) r.slots.shift();
-    } else r.slots = [];
-    for (const q of r.records.keys()) if (q < r.playSeq - REWIND_STEPS) r.records.delete(q);
-    return input;
+    return this.play(r, rec);
   }
 
   /** The input of one step: a record with its one-shots, else the last record held (no one-shots). */
@@ -408,7 +527,7 @@ export class HostSession {
 
   /** Late records for guessed steps: the car back to before the first of them, every step since played again. */
   private replay(r: Remote, car: CarEntry): void {
-    const from = r.slots.findIndex((s) => s.rec === null && s.seq !== null && r.records.has(s.seq));
+    const from = r.slots.findIndex((s) => s.rec === null && r.records.has(s.seq));
     if (from < 0 || !openRoad(this.world, car)) return;
     const first = r.slots[from] as Slot;
     // DRS / overtake eligibility belong to the race layer (set at its lines): each step replays with the values it
@@ -429,11 +548,12 @@ export class HostSession {
         s.counters = r.lastCounters;
         s.last = r.last;
       }
-      if (s.rec === null && s.seq !== null) {
+      if (s.rec === null) {
         const rec = r.records.get(s.seq);
         if (rec) {
           s.rec = rec;
           r.records.delete(s.seq);
+          r.real = Math.max(r.real, s.seq);
         }
       }
       run = s.rec ? 0 : run + 1;
@@ -524,8 +644,8 @@ export class HostSession {
       frame ??= buildRenderFrame(this.world, this.track);
       const car = this.carOf(r);
       // the car before its first guess still open to a replay (the steps after it are the client's to predict)
-      const guess = r.slots.find((s) => s.rec === null && s.seq !== null);
-      const ack = guess && guess.seq !== null ? guess.seq - 1 : r.played;
+      const guess = r.slots.find((s) => s.rec === null);
+      const ack = guess ? guess.seq - 1 : r.played;
       const buf = encodeSnapshot({
         tick: this.world.tick,
         time: this.world.time,
@@ -563,6 +683,8 @@ export class HostSession {
       car.playerIndex = -1;
       car.race.netGuess = false;
       car.race.netGhost = false;
+      car.race.netHold = false;
+      car.race.netDraw = undefined;
       if (!car.displayName.endsWith(AI_TAKEOVER_SUFFIX)) car.displayName += AI_TAKEOVER_SUFFIX;
     }
     this.broadcast({ t: 'left', playerIndex: r.playerIndex, name: r.name });

@@ -24,11 +24,13 @@ function carState(world: WorldState, track: BuiltTrack, car: CarEntry): CarRende
   const w = world.weather;
   const wet = car.phys.tire.compound === 'inter' || car.phys.tire.compound === 'wet';
   const grade = gradePitch(track, p.s);
+  // (online host: a held / extra step of a remote player's car drawn spread out)
+  const d = car.race.netDraw;
   return {
     carId: car.id,
-    x: fin(p.x),
-    y: fin(p.y),
-    z: fin(p.z),
+    x: fin(p.x + (d ? d.x : 0)),
+    y: fin(p.y + (d ? d.y : 0)),
+    z: fin(p.z + (d ? d.z : 0)),
     yaw: fin(p.yaw),
     pitch: fin(p.pitch) + grade,
     groundPitch: grade,

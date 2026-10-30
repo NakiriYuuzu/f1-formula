@@ -9,11 +9,17 @@
  *   the unacknowledged inputs replayed on top; the visual jump is smoothed out (beyond TELEPORT m: shown at once);
  * - the other cars are shown on the own car's timeline: its prediction stands for the host time of the newest
  *   snapshot plus the unacknowledged inputs, so they are extrapolated along the track that far past the newest
- *   snapshot (at most MAX_EXTRAPOLATION s; the jump a new snapshot makes is smoothed out). While the host drives the
+ *   snapshot (at most MAX_EXTRAPOLATION s; the jump in place and speed a new snapshot makes is blended out over
+ *   BLEND s, so the drawn motion stays continuous in both). While the host drives the
  *   own car (pit autopilot, formation, parking) it is extrapolated the same way, so taking over and handing back
  *   keep one timeline (the prediction starts with the unacknowledged inputs replayed). Before the first snapshot of
- *   the own car everything is interpolated INTERP_DELAY s behind the host clock; the view time eases toward its
- *   target. The mirror world's other cars (slipstream, minimap) follow the view;
+ *   the own car everything is interpolated INTERP_DELAY s behind the host clock. The view time is a clock of its own,
+ *   steered toward its target by running at most VIEW_WARP faster or slower than the steps (set at once only when
+ *   VIEW_SNAP off, also by a frame that runs no step), so network jitter does not shake the other cars. The host clock
+ *   estimate is the earliest arrival of the last CLOCK_WINDOW s, timed with the steps the frame clock still owes
+ *   (useClock: a stalled frame being caught up does not make snapshots look early; the time of a hidden page, which is
+ *   skipped, is not owed: skipTime); it bounds the target, so a host or this side losing time is
+ *   followed within a fraction of a second. The mirror world's other cars (slipstream, minimap) follow the view;
  * - HUD mirror patches update timing, positions, pit, flags, session and weather of the mirror world; events are
  *   queued in order (deduplicated by seq) for the HUD and audio; commands go to the host.
  * Pure logic over NetTransport (tests: loopback).
@@ -61,16 +67,24 @@ import type { NetTransport } from './transport';
 export const INTERP_DELAY = 0.1;
 /** The other cars are extrapolated at most this far (s) past the newest snapshot (to the own car's timeline). */
 export const MAX_EXTRAPOLATION = 0.4;
-/** Rate (1/s) at which the other cars' view time follows its target (own-car timeline / interpolation delay). */
-const VIEW_LEAD_RATE = 3;
+/** The view time runs 1 + VIEW_GAIN · (target − view) times as fast as the steps (at most ± VIEW_WARP); further than
+ * VIEW_SNAP (s) from its target it is set to it. */
+const VIEW_GAIN = 6;
+const VIEW_WARP = 0.5;
+const VIEW_SNAP = 0.15;
+/** Host clock estimate: the earliest arrival of the last CLOCK_WINDOW s (local), approached this share per snapshot. */
+const CLOCK_WINDOW = 0.3;
+const CLOCK_GAIN = 0.5;
 /** Extrapolation limits: along-track acceleration (m/s²) taken from the last two snapshots, lateral speed (m/s). */
 const EXTRAP_ACCEL_MIN = -60;
 const EXTRAP_ACCEL_MAX = 25;
 const EXTRAP_LAT_SPEED = 6;
 /** Own-car correction beyond this distance (m) is shown at once instead of smoothed. */
 const TELEPORT = 3;
-/** Share of the remaining visual correction removed per second (exponential). */
+/** Share of the remaining visual correction of the own car removed per second (exponential). */
 const SMOOTH_RATE = 10;
+/** Time (s) over which an other car's jump in place and speed at a new snapshot is blended out (Hermite). */
+const BLEND = 0.1;
 /** Snapshots kept (s of host time). */
 const BUFFER_SECONDS = 1;
 /** Unacknowledged inputs kept at most (2 s of steps). */
@@ -102,6 +116,13 @@ interface Buffered {
 }
 
 type Vec3 = { x: number; y: number; z: number };
+
+/** A new snapshot's jump for one car at view time t0: the offset in place `e` and speed `v`, blended out over BLEND. */
+interface Blend {
+  t0: number;
+  e: Vec3;
+  v: Vec3;
+}
 
 export interface ClientCallbacks {
   /** another player left (its car is AI-driven now) */
@@ -136,13 +157,19 @@ export class ClientSession {
   private sent: InputRecord[] = [];
   private stepCount = 0;
   private snapshots: Buffered[] = [];
-  private clock: number | null = null;
-  /** the other cars' view time = clock + viewLead (eases toward targetLead) */
-  private viewLead = -INTERP_DELAY;
+  /** estimate of the host's time (s): the newest snapshot's as it arrives with the least delay, one step a step */
+  private hostClock: number | null = null;
+  /** snapshot arrivals of the last CLOCK_WINDOW s: local time (steps · SIM_DT) and host time − local time */
+  private arrivals: { at: number; offset: number }[] = [];
+  /** the frame clock the steps come from (useClock) and its time at the last step (ms; null: none since a pause) */
+  private clock: { now(): number; owed(sinceLastStep: number): number } | null = null;
+  private lastStepAt: number | null = null;
+  /** the other cars' view time (s of host time), steered toward viewTarget() */
+  private view: number | null = null;
   /** host time of the snapshot the own car was last reconciled to */
   private ownSnapTime: number | null = null;
-  /** decaying visual correction of each other car (the jump a new snapshot makes in the extrapolation) */
-  private othersSmooth = new Map<number, Vec3>();
+  /** visual correction of each other car: the jumps new snapshots made in the extrapolation, being blended out */
+  private othersBlend = new Map<number, Blend[]>();
   private events: GameEvent[] = [];
   private eventSeq = 0;
   private mirrorSeq = 0;
@@ -182,6 +209,20 @@ export class ClientSession {
     return this.pending.length;
   }
 
+  /**
+   * The frame clock this session's steps come from (the App's online clock: `now` in ms, `owed` = FixedStepClock.owed).
+   * Snapshot arrivals are then timed with the steps it still owes, so a stalled frame that is caught up does not make
+   * them look early (without it: the steps run so far).
+   */
+  useClock(clock: { now(): number; owed(sinceLastStep: number): number }): void {
+    this.clock = clock;
+  }
+
+  /** The frame clock skips the time from now to the next step (a hidden page): arrivals meanwhile owe no steps. */
+  skipTime(): void {
+    this.lastStepAt = null;
+  }
+
   /** One fixed simulation step of local play with this control input. */
   step(control: ControlInput): void {
     if (this.disposed || this.paused || this.hostLeft) return;
@@ -199,21 +240,15 @@ export class ClientSession {
     const car = this.car;
     const wasPredicted = this.ownPredicted;
     this.ownPredicted = car !== undefined && this.canPredict(car);
-    this.viewLead += (this.targetLead() - this.viewLead) * (1 - Math.exp(-VIEW_LEAD_RATE * SIM_DT));
-    const decay = Math.exp(-SMOOTH_RATE * SIM_DT);
-    for (const d of this.othersSmooth.values()) {
-      d.x *= decay;
-      d.y *= decay;
-      d.z *= decay;
-    }
+    if (this.hostClock !== null) this.hostClock += SIM_DT;
+    this.advanceView();
     this.syncOthers();
     if (car && this.ownPredicted) {
       // taking over from the host: its last state plus every unacknowledged input (this one is the last of them)
       if (!wasPredicted) for (const p of this.pending) this.predict(car, p.input);
       else this.predict(car, input);
     }
-    // the host's clock moves on; the mirrored timers too (corrected by the next mirror patch)
-    if (this.clock !== null) this.clock += SIM_DT;
+    // the mirrored timers move on (corrected by the next mirror patch)
     if (this.world.session.phase === 'running' || this.world.session.phase === 'chequered') {
       this.world.time += SIM_DT;
       if (car && car.status === 'running' && car.timing.lap >= 1) {
@@ -228,6 +263,7 @@ export class ClientSession {
       }
     }
     this.stepCount++;
+    this.lastStepAt = this.clock ? this.clock.now() : null;
     if (this.stepCount % 2 === 0) this.flushInputs();
   }
 
@@ -269,11 +305,14 @@ export class ClientSession {
     this.smooth.y *= decay;
     this.smooth.z *= decay;
     const local = buildRenderFrame(this.world, this.track);
+    // a frame that ran no step (the first one back after a hidden page) does not draw a view left far behind
+    const target = this.viewTarget();
+    if (this.view !== null && target !== null && !(Math.abs(target - this.view) <= VIEW_SNAP)) this.view = target;
     const view = this.viewTime();
     const frame = (view !== null ? this.frameAt(view) : null) ?? local;
     frame.cars = frame.cars.map((c) => {
-      const d = this.othersSmooth.get(c.carId);
-      return d && c.carId !== this.carId ? { ...c, x: c.x + d.x, y: c.y + d.y, z: c.z + d.z } : c;
+      const d = c.carId !== this.carId ? this.blendOffset(c.carId, frame.time) : null;
+      return d ? { ...c, x: c.x + d.x, y: c.y + d.y, z: c.z + d.z } : c;
     });
     const car = this.car;
     if (!car) return frame;
@@ -305,14 +344,56 @@ export class ClientSession {
   // ───────────────────────────── internals ─────────────────────────────
 
   private viewTime(): number | null {
-    return this.clock === null ? null : this.clock + this.viewLead;
+    return this.view;
   }
 
-  /** View time ahead of the clock: the own car's timeline (interpolation delay before its first snapshot). */
-  private targetLead(): number {
-    if (this.ownSnapTime === null || this.clock === null) return -INTERP_DELAY;
+  /**
+   * An other car's visual correction at view time `t`: every jump still being blended out, each fading in place and
+   * speed with zero slope at both ends (Hermite h00 / h10), so the drawn motion has no kink.
+   */
+  private blendOffset(carId: number, t: number): Vec3 | null {
+    const list = this.othersBlend.get(carId);
+    if (!list || list.length === 0) return null;
+    const out = { x: 0, y: 0, z: 0 };
+    for (const b of list) {
+      const u = clamp01((t - b.t0) / BLEND);
+      const h00 = 2 * u * u * u - 3 * u * u + 1;
+      const h10 = (u * u * u - 2 * u * u + u) * BLEND;
+      out.x += b.e.x * h00 + b.v.x * h10;
+      out.y += b.e.y * h00 + b.v.y * h10;
+      out.z += b.e.z * h00 + b.v.z * h10;
+    }
+    return out;
+  }
+
+  /**
+   * Steps the frame clock still owes (useClock): what it will simulate of the wall-clock time since the last step
+   * (after skipTime / a pause: of its backlog only).
+   */
+  private behind(): number {
+    if (!this.clock) return 0;
+    const since = this.lastStepAt === null ? 0 : Math.max(0, (this.clock.now() - this.lastStepAt) / 1000);
+    const owed = this.clock.owed(since);
+    return Number.isFinite(owed) ? Math.max(0, Math.floor(owed / SIM_DT + 1e-6)) : 0;
+  }
+
+  /** Where the view time should be: the own car's timeline (interpolation delay before its first snapshot). */
+  private viewTarget(): number | null {
+    if (this.hostClock === null) return null;
+    if (this.ownSnapTime === null) return this.hostClock - INTERP_DELAY;
     const own = this.ownSnapTime + this.pending.length * SIM_DT;
-    return clamp(own - this.clock, -INTERP_DELAY, MAX_EXTRAPOLATION);
+    return this.hostClock + clamp(own - this.hostClock, -INTERP_DELAY, MAX_EXTRAPOLATION);
+  }
+
+  /** One step of the view time, steered toward its target (see the header). */
+  private advanceView(): void {
+    const target = this.viewTarget();
+    if (target === null) return;
+    if (this.view === null || !(Math.abs(target - this.view) <= VIEW_SNAP)) {
+      this.view = target;
+      return;
+    }
+    this.view += SIM_DT * (1 + clamp(VIEW_GAIN * (target - this.view), -VIEW_WARP, VIEW_WARP));
   }
 
   /** The mirror world's other cars at the view time (the prediction's slipstream, minimap and audio read them). */
@@ -449,6 +530,7 @@ export class ClientSession {
         return;
       case 'pause':
         this.paused = m.paused;
+        this.lastStepAt = null;
         this.cb.paused?.(m.paused);
         return;
       case 'left':
@@ -472,26 +554,51 @@ export class ClientSession {
   private onSnapshot(s: Snapshot): void {
     const last = this.snapshots[this.snapshots.length - 1];
     if (last && s.time <= last.snap.time) return;
-    // the other cars where they were drawn just now, to smooth out the jump the new snapshot makes
+    // the other cars where (and how fast) they were drawn just now, to blend out the jump the new snapshot makes
     const view = this.viewTime();
     const before = view !== null ? this.frameAt(view) : null;
+    // its drawn speed: the step that led to it (none while the view sat past the extrapolation limit, frozen there)
+    const beforePrev = before && view !== null && before.time >= view - 1e-9 ? this.frameAt(before.time - SIM_DT) : before;
     this.snapshots.push({ snap: s, at: this.trackPlaces(s) });
     while (this.snapshots.length > 2 && (this.snapshots[0] as Buffered).snap.time < s.time - BUFFER_SECONDS) this.snapshots.shift();
-    if (before) {
+    if (before && beforePrev) {
       // the same moment as just drawn (the newer snapshot may extrapolate further)
-      const after = this.frameAt(before.time);
+      const t0 = before.time;
+      const after = this.frameAt(t0);
+      const afterNext = this.frameAt(t0 + SIM_DT);
       for (const c of after?.cars ?? []) {
+        if (c.carId === this.carId) continue;
         const o = before.cars.find((x) => x.carId === c.carId);
-        if (!o || c.carId === this.carId) continue;
-        const d = this.othersSmooth.get(c.carId) ?? { x: 0, y: 0, z: 0 };
+        const op = beforePrev.cars.find((x) => x.carId === c.carId);
+        const cn = afterNext?.cars.find((x) => x.carId === c.carId);
+        if (!o || !op || !cn) continue;
         const e = { x: o.x - c.x, y: o.y - c.y, z: o.z - c.z };
-        if (Math.hypot(e.x, e.z) > TELEPORT || !Number.isFinite(e.x + e.y + e.z)) this.othersSmooth.set(c.carId, { x: 0, y: 0, z: 0 });
-        else this.othersSmooth.set(c.carId, { x: d.x + e.x, y: d.y + e.y, z: d.z + e.z });
+        const v = { x: (o.x - op.x - (cn.x - c.x)) / SIM_DT, y: (o.y - op.y - (cn.y - c.y)) / SIM_DT, z: (o.z - op.z - (cn.z - c.z)) / SIM_DT };
+        // (a step of either path past TELEPORT: the car was put somewhere else, not driven there)
+        const moved = Math.max(Math.hypot(o.x - op.x, o.z - op.z), Math.hypot(cn.x - c.x, cn.z - c.z));
+        if (Math.hypot(e.x, e.z) > TELEPORT || moved > TELEPORT || !Number.isFinite(e.x + e.y + e.z + v.x + v.y + v.z)) this.othersBlend.delete(c.carId);
+        else {
+          const list = (this.othersBlend.get(c.carId) ?? []).filter((b) => t0 - b.t0 < BLEND);
+          list.push({ t0, e, v });
+          this.othersBlend.set(c.carId, list);
+        }
       }
     }
-    // host clock estimate: the newest snapshot's time, eased in (jumps beyond 0.5 s taken at once)
-    if (this.clock === null || Math.abs(s.time - this.clock) > 0.5) this.clock = s.time;
-    else this.clock += (s.time - this.clock) * 0.1;
+    // host clock estimate: the earliest arrival of the last CLOCK_WINDOW s — jitter only delays snapshots, so a late
+    // one does not pull it back, a window of them all behind it (the host lost time, a slower route) does; jumps
+    // beyond 0.5 s taken at once. The view time starts with the first snapshot
+    const local = (this.stepCount + this.behind()) * SIM_DT;
+    const newest = this.arrivals[this.arrivals.length - 1];
+    // (arrivals while no step runs — a hidden tab — share one entry)
+    if (newest && newest.at === local) newest.offset = Math.max(newest.offset, s.time - local);
+    else this.arrivals.push({ at: local, offset: s.time - local });
+    while (this.arrivals.length > 1 && (this.arrivals[0] as { at: number }).at < local - CLOCK_WINDOW) this.arrivals.shift();
+    let offset = -Infinity;
+    for (const a of this.arrivals) offset = Math.max(offset, a.offset);
+    const clock = this.stepCount * SIM_DT + offset;
+    if (this.hostClock === null || Math.abs(clock - this.hostClock) > 0.5) this.hostClock = clock;
+    else this.hostClock += (clock - this.hostClock) * CLOCK_GAIN;
+    if (this.view === null) this.advanceView();
     this.reconcile(s);
     this.syncOthers();
   }

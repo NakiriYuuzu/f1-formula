@@ -178,6 +178,7 @@ export class SessionRuntime {
       : new FixedStepClock(SIM_DT, MAX_SUBSTEPS);
     if (net?.role === 'client') {
       this.client = net.client;
+      this.client.useClock({ now: () => performance.now(), owed: (sinceLastStep) => this.clock.owed(sinceLastStep) });
       this.world = net.client.world;
     } else this.world = createWorld(config, track);
     if (net?.role === 'host') {
@@ -331,6 +332,11 @@ export class SessionRuntime {
     this.hud.setPaused(paused, this.world);
     // the host's pause menu stops the race for everyone
     this.host?.setPaused(paused);
+  }
+
+  /** The page is hidden: the App runs no frames until it is shown and then skips that time (not caught up). */
+  pageHidden(): void {
+    this.client?.skipTime();
   }
 
   /**

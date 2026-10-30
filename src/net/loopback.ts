@@ -83,7 +83,7 @@ export class LoopbackNetwork {
   private queue: Pending[] = [];
   private order = 0;
   private rng: number;
-  private readonly delay: number;
+  private delay: number;
   private readonly jitter: number;
   private bandwidth: number;
   private readonly loss: number;
@@ -101,6 +101,11 @@ export class LoopbackNetwork {
     this.duplicate = Math.min(1, Math.max(0, opts.duplicate ?? 0));
     this.rng = (opts.seed ?? 1) >>> 0 || 1;
     this.bandwidth = Math.max(0, opts.bandwidth ?? 0);
+  }
+
+  /** One-way delay (ms) for what is sent from now on (a route that got slower / faster; reliable stays in order). */
+  setDelay(ms: number): void {
+    this.delay = Math.max(0, ms);
   }
 
   /** Bytes per second each way for what is sent from now on (0: unlimited). */
