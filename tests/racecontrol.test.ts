@@ -481,7 +481,8 @@ describe('human crashes', () => {
     const responses: string[] = [];
     for (const seed of [1, 3, 5, 6, 7, 9]) {
       const { world, track } = race({ laps: 8, safetyCar: 'standard', seed });
-      const log = crash(world, track, { steer: -1, sec: 0.6, until: 61, at: WALL_S });
+      // until 64: on autopilot the human reaches the wall at 47–54 s (the incident is judged IMPACT_JUDGE_SEC later)
+      const log = crash(world, track, { steer: -1, sec: 0.6, until: 64, at: WALL_S });
       expect(log.peak).toBeGreaterThan(HEAVY_IMPACT);
       expect(log.humanIncidents).toBe(1);
       const inc = log.decided[0];

@@ -55,6 +55,13 @@ export interface AIState {
   trail: number;
   /** 0..1 share of KERB_REACH the driver's path may use over a kerb (pace.ts kerbSkill) */
   kerbSkill: number;
+  /** driving style (personality.ts → pace.ts styleFactors): multipliers on the mechanical / aero lateral grip */
+  gripLow: number;
+  gripHigh: number;
+  /** 0..1 how far the line wanders off the racing line (personality lineFreedom) */
+  lineFreedom: number;
+  /** 0..1 how much the pace swings within a race (personality volatility) */
+  volatility: number;
   /** per-car deterministic RNG */
   rng: RngState;
 
@@ -67,6 +74,13 @@ export interface AIState {
   noiseTimer: number;
   /** per-corner braking multiplier (consistency noise / mistakes), 1 = nominal */
   brakeNoise: number;
+  /**
+   * race rhythm: slowly drifting multiplier on the corner / braking factors (1 = nominal) toward rhythmTarget,
+   * re-rolled every rhythmTimer seconds (races only; amplitude from volatility and consistency)
+   */
+  rhythm: number;
+  rhythmTarget: number;
+  rhythmTimer: number;
   /** index of the corner the current brake noise was rolled for (-1 none) */
   noiseCorner: number;
   /** > 0 while a driving mistake is in progress (s) */

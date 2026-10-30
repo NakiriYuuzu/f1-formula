@@ -11,9 +11,9 @@ import { sampleAt } from '../track/track';
 export const VSC_SPEED_FACTOR = 0.6;
 export const VSC_MIN_SPEED = 12;
 export const VSC_MAX_SPEED = 50;
-/** Safety-car pace: fraction of the reference profile and cap (m/s). */
-export const SC_SPEED_FACTOR = 0.58;
-export const SC_MAX_SPEED = 52;
+/** Safety-car pace: fraction of the reference profile and cap (m/s) — brisk enough through the corners not to bore (was 0.58 / 52). */
+export const SC_SPEED_FACTOR = 0.7;
+export const SC_MAX_SPEED = 60;
 /** Formation-lap pace: fraction of the reference profile and cap (m/s). */
 export const FORMATION_SPEED_FACTOR = 0.62;
 export const FORMATION_MAX_SPEED = 55;

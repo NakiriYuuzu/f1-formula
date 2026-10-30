@@ -396,7 +396,9 @@ export function planTraffic(world: WorldState, car: CarEntry, track: BuiltTrack,
     const hold = (ai.holdFor === ahead.id || ai.noRaceFor === ahead.id) && !letBy;
     const pass = owed || letBy;
     // a DRS train ahead and not clearly quicker than the car in it: no forced move (it has the DRS too) — follow
-    const quicker = (mine > 0 && theirs > 0 && theirs - mine > TRAIN_PACE_EDGE * theirs) || ai.closing > closingNeeded + TRAIN_CLOSING;
+    // (an aggressive driver has a go with a smaller edge, a patient one waits for a bigger one)
+    const edge = TRAIN_PACE_EDGE * (1.6 - ai.aggression);
+    const quicker = (mine > 0 && theirs > 0 && theirs - mine > edge * theirs) || ai.closing > closingNeeded + TRAIN_CLOSING;
     const train = !stopped && !pass && !quicker && drsTrain(world, ahead);
     ai.inTrain = train;
     const advantage = stopped || pass || (!train && !hold && (ai.closing > closingNeeded || heldUp));

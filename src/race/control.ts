@@ -74,7 +74,7 @@ const SC_WAIT_GAP = 160;
  * safety car goes anyway after waiting this many reference laps. */
 const SC_RELEASE_LEAD: [number, number] = [1, 6];
 const SC_HOLD_MAX_LAPS = 1.2;
-const SC_ACCEL = 5;
+const SC_ACCEL = 7;
 const SC_DECEL = 10;
 const SC_WHEEL_RADIUS = 0.34;
 /** Races with at least this many laps keep the safety car out for two leader laps; shorter ones for a minimum time (s). */

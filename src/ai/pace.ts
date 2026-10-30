@@ -5,6 +5,7 @@
  */
 import type { AIPaceMode } from './types';
 import type { DriverDef, TeamDef } from '../core/types';
+import type { DriverStyle } from './personality';
 import { clamp, clamp01 } from '../core/math';
 
 export const DIFFICULTY_MAX = 110;
@@ -25,19 +26,74 @@ export function difficulty01(difficulty: number): number {
   return clamp01(fin(difficulty, 90) / DIFFICULTY_MAX);
 }
 
-/** Pace parameters for a driver pace skill (0..1, ≈ 0.85..0.97) at a difficulty. */
+/**
+ * Pace parameters for a driver pace skill (0..1, ≈ 0.85..0.98) at a difficulty. The driver's share is wide enough
+ * that a top driver is clearly quicker than the midfield in the same car (≈ 0.7 % lap time from pace 0.91 to 0.98),
+ * more than its race-day form (RACE_FORM) usually takes away.
+ */
 export function paceParams(difficulty: number, driverPace: number): PaceParams {
   const d = difficulty01(difficulty);
   const p = clamp(fin(driverPace, 0.9), 0.5, 1) - 0.91;
   return {
-    latFactor: clamp(0.755 + 0.26 * d + 0.15 * p, 0.6, 1.0),
-    brakeFactor: clamp(0.67 + 0.27 * d + 0.1 * p, 0.55, 0.94),
+    latFactor: clamp(0.755 + 0.26 * d + 0.3 * p, 0.6, 1.0),
+    brakeFactor: clamp(0.67 + 0.27 * d + 0.2 * p, 0.55, 0.94),
     performance: clamp(0.96 + 0.06 * d, 0.9, 1.03),
   };
 }
 
-/** Race-day form: an AI driver finds up to ± this share of its corner / braking factors on the day (races only). */
+/**
+ * Race-day form: an AI driver finds up to ± this share of its corner / braking factors on the day (races only),
+ * scaled by its volatility (raceFormRange): a steady star stays close to its pace, an erratic driver has days out.
+ */
 export const RACE_FORM = 0.02;
+
+/** Share of RACE_FORM a driver of this volatility (0..1) can swing on the day: 0.45 (steady) … 1 (erratic). */
+export function raceFormRange(volatility: number): number {
+  return 0.45 + 0.55 * clamp01(fin(volatility, 0.4));
+}
+
+/**
+ * Driving-style multipliers on the capability (personality.ts), shared by the on-track AI and the qualifying
+ * simulation: `low` on the speed-independent (mechanical) lateral grip, `high` on its aero (speed²) part — a
+ * slow-corner specialist gains in hairpins what it gives away in fast sweepers — and `brake` on the braking factor
+ * (a late braker gives a little mid-corner speed back). Each trait shifts the lap time by only a few tenths of a
+ * percent; what changes is where on the lap a driver is quick, so cars close up in one sector and pull away in the
+ * next instead of running in a fixed line.
+ */
+export interface StyleFactors {
+  low: number;
+  high: number;
+  brake: number;
+}
+
+const STYLE_CORNER = 0.02;
+const STYLE_BRAKE = 0.04;
+const STYLE_BRAKE_LAT = 0.006;
+
+/**
+ * A style's lateral-grip gain is taken only where the driver still has headroom: a factor above 1 is cut so its share
+ * of the grip stays ≤ STYLE_LAT_CEIL (or its own share when that is higher). A driver already near the limit (top
+ * skill, high difficulty) keeps just the weak side of its style — at 0.997 of the grip through Monaco's slow corners a
+ * slow-corner specialist ran over the track limits on every lap.
+ */
+const STYLE_LAT_CEIL = 0.98;
+
+/** A style grip factor (StyleFactors low / high) for a driver using `latFactor` of the grip. */
+export function styleGrip(factor: number, latFactor: number): number {
+  if (!(factor > 1)) return factor;
+  const lf = clamp(fin(latFactor, 0.9), 0.3, 1);
+  return Math.min(factor, Math.max(1, STYLE_LAT_CEIL / lf));
+}
+
+export function styleFactors(style: DriverStyle): StyleFactors {
+  const c = clamp(fin(style.corners, 0), -1, 1);
+  const b = clamp(fin(style.braking, 0), -1, 1);
+  return {
+    low: 1 + STYLE_CORNER * c - STYLE_BRAKE_LAT * b,
+    high: 1 - STYLE_CORNER * c - STYLE_BRAKE_LAT * b,
+    brake: 1 + STYLE_BRAKE * b,
+  };
+}
 
 /** Share of a team's aero / power / chassis gap to a rating of 1 that an AI-driven car keeps (closer field). */
 export const AI_CAR_GAP = 0.4;

@@ -13,8 +13,11 @@ import {
   cornerSpeed,
   brakingDecel,
   difficulty01,
+  driverStyle,
   kerbSkill,
   paceParams,
+  styleFactors,
+  styleGrip,
   trailBraking,
   wetBrakeFactor,
   wetPaceFactor,
@@ -140,9 +143,13 @@ export function predictLapTime(
   const compound = qualifyingCompound(wetness);
   const tyre = tyreGrip(compound, 0, compoundMidTemp(compound), wetness);
   const grip = tyre * (1 + 0.03 * QUALI_RUBBER) * (1 + (pace.performance - 1) * 0.6);
-  const brakeF = Math.min(0.99, pace.brakeFactor * wetF * wetBrakeFactor(wetness, sk.wet));
+  // the driver's style, as the on-track AI applies it (createAIState / driveAI)
+  const style = styleFactors(driverStyle(driver));
+  const brakeF = Math.min(0.99, Math.min(0.97, pace.brakeFactor * style.brake) * wetF * wetBrakeFactor(wetness, sk.wet));
   const trail = trailBraking(difficulty, sk.pace, sk.consistency) * wetT;
   const cap = capability(spec, grip, QUALI_FUEL, pace.latFactor * wetF, brakeF, undefined, trail);
+  cap.latA *= styleGrip(style.low, pace.latFactor);
+  cap.latB *= styleGrip(style.high, pace.latFactor);
   const mass = spec.mass + QUALI_FUEL;
   const power = (spec.icePower * pace.performance + spec.ersPower * (ERS_SHARE[regulation] ?? ERS_SHARE['2025']) * pace.performance) * spec.drivetrainEfficiency * POWER_SHARE;
   return pointMassLap(track, spec, cap, power, mass, kerbSkill(difficulty, sk.pace, sk.consistency) * wetT);
@@ -211,7 +218,7 @@ export function simulateQualifying(config: SessionConfig, track: BuiltTrack): Re
     if (humans.has(driver.id)) continue;
     const team = config.teams.find((t) => t.id === driver.teamId);
     if (!team) continue;
-    const key = `${team.id}|${driver.skill.pace}|${driver.skill.wet}|${driver.skill.consistency}`;
+    const key = `${team.id}|${driver.id}|${driver.skill.pace}|${driver.skill.wet}|${driver.skill.consistency}`;
     let base = cache.get(key);
     if (base === undefined) {
       // same car as on track (world.ts): AI-only teams run the closer AI car ratings, plus the team's part development

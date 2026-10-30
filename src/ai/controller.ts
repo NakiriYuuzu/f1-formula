@@ -92,6 +92,21 @@ const PUSH_ERS_CHARGE = 0.5;
  */
 const LIFT_COAST = 0.5;
 
+/**
+ * Line wander (m): the slowly varying line noise spans ± (1 − consistency) × 1.6 + LINE_FREEDOM × lineFreedom, so
+ * cars in a queue do not all sit on exactly the same line.
+ */
+const LINE_FREEDOM = 0.5;
+/**
+ * Race rhythm: every RHYTHM_PERIOD … RHYTHM_PERIOD + RHYTHM_SPREAD s the driver's corner / braking use drifts (at
+ * RHYTHM_RATE per s) toward a new level within ± RHYTHM_MAX × (0.25 + 0.75 × volatility) — ≈ ±0.2 % lap time for a
+ * steady star, ±0.4 % for an erratic driver — so gaps open and close during a race instead of freezing.
+ */
+const RHYTHM_MAX = 0.016;
+const RHYTHM_PERIOD = 20;
+const RHYTHM_SPREAD = 40;
+const RHYTHM_RATE = 0.004;
+
 /** Per-step scratch (driveAI is not re-entrant): the lift-and-coast read-out of the speed plan, kerb reach. */
 const LIFT_PROBE: SpeedProbe = { ahead: 0, speed: 0 };
 const KERB_HERE = { left: 0, right: 0 };
@@ -242,9 +257,18 @@ function stepMistake(track: BuiltTrack, car: CarEntry, dt: number): void {
 
 function updateNoise(world: WorldState, car: CarEntry, track: BuiltTrack, dt: number): void {
   const ai = car.ai;
+  if (world.config.kind === 'race') {
+    ai.rhythmTimer -= dt;
+    if (ai.rhythmTimer <= 0) {
+      const amp = RHYTHM_MAX * (0.25 + 0.75 * clamp01(ai.volatility));
+      ai.rhythmTarget = 1 + (nextRandom(ai.rng) * 2 - 1) * amp;
+      ai.rhythmTimer = RHYTHM_PERIOD + nextRandom(ai.rng) * RHYTHM_SPREAD;
+    }
+    ai.rhythm = moveToward(ai.rhythm, ai.rhythmTarget, RHYTHM_RATE * dt);
+  }
   ai.noiseTimer -= dt;
   if (ai.noiseTimer <= 0) {
-    const amp = (1 - ai.consistency) * 1.6;
+    const amp = (1 - ai.consistency) * 1.6 + LINE_FREEDOM * clamp01(ai.lineFreedom);
     ai.lineNoiseTarget = (nextRandom(ai.rng) * 2 - 1) * amp;
     ai.noiseTimer = 2 + nextRandom(ai.rng) * 3;
   }
@@ -399,11 +423,11 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
     (pitMovePush(car, track) || ((car.timing.position === 1 || !(gap > 0) || gap > PUSH_CLEAR) && !chased(world, car, CHASE_GAP)));
   const paceMode = wanted === 'push' && !pushOk ? 'standard' : wanted;
   const modeF = PACE_MODE_FACTOR[paceMode] ?? 1;
-  const latF = Math.min(1, ai.latFactor * push * modeF) * wetF * damageFactor * offPenalty * (ai.mistakeTimer > 0 ? 1.02 : 1);
+  const latF = Math.min(1, ai.latFactor * push * modeF * ai.rhythm) * wetF * damageFactor * offPenalty * (ai.mistakeTimer > 0 ? 1.02 : 1);
   // attacking: brake a little later (late-braking move) — not when dropping back for a switchback
   const lateBrake = ai.mode === 'attack' && ai.attackPhase !== 'switchback' ? 1.05 : 1;
   const wetBrake = wetBrakeFactor(weather.wetness, ai.wetSkill);
-  const brkF = Math.min(0.97, ai.brakeFactor * push * modeF * wetF * wetBrake * ai.brakeNoise * lateBrake);
+  const brkF = Math.min(0.97, ai.brakeFactor * push * modeF * ai.rhythm * wetF * wetBrake * ai.brakeNoise * lateBrake);
   const grip = carGripScale(car, weather.wetness, weather.rubber, ai.performance);
   // trail braking needs the car on its intended path (line + tactical offset): it fades out over TRAIL_OFF_LINE m
   // off it (a big correction under braking already loads the tyres sideways) and while the rear slides
@@ -414,6 +438,9 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   const cap = capability(spec, grip, p.fuelKg, latF, brkF, aeroWake(world, track, car), trail);
   // keep extra margin in fast corners: steering authority is tiny at speed, so a slide there cannot be caught
   cap.latB *= HIGH_SPEED_MARGIN;
+  // the driver's style: stronger in slow or in fast corners
+  cap.latA *= ai.gripLow;
+  cap.latB *= ai.gripHigh;
   // conserving: whether braking is due within LIFT_COAST s on the racing line (lift and coast, below) — read off this
   // plan when it is that plan (on the line, no cool-down scale), else from a scan of its own
   const offNow = ai.offset + ai.lineNoise;

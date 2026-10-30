@@ -143,13 +143,13 @@ const d = (
 });
 
 const DRIVERS: DriverDef[] = [
-  d('antonelli', 'Kimi', 'Antonelli', 'ANT', 12, 'ITA', 'mercedes', [0.95, 0.92, 0.9, 0.92, 0.93], ['#00a19c', '#ffffff', '#111318']),
+  d('antonelli', 'Kimi', 'Antonelli', 'ANT', 12, 'ITA', 'mercedes', [0.965, 0.93, 0.9, 0.92, 0.93], ['#00a19c', '#ffffff', '#111318']),
   d('russell', 'George', 'Russell', 'RUS', 63, 'GBR', 'mercedes', [0.95, 0.93, 0.93, 0.92, 0.94], ['#ffffff', '#00a19c', '#111318']),
-  d('leclerc', 'Charles', 'Leclerc', 'LEC', 16, 'MCO', 'ferrari', [0.96, 0.93, 0.91, 0.91, 0.91], ['#e8002d', '#ffffff', '#1e3a8a']),
-  d('hamilton', 'Lewis', 'Hamilton', 'HAM', 44, 'GBR', 'ferrari', [0.94, 0.95, 0.94, 0.96, 0.93], ['#ffd400', '#e8002d', '#111111']),
-  d('norris', 'Lando', 'Norris', 'NOR', 1, 'GBR', 'mclaren', [0.96, 0.92, 0.92, 0.93, 0.92], ['#d9ff00', '#111111', '#ff8000']),
+  d('leclerc', 'Charles', 'Leclerc', 'LEC', 16, 'MCO', 'ferrari', [0.955, 0.93, 0.91, 0.91, 0.91], ['#e8002d', '#ffffff', '#1e3a8a']),
+  d('hamilton', 'Lewis', 'Hamilton', 'HAM', 44, 'GBR', 'ferrari', [0.965, 0.95, 0.94, 0.96, 0.94], ['#ffd400', '#e8002d', '#111111']),
+  d('norris', 'Lando', 'Norris', 'NOR', 1, 'GBR', 'mclaren', [0.955, 0.92, 0.92, 0.93, 0.92], ['#d9ff00', '#111111', '#ff8000']),
   d('piastri', 'Oscar', 'Piastri', 'PIA', 81, 'AUS', 'mclaren', [0.94, 0.92, 0.93, 0.9, 0.93], ['#ffffff', '#1e3a8a', '#ff8000']),
-  d('verstappen', 'Max', 'Verstappen', 'VER', 3, 'NLD', 'red-bull', [0.97, 0.97, 0.94, 0.97, 0.95], ['#ff6a00', '#173b9a', '#ffffff']),
+  d('verstappen', 'Max', 'Verstappen', 'VER', 3, 'NLD', 'red-bull', [0.98, 0.97, 0.94, 0.97, 0.96], ['#ff6a00', '#173b9a', '#ffffff']),
   d('hadjar', 'Isack', 'Hadjar', 'HAD', 6, 'FRA', 'red-bull', [0.92, 0.89, 0.88, 0.88, 0.89], ['#111111', '#d71920', '#ffffff']),
   d('lawson', 'Liam', 'Lawson', 'LAW', 30, 'NZL', 'racing-bulls', [0.9, 0.9, 0.86, 0.88, 0.87], ['#111111', '#ffffff', '#2455a4']),
   d('lindblad', 'Arvid', 'Lindblad', 'LIN', 41, 'GBR', 'racing-bulls', [0.89, 0.87, 0.86, 0.86, 0.86], ['#2455a4', '#ffd400', '#ffffff']),

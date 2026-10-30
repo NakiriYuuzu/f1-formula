@@ -67,13 +67,14 @@ const BOX_MANOEUVRE = 3.5;
 export const PIT_LOSS_FALLBACK = 22;
 /**
  * Pit loss under a neutralisation, as a share of the green-flag loss. The lane costs the same, but the field covers the
- * entry → exit stretch at the neutralised pace (VSC reference 0.6 / safety car 0.58 of the reference speed, capped at
- * 50 / 52 m/s) instead of racing speed: 7–9 s of racing become 10–16 s, which leaves 0.74–0.76 of the loss on every
+ * entry → exit stretch at the neutralised pace (VSC reference 0.6 / safety car 0.7 of the reference speed, capped at
+ * 50 / 60 m/s) instead of racing speed: 7–9 s of racing become 10–16 s, which leaves 0.74–0.76 of the loss on every
  * layout (VSC: the delta keeps the gaps, so that is the loss). Behind the safety car the field is also queued nose to
  * tail and a car that rejoins behind its queue catches up again at 0.85 of the reference speed, so only the places to
  * the cars that drive by during the stop are lost — measured as 0–7 s of race time against 17–28 s under green (a stop
  * requested under the SC against the same race without it, 12 cars, 4 layouts × 3 cars: mean 0.19, median 0.13 of the
- * estimate; 0.3 keeps a margin for the places lost in the queue). In the lap the safety car comes in ('scEnding') the
+ * estimate, measured at the earlier 0.58 / 52 m/s safety-car pace; 0.3 keeps a margin for the places lost in the queue).
+ * In the lap the safety car comes in ('scEnding') the
  * field is released at the line while the car is still in the lane: mean 0.70, median 0.77 of the estimate (same runs).
  */
 export const SC_PIT_LOSS_FACTOR = 0.3;

@@ -85,12 +85,13 @@ describe('AI field strength', () => {
     expect(weak.spec.downforceArea).toBeLessThan(best.spec.downforceArea);
   });
 
-  test('simulated qualifying: the AI field is within 2.5 % (was ≈ 4.4 %), still ordered by car and driver', () => {
+  // 2.3 % before the driver's pace counted double and driving styles were added (the stars stand out more)
+  test('simulated qualifying: the AI field is within 3.2 % (was ≈ 4.4 %), still ordered by car and driver', () => {
     const track = getLayout('porto-lumen');
     const times = simulateLapTimes(config(track.id), track);
     const all = Object.values(times);
     expect(all).toHaveLength(20);
-    expect(Math.max(...all) / Math.min(...all) - 1).toBeLessThan(0.025);
+    expect(Math.max(...all) / Math.min(...all) - 1).toBeLessThan(0.032);
     expect(times.varga).toBeLessThan(times.caldwell);
   });
 

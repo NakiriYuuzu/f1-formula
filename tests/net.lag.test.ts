@@ -159,7 +159,7 @@ describe('online lag', () => {
         const car = () => world.cars[guest.carId]!;
         // the guest's drawn own car against the host's car when the host reaches the frame's time: the other cars are
         // drawn at that time, so this is how far off they are relative to the own car
-        const history: { t: number; x: number; z: number }[] = [];
+        const history: { t: number; x: number; z: number; v: number }[] = [];
         const drawn: { t: number; x: number; z: number; at: number }[] = [];
         const errs: { at: number; err: number }[] = [];
         const draw = (): void => {
@@ -184,7 +184,7 @@ describe('online lag', () => {
           }
           hostStep();
           const p = car().phys;
-          history.push({ t: world.time, x: p.x, z: p.z });
+          history.push({ t: world.time, x: p.x, z: p.z, v: p.speed });
           if (prev !== null && world.time < HITCH + 3) {
             // the guest's car's move this host step in steps of its speed: an extra step is 2
             const move = Math.hypot(p.x - prev.x, p.z - prev.z) / (p.speed * SIM_DT);
@@ -195,7 +195,9 @@ describe('online lag', () => {
           while (drawn.length > 0 && drawn[0]!.t <= world.time) {
             const d = drawn.shift()!;
             const h = history.reduce((a, b) => (Math.abs(b.t - d.t) < Math.abs(a.t - d.t) ? b : a));
-            errs.push({ at: d.at, err: Math.hypot(d.x - h.x, d.z - h.z) });
+            // in seconds at the car's speed: how far ahead / behind in time the drawn car is (metres would depend on
+            // where on the lap the AI field happens to put the car at the hitch)
+            errs.push({ at: d.at, err: Math.hypot(d.x - h.x, d.z - h.z) / Math.max(10, h.v) });
           }
           draw();
           net.advance(SIM_DT * 1000);
@@ -207,10 +209,11 @@ describe('online lag', () => {
         expect(maxMove).toBeLessThan(2.1);
         expect(gained).toBeLessThan(3);
         expect(car().status).toBe('running');
-        // measured 0.21 / 0.40 m after 0.3 s, 0.25 m after 1 s (steady 0.6–0.7 m). Host clock estimate pulled back 2 % a
-        // late snapshot: 2.7 / 0.63 m (40 steps); view steered at most 25 % faster, set only 0.5 s off: 6.5–7.5 m
-        expect(worst(0.3, 1)).toBeLessThan(1);
-        expect(worst(1, 3)).toBeLessThan(0.5);
+        // measured 1 / 2 steps (8.3 / 16.7 ms) after 0.3 s, 1 step after 1 s — at 24–26 m/s there (before the driver
+        // styles) 0.21 / 0.40 m and 0.25 m, the bounds 1 m / 0.5 m. Host clock estimate pulled back 2 % a late snapshot:
+        // 2.7 / 0.63 m (40 steps); view steered at most 25 % faster, set only 0.5 s off: 6.5–7.5 m (all at ≈ 25 m/s)
+        expect(worst(0.3, 1)).toBeLessThan(0.04);
+        expect(worst(1, 3)).toBeLessThan(0.019);
       },
       120_000,
     );

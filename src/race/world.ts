@@ -206,7 +206,7 @@ function paceEstimate(
   config: SessionConfig,
   wetness: number,
 ): number {
-  const key = `${team.id}|${driver.skill.pace}|${driver.skill.wet}|${driver.skill.consistency}`;
+  const key = `${team.id}|${driver.id}|${driver.skill.pace}|${driver.skill.wet}|${driver.skill.consistency}`;
   const hit = cache[key];
   if (hit !== undefined) return hit;
   const t =

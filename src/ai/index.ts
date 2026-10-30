@@ -6,7 +6,8 @@
 import type { AIState, BuiltTrack, CarEntry, ControlInput, DriverDef, WorldState } from '../core/types';
 import { clamp, clamp01, nextRandom } from '../core/math';
 import { driveAI } from './controller';
-import { RACE_FORM, kerbSkill, paceParams, skillBlend, trailBraking } from './pace';
+import { RACE_FORM, kerbSkill, paceParams, raceFormRange, skillBlend, styleFactors, styleGrip, trailBraking } from './pace';
+import { driverStyle } from './personality';
 
 export type { AIMode, AIPaceMode, AIMistake, AIAttackPhase, AIPitCall } from './types';
 export { neutralInput, lookaheadDistance, steerToward, pursuitAngle, carGripScale } from './controller';
@@ -25,8 +26,13 @@ export {
   DIFFICULTY_MAX,
   PACE_MODE_FACTOR,
   TRAIL_MAX,
+  raceFormRange,
+  styleFactors,
+  styleGrip,
   type PaceParams,
+  type StyleFactors,
 } from './pace';
+export { driverStyle, type DriverStyle } from './personality';
 export { capability, cornerSpeed, brakingDecel, targetSpeedAt, lineCurvatureAt, kerbLineAt, kerbReachAt, KERB_REACH, SPEED_CAP, type Capability } from './profile';
 export { naturalMistakeChance, drawNaturalMistake } from './controller';
 export {
@@ -61,7 +67,9 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
   const awareness = clamp01(fin(sk.awareness, 0.88));
   const consistency = clamp01(fin(sk.consistency, 0.88));
   const driverPace = fin(sk.pace, 0.88);
-  // derive personality numbers from the seeded stream (one draw each, fixed order)
+  // the driver's own style (personality.ts); the day's mood around it from the seeded stream (one draw each, fixed order)
+  const style = driverStyle(driver);
+  const sf = styleFactors(style);
   const r1 = nextRandom(rng);
   const r2 = nextRandom(rng);
   return {
@@ -69,22 +77,29 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
     targetLateral: 0,
     difficulty: clamp(fin(difficulty, 90), 0, 110),
     latFactor: pace.latFactor,
-    brakeFactor: pace.brakeFactor,
+    brakeFactor: Math.min(0.97, pace.brakeFactor * sf.brake),
     performance: pace.performance,
     racecraft,
     awareness,
     wetSkill: clamp01(fin(sk.wet, 0.88)),
     consistency,
-    aggression: clamp01(0.55 + (racecraft - 0.85) * 2 + (r1 - 0.5) * 0.3),
+    aggression: clamp01(style.aggression + (r1 - 0.5) * 0.16),
     reaction: 0.16 + (1 - awareness) * 0.8 + r2 * 0.12,
     trail: trailBraking(difficulty, driverPace, consistency),
     kerbSkill: kerbSkill(difficulty, driverPace, consistency),
+    gripLow: styleGrip(sf.low, pace.latFactor),
+    gripHigh: styleGrip(sf.high, pace.latFactor),
+    lineFreedom: style.lineFreedom,
+    volatility: style.volatility,
     rng,
     offset: 0,
     lineNoise: 0,
     lineNoiseTarget: 0,
     noiseTimer: 0,
     brakeNoise: 1,
+    rhythm: 1,
+    rhythmTarget: 1,
+    rhythmTimer: 0,
     noiseCorner: -1,
     mistakeTimer: 0,
     mistakeKind: 'none',
@@ -161,11 +176,12 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
 }
 
 /**
- * Race-day form (races only, after paceTime is set): the driver finds up to ± RACE_FORM of its corner / braking
- * factors on the day, so the race order is not just the grid order. Seeded from the car's own stream.
+ * Race-day form (races only, after paceTime is set): the driver finds up to ± RACE_FORM × raceFormRange(volatility)
+ * of its corner / braking factors on the day, so the race order is not just the grid order. Seeded from the car's
+ * own stream.
  */
 export function applyRaceForm(ai: AIState): void {
-  const form = 1 + (nextRandom(ai.rng) * 2 - 1) * RACE_FORM;
+  const form = 1 + (nextRandom(ai.rng) * 2 - 1) * RACE_FORM * raceFormRange(ai.volatility);
   ai.latFactor = Math.min(1, ai.latFactor * form);
   ai.brakeFactor = Math.min(0.97, ai.brakeFactor * form);
   // ≈ 0.37 % lap time per 1 % of both factors (point-mass model, 0.26 % Monza … 0.46 % Monaco)
