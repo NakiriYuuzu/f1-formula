@@ -8,6 +8,7 @@ import { describe, expect, test } from 'bun:test';
 import * as THREE from 'three';
 import type { QualityLevel } from '../src/core/types';
 import { buildCarGeometry } from '../src/render/car/carGeometry';
+import { BASE_DESIGN, TEAM_DESIGNS } from '../src/render/car/designs';
 import {
   carLodDistances,
   inferCarQuality,
@@ -125,9 +126,9 @@ describe('quality-dependent paint', () => {
 });
 
 describe('LOD geometry budgets', () => {
-  for (const reg of ['2025', '2026'] as const) {
-    test(`${reg}: LOD1 ≤ 25 % and LOD2 ≤ 400 triangles; silhouettes match LOD0`, () => {
-      const s = buildCarGeometry(reg);
+  for (const design of [BASE_DESIGN, ...Object.values(TEAM_DESIGNS)]) {
+    test(`${design.id}: LOD1 ≤ 25 % and LOD2 ≤ 400 triangles; silhouettes match LOD0`, () => {
+      const s = buildCarGeometry(design);
       const d = s.dims;
       const lod0 = tris(s.body) + tris(s.frontWing) + tris(s.frontFlap) + tris(s.rearFlap) + 2 * tris(s.wheelFront) + 2 * tris(s.wheelRear);
       const lod1 = tris(s.lod1.body) + tris(s.lod1.frontWing) + 2 * tris(s.lod1.wheelFront) + 2 * tris(s.lod1.wheelRear);

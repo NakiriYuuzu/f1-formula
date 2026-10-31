@@ -53,7 +53,11 @@ export type CarFlag = 'none' | 'green' | 'yellow' | 'doubleYellow' | 'blue' | 'v
 
 // ───────────────────────────── static data ─────────────────────────────
 /** Colors are '#rrggbb'. */
-export type LiveryPattern = 'classic' | 'stripe' | 'chevron' | 'split' | 'fade';
+/**
+ * Livery layout. 'classic' … 'fade' paint the whole body; the 2026-style layouts ('arrow' … 'flank') leave part of
+ * the lower bodywork as bare carbon (at least 55 % of the body stays painted).
+ */
+export type LiveryPattern = 'classic' | 'stripe' | 'chevron' | 'split' | 'fade' | 'arrow' | 'sweep' | 'tail' | 'shard' | 'duo' | 'flank';
 
 /** Paint finish of the livery material; default 'gloss'. */
 export type LiveryFinish = 'gloss' | 'satin' | 'matte';

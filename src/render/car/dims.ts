@@ -1,11 +1,10 @@
 /**
- * Car dimensions per regulation (model space: +Z nose, +Y up, +X = car's LEFT, origin on the ground
- * midway between the axles). Shared by the geometry builder, livery painter, cameras and effects.
+ * Car dimensions (model space: +Z nose, +Y up, +X = car's LEFT, origin on the ground midway between the axles).
+ * Every car is drawn as a 2026-regulation car (narrower, shorter wheelbase, smaller tyres), whatever regulation the
+ * session's physics run; the session regulation only changes how the wings move (see carModel). Shared by the geometry
+ * builder, livery painter, cameras and effects.
  */
-import type { Regulation } from '../../core/types';
-
 export interface CarDims {
-  regulation: Regulation;
   length: number;
   width: number;
   wheelbase: number;
@@ -58,50 +57,7 @@ export interface CarDims {
   wrapZMax: number;
 }
 
-const D2025: CarDims = {
-  regulation: '2025',
-  length: 5.6,
-  width: 2.0,
-  wheelbase: 3.6,
-  frontAxleZ: 1.8,
-  rearAxleZ: -1.8,
-  frontHalfTrack: 0.8,
-  rearHalfTrack: 0.775,
-  wheelRadius: 0.36,
-  frontWheelRadius: 0.36,
-  rearWheelRadius: 0.36,
-  frontTyreWidth: 0.305,
-  rearTyreWidth: 0.405,
-  frontWingHalfSpan: 1.0,
-  frontWingZ0: 2.18,
-  frontWingZ1: 2.8,
-  rearWingHalfSpan: 0.475,
-  rearWingZ0: -2.8,
-  rearWingZ1: -2.32,
-  noseTipZ: 2.62,
-  cockpitZ0: -0.32,
-  cockpitZ1: 0.56,
-  helmetZ: -0.14,
-  helmetY: 0.78,
-  helmetR: 0.135,
-  eyeY: 0.8,
-  eyeZ: -0.06,
-  wheelHubY: 0.6,
-  wheelHubZ: 0.36,
-  finZ0: -2.18,
-  finZ1: -0.82,
-  finY0: 0.7,
-  finY1: 0.98,
-  noseNumberZ: 2.05,
-  sidepodTextZ: -0.25,
-  rainLightZ: -2.58,
-  rainLightY: 0.34,
-  wrapZMin: -2.85,
-  wrapZMax: 2.85,
-};
-
-const D2026: CarDims = {
-  regulation: '2026',
+const DIMS: CarDims = {
   length: 5.4,
   width: 1.9,
   wheelbase: 3.4,
@@ -142,6 +98,6 @@ const D2026: CarDims = {
   wrapZMax: 2.85,
 };
 
-export function carDims(regulation: Regulation): CarDims {
-  return regulation === '2026' ? D2026 : D2025;
+export function carDims(): CarDims {
+  return DIMS;
 }

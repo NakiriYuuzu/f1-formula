@@ -1,7 +1,9 @@
 /**
  * Car model instance: root group + movable nodes (front-wheel steering pivots, wheel spinners, DRS /
- * active-aero flaps, steering wheel) driven by CarRenderState via apply(). Geometry is shared per
- * regulation; only the livery material (canvas atlas) and the brake-glow material are per car.
+ * active-aero flaps, steering wheel) driven by CarRenderState via apply(). Every car is drawn as a 2026 car in its
+ * team's body design (designs.ts); geometry is shared per design, only the livery material (canvas atlas) and the
+ * brake-glow material are per car. The regulation only picks the flap behaviour: under 2025 rules DRS opens the rear
+ * flap alone, under 2026 rules Straight mode opens the front flaps too.
  *
  * Levels of detail (THREE.LOD inside the root, picked per camera at render time, so every split-screen view
  * chooses its own): LOD0 = the full model, LOD1 = simplified merged body + front wing + low-segment wheels that
@@ -24,6 +26,7 @@ import type { CarRenderState, Livery, LiveryFinish, QualityLevel, Regulation, Ti
 import { clamp, clamp01, damp } from '../../core/math';
 import { liveryTexture, paintLiveryCanvas, type LiveryPaint } from './atlas';
 import { acquireCarGeometry, releaseCarGeometry, type CarGeometrySet } from './carGeometry';
+import { designForTeam, type CarDesign } from './designs';
 import { createDamageLook, damageLook, scuffAfterImpact } from './carDamage';
 import { CarSharedResources } from './carMaterials';
 import {
@@ -48,7 +51,10 @@ export interface CarModelOptions {
   number: number;
   teamShort: string;
   helmet: Livery;
+  /** flap behaviour (2025: rear DRS only, 2026: front and rear active aero) */
   regulation: Regulation;
+  /** body design; default the team's (designForTeam(teamShort)) */
+  design?: CarDesign;
   /** translucent time-trial ghost (no shadows) */
   ghost?: boolean;
   /** livery atlas size (px), default 1024 */
@@ -93,6 +99,7 @@ export interface CarModel {
   root: THREE.Group;
   nodes: CarNodes;
   regulation: Regulation;
+  design: CarDesign;
   ghost: boolean;
   apply(state: CarRenderState, dt: number, ctx?: CarApplyContext): void;
   /** repaint livery / number / code / helmet */
@@ -306,12 +313,12 @@ ${
 }
 
 /** Livery material: clear-coated physical paint, or standard (low / medium quality and the translucent ghost). */
-function createLiveryMaterial(map: THREE.Texture, shared: CarSharedResources, ghost: boolean, clearcoat: boolean): THREE.MeshStandardMaterial {
+function createLiveryMaterial(map: THREE.Texture, surface: THREE.Texture, ghost: boolean, clearcoat: boolean): THREE.MeshStandardMaterial {
   const params: THREE.MeshStandardMaterialParameters = {
     name: ghost ? 'car-ghost' : 'car-livery',
     map,
-    roughnessMap: shared.surfaceMap,
-    metalnessMap: shared.surfaceMap,
+    roughnessMap: surface,
+    metalnessMap: surface,
     roughness: 1,
     metalness: 1,
     envMapIntensity: CAR_PAINT.envMapIntensity,
@@ -324,13 +331,14 @@ function createLiveryMaterial(map: THREE.Texture, shared: CarSharedResources, gh
     ...params,
     clearcoat: CAR_PAINT.clearcoat,
     clearcoatRoughness: CAR_PAINT.clearcoatRoughness,
-    // R channel of the shared surface map scales the coat per region (paint 1, carbon thin, tyres / metal none)
-    clearcoatMap: shared.surfaceMap,
+    // R channel of the layout's surface map scales the coat per region (paint 1, carbon thin, tyres / metal none)
+    clearcoatMap: surface,
   });
 }
 
 export function createCarModel(opts: CarModelOptions): CarModel {
-  const geo: CarGeometrySet = acquireCarGeometry(opts.regulation);
+  const design = opts.design ?? designForTeam(opts.teamShort);
+  const geo: CarGeometrySet = acquireCarGeometry(design);
   const ownShared = !opts.shared;
   const shared = opts.shared ?? new CarSharedResources();
   const ghost = opts.ghost === true;
@@ -342,7 +350,7 @@ export function createCarModel(opts: CarModelOptions): CarModel {
 
   const paint: LiveryPaint = { livery: opts.livery, helmet: opts.helmet, number: opts.number, teamShort: opts.teamShort };
   let livTex = liveryTexture(size, d, paint, aniso);
-  const bodyMat = createLiveryMaterial(livTex, shared, ghost, usesClearcoatPaint(quality));
+  const bodyMat = createLiveryMaterial(livTex, shared.surfaceMapFor(opts.livery.pattern), ghost, usesClearcoatPaint(quality));
   applyFinish(bodyMat, opts.livery.finish, ghost);
   const scuffAmount: THREE.IUniform<number> = { value: 0 };
   if (!ghost) applyScuffShader(bodyMat, shared.scuffMap, scuffAmount);
@@ -491,10 +499,11 @@ export function createCarModel(opts: CarModelOptions): CarModel {
     lod,
   };
 
+  const frontActive = opts.regulation === '2026';
   const setFlap = (open: number, droop: number, twist: number): void => {
     rearFlapPivot.rotation.x = geo.rearFlapClosed + (geo.rearFlapOpen - geo.rearFlapClosed) * open - droop;
     rearFlapPivot.rotation.z = twist;
-    if (frontFlapPivot) frontFlapPivot.rotation.x = geo.frontFlapClosed + (geo.frontFlapOpen - geo.frontFlapClosed) * open;
+    if (frontFlapPivot) frontFlapPivot.rotation.x = geo.frontFlapClosed + (geo.frontFlapOpen - geo.frontFlapClosed) * (frontActive ? open : 0);
   };
   setFlap(0, 0, 0);
 
@@ -520,6 +529,7 @@ export function createCarModel(opts: CarModelOptions): CarModel {
     root,
     nodes,
     regulation: opts.regulation,
+    design,
     ghost,
     get heat() {
       return heat;
@@ -609,6 +619,11 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       next.anisotropy = livTex.anisotropy;
       next.needsUpdate = true;
       bodyMat.map = next;
+      // the layout's bare-carbon zones live in its surface map
+      const surface = shared.surfaceMapFor(livery.pattern);
+      bodyMat.roughnessMap = surface;
+      bodyMat.metalnessMap = surface;
+      if ((bodyMat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) (bodyMat as THREE.MeshPhysicalMaterial).clearcoatMap = surface;
       applyFinish(bodyMat, livery.finish, ghost);
       bodyMat.needsUpdate = true;
       livTex.dispose();
@@ -625,7 +640,7 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       livTex.dispose();
       bodyMat.dispose();
       glowMat.dispose();
-      releaseCarGeometry(opts.regulation);
+      releaseCarGeometry(design);
       if (ownShared) shared.dispose();
     },
   };

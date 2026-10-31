@@ -8,6 +8,7 @@
  *          the livery atlas, so it renders with the car's own livery material in one draw call.
  */
 import * as THREE from 'three';
+import type { CarDesign } from './designs';
 import type { CarDims } from './dims';
 import { PartList, type UVMap } from './parts';
 import { loft, revolve, type LoftStation, type RevolveStrip } from './shapes';
@@ -22,8 +23,10 @@ import {
   addRearFlap,
   addRearWing,
   addSuspension,
+  airboxIntake,
   bodyWrap,
   frontWingSpan,
+  podLoft,
   WHEEL_UV,
   type BodyStations,
 } from './sharedParts';
@@ -31,7 +34,7 @@ import {
 export interface CarLodGeometry {
   /** merged body incl. rear wing (flap closed), fin, floor, main suspension links, halo and driver */
   body: THREE.BufferGeometry;
-  /** front wing incl. its flaps (2026 active flaps merged closed) */
+  /** front wing incl. its flaps (active flaps merged closed) */
   frontWing: THREE.BufferGeometry;
   frontWingDamaged: THREE.BufferGeometry;
   /** wheels around the local X axle, outer face +X (same convention as LOD0) */
@@ -64,9 +67,8 @@ const BLACK: UVMap = { kind: 'swatch', name: 'black' };
 const CARBON: UVMap = { kind: 'swatch', name: 'carbon' };
 const PRIMARY: UVMap = { kind: 'swatch', name: 'primary' };
 
-export function buildCarLod1(d: CarDims, st: BodyStations): CarLodGeometry {
+export function buildCarLod1(d: CarDims, st: BodyStations, design: CarDesign): CarLodGeometry {
   const D = LOD1_DETAIL;
-  const is26 = d.regulation === '2026';
   const rz = d.rearAxleZ;
   const kx = d.width / 2.0;
   const wrap = bodyWrap(d, st);
@@ -75,9 +77,10 @@ export function buildCarLod1(d: CarDims, st: BodyStations): CarLodGeometry {
   body.add(loft(st.mono, { segments: D.mono, cutHalfWidth: 0.25, cutSegments: D.monoCut, capStart: true, capEnd: true }), wrap);
   body.add(loft(st.cover, { segments: D.cover, capStart: true, capEnd: true }), wrap);
   body.add(loft(st.airbox, { segments: D.airbox, capStart: true, capEnd: false }), wrap);
-  body.add(new THREE.CircleGeometry(1, D.intake).scale(0.105, 0.11, 1).translate(0, 0.9, -0.41), BLACK);
-  body.add(loft(st.pod, { segments: D.pod, capStart: true, capEnd: false }), wrap, true);
-  addPodInlet(body, st, false);
+  const ai = airboxIntake(st);
+  body.add(new THREE.CircleGeometry(1, D.intake).scale(ai.rx, ai.ry, 1).translate(0, ai.y, ai.z), BLACK);
+  body.add(podLoft(st, design, D.pod), wrap, true);
+  addPodInlet(body, st, design, false);
 
   addFloor(body, d, false);
   body.add(new THREE.BoxGeometry(0.22, 0.22, 0.7).translate(0, 0.3, rz - 0.1), CARBON);
@@ -94,14 +97,14 @@ export function buildCarLod1(d: CarDims, st: BodyStations): CarLodGeometry {
   body.add(new THREE.BoxGeometry(0.17, 0.065, 0.05).translate(0.52 * kx, 0.76, 0.6), PRIMARY, true);
 
   addFin(body, d, st);
-  addRearWing(body, d, is26, D.foil, false);
+  addRearWing(body, d, design, D.foil, false);
   addRearFlap(body, d, D.foil, true);
 
   const wing = (damaged: boolean): THREE.BufferGeometry => {
     const w = new PartList(d);
-    // same element set as LOD0: 2025 wings carry fixed flaps; 2026 intact wings get their active flaps (closed)
-    addFrontWing(w, d, damaged, damaged || !is26, D.foil, false);
-    if (is26 && !damaged) addFrontFlaps(w, d, D.foil, true);
+    // same element set as LOD0: the intact wing gets its active flaps (closed), the damaged one fixed flaps
+    addFrontWing(w, d, design, damaged, damaged, D.foil, false);
+    if (!damaged) addFrontFlaps(w, d, D.foil, true);
     return w.build();
   };
 

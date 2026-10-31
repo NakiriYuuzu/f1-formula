@@ -113,6 +113,12 @@ export const PATTERN_LABEL: Record<LiveryPattern, string> = {
   chevron: '箭羽',
   split: '前後分色',
   fade: '漸層',
+  arrow: '2026 前指箭頭',
+  sweep: '2026 流線弧',
+  tail: '2026 尾段分色',
+  shard: '2026 幾何碎片',
+  duo: '2026 上下雙色',
+  flank: '2026 側身寬帶',
 };
 
 /** Livery colours + pattern. */

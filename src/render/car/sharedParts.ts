@@ -6,8 +6,9 @@
  */
 import * as THREE from 'three';
 import type { CarDims } from './dims';
+import { BASE_DESIGN, type CarDesign, type FrontEndplate, type PodInlet } from './designs';
 import { reflectX, type PartList, type UVMap } from './parts';
-import { airfoil, blade, plateXZ, plateZY, rod, type LoftStation } from './shapes';
+import { airfoil, blade, loft, plateXZ, plateZY, rod, type LoftStation } from './shapes';
 
 export interface BodyStations {
   /** monocoque + nose (open cockpit U-section between cockpitZ0 and cockpitZ1) */
@@ -20,10 +21,45 @@ export interface BodyStations {
   pod: LoftStation[];
 }
 
-export function carBodyStations(d: CarDims): BodyStations {
+export function carBodyStations(d: CarDims, design: CarDesign = BASE_DESIGN): BodyStations {
   const fz = d.frontAxleZ;
   const rz = d.rearAxleZ;
   const kx = d.width / 2.0;
+  const { nose, pod: P, cover: C } = design;
+  // nose: width blends in ahead of the front bulkhead, lift (high nose) from behind the front axle
+  const noseW = (z: number): number => 1 + (nose.width - 1) * smooth((z - (fz - 0.5)) / 0.85);
+  const noseL = (z: number): number => nose.lift * smooth((z - 0.9) / (fz + 0.35 - 0.9));
+  const ns = (z: number, hw: number, yb: number, yt: number, n: number): LoftStation => ({ z, hw: hw * noseW(z), yb: yb + noseL(z), yt: yt + noseL(z), n });
+  // sidepod top: level shoulder (downwash 0) → steep ramp (1); pods narrower / wider about a fixed inboard edge
+  const top = P.inletTop;
+  const dw = P.downwash;
+  const tuck = (t: number): number => Math.min(0.85, t * P.undercut);
+  const podSt = (z: number, xc: number, hw: number, yb: number, level: number, steep: number, n: number, t = 0): LoftStation => ({
+    z,
+    xc: (xc + hw * (P.width - 1)) * kx,
+    hw: hw * P.width,
+    yb,
+    yt: level + (steep - level) * dw,
+    n,
+    tuck: tuck(t),
+  });
+  const zi = 0.8 + P.inletShift;
+  // inlet mouth: oval (D-shape), letterbox (wide low slot over a sloping chin), overbite (upper lip ahead of a
+  // receding lower edge) or tall (narrow and deep)
+  const mouth = (): LoftStation[] => {
+    const shoulder = podSt(0.5 + P.inletShift * 0.6, 0.42, 0.185, 0.22, top, top - 0.03, 3.3, 0.55);
+    switch (P.inlet) {
+      case 'letterbox':
+        return [shoulder, { ...podSt(zi, 0.41, 0.17, top - 0.16, top - 0.03, top - 0.03, 3.8, 0.1), tuck: 0 }];
+      case 'overbite':
+        return [{ ...shoulder, yb: 0.3 }, { ...podSt(zi + 0.04, 0.41, 0.16, top - 0.2, top - 0.03, top - 0.03, 3.4, 0), tuck: 0 }];
+      case 'tall':
+        return [shoulder, podSt(zi, 0.4, 0.12, 0.3, top - 0.02, top - 0.02, 3.2, 0.25)];
+      default:
+        return [shoulder, podSt(zi, 0.41, 0.165, 0.34, top - 0.04, top - 0.04, 3.5, 0.3)];
+    }
+  };
+  const ab = design.airbox;
   return {
     mono: [
       { z: d.cockpitZ0 - 0.02, hw: 0.4, yb: 0.1, yt: 0.7, cut: 0, n: 3 },
@@ -32,39 +68,45 @@ export function carBodyStations(d: CarDims): BodyStations {
       { z: 0.3, hw: 0.39, yb: 0.1, yt: 0.7, cut: 0.37, n: 3 },
       { z: d.cockpitZ1 - 0.04, hw: 0.37, yb: 0.12, yt: 0.7, cut: 0.33, n: 3 },
       { z: d.cockpitZ1, hw: 0.36, yb: 0.12, yt: 0.7, cut: 0, n: 3 },
-      { z: 0.9, hw: 0.32, yb: 0.16, yt: 0.67, cut: 0, n: 2.8 },
-      { z: fz - 0.5, hw: 0.26, yb: 0.2, yt: 0.62, n: 2.6 },
-      { z: fz - 0.15, hw: 0.2, yb: 0.21, yt: 0.5, n: 2.5 },
+      ns(0.9, 0.32, 0.16, 0.67, 2.8),
+      ns(fz - 0.5, 0.26, 0.2, 0.62, 2.6),
+      ns(fz - 0.15, 0.2, 0.21, 0.5, 2.5),
       // raised nose that drops onto the front wing pylons (blunt tip, like the 2022+ noses)
-      { z: fz + 0.35, hw: 0.135, yb: 0.2, yt: 0.4, n: 2.4 },
-      { z: d.noseTipZ - 0.12, hw: 0.095, yb: 0.17, yt: 0.31, n: 2.3 },
-      { z: d.noseTipZ, hw: 0.065, yb: 0.16, yt: 0.26, n: 2.2 },
+      ns(Math.min(fz + 0.35, d.noseTipZ - 0.24), 0.135, 0.2, 0.4, 2.4),
+      ns(d.noseTipZ - 0.12, 0.095, 0.17, 0.31, 2.3),
+      ns(d.noseTipZ, 0.065, 0.16, 0.26, 2.2),
     ],
     cover: [
-      // slim tail between the rear wheels, then the coke-bottle spine widening towards the cockpit
+      // slim tail between the rear wheels, then the coke-bottle spine widening towards the cockpit; a saddle cooler
+      // bulges the shoulders above the power unit
       { z: rz - 0.35, hw: 0.09, yb: 0.2, yt: 0.4, n: 2.4 },
       { z: rz - 0.05, hw: 0.13, yb: 0.17, yt: 0.48, n: 2.4 },
-      { z: -1.45, hw: 0.18, yb: 0.14, yt: 0.58, n: 2.4 },
-      { z: -1.0, hw: 0.26, yb: 0.11, yt: 0.7, n: 2.5 },
-      { z: -0.6, hw: 0.36, yb: 0.09, yt: 0.78, n: 2.6 },
+      { z: -1.45, hw: 0.18 + C.saddle * 0.4, yb: 0.14, yt: 0.58 + C.saddle * 0.3, n: 2.4 },
+      { z: -1.0, hw: 0.26 + C.saddle * 1.2, yb: 0.11, yt: 0.7 + C.saddle * 0.6, n: 2.5 + C.saddle * 6 },
+      { z: -0.6, hw: 0.36 + C.saddle * 0.8, yb: 0.09, yt: 0.78 + C.saddle * 0.3, n: 2.6 + C.saddle * 4 },
       { z: d.cockpitZ0, hw: 0.4, yb: 0.1, yt: 0.72, n: 2.8 },
     ],
     airbox: [
       { z: -1.3, hw: 0.06, yb: 0.62, yt: 0.78, n: 2.6 },
-      { z: -0.95, hw: 0.11, yb: 0.68, yt: 0.92, n: 2.8 },
-      { z: -0.62, hw: 0.135, yb: 0.72, yt: 0.99, n: 3 },
-      { z: -0.4, hw: 0.115, yb: 0.78, yt: 1.01, n: 3 },
+      { z: -0.95, hw: 0.11 * Math.sqrt(ab), yb: 0.68, yt: 0.92, n: 2.8 },
+      { z: -0.62, hw: 0.135 * Math.sqrt(ab), yb: 0.72, yt: 0.99, n: 3 },
+      { z: -0.4, hw: 0.115 * ab, yb: 1.01 - 0.23 * ab, yt: 1.01, n: 3 },
     ],
     pod: [
-      { z: -1.75, xc: 0.15, hw: 0.07, yb: 0.16, yt: 0.27, n: 2.4 },
-      { z: -1.35, xc: 0.22, hw: 0.12, yb: 0.13, yt: 0.34, n: 2.6, tuck: 0.2 },
-      { z: -0.9, xc: 0.32, hw: 0.17, yb: 0.11, yt: 0.47, n: 2.8, tuck: 0.4 },
-      { z: -0.4, xc: 0.39, hw: 0.19, yb: 0.11, yt: 0.6, n: 3, tuck: 0.55 },
-      { z: 0.1, xc: 0.42, hw: 0.19, yb: 0.13, yt: 0.66, n: 3.1, tuck: 0.6 },
-      { z: 0.5, xc: 0.42, hw: 0.185, yb: 0.22, yt: 0.66, n: 3.3, tuck: 0.55 },
-      { z: 0.8, xc: 0.41, hw: 0.165, yb: 0.34, yt: 0.62, n: 3.5, tuck: 0.3 },
-    ].map((s) => ({ ...s, xc: s.xc * kx })),
+      podSt(-1.75, 0.15, 0.07, 0.16, 0.3, 0.24, 2.4),
+      podSt(-1.35, 0.22, 0.12, 0.13, 0.4, 0.29, 2.6, 0.2),
+      podSt(-0.9, 0.32, 0.17, 0.11, 0.56, 0.38, 2.8, 0.4),
+      podSt(-0.4, 0.39, 0.19, 0.11, top, 0.5, 3, 0.55),
+      podSt(0.1, 0.42, 0.19, 0.13, top, top - 0.07, 3.1, 0.6),
+      ...mouth(),
+    ],
   };
+}
+
+/** Airbox intake ellipse (radii, centre height) inside the front airbox station. */
+export function airboxIntake(st: BodyStations): { rx: number; ry: number; y: number; z: number } {
+  const s = st.airbox[st.airbox.length - 1];
+  return { rx: s.hw * 0.91, ry: ((s.yt - s.yb) / 2) * 0.95, y: (s.yt + s.yb) / 2, z: s.z - 0.01 };
 }
 
 /**
@@ -107,22 +149,30 @@ export function frontWingSpan(d: CarDims): { fs: number; fwz: number } {
 
 /** Pivot of the rear DRS / active flap (flap geometry is pivot-local, chord towards -Z). */
 export function rearFlapPivotOf(d: CarDims): THREE.Vector3 {
-  return new THREE.Vector3(0, 0.9, d.rearWingZ1 - 0.2);
+  return new THREE.Vector3(0, 0.88, d.rearWingZ1 - 0.2);
 }
 
-/** Pivot of the 2026 active-aero front flaps. */
+/** Pivot of the active-aero front flaps. */
 export function frontFlapPivotOf(d: CarDims): THREE.Vector3 {
   return new THREE.Vector3(0, 0.115, frontWingSpan(d).fwz - 0.22);
 }
 
-/** Wheel atlas keys (4 columns of the per-compound wheel texture). */
-export const WHEEL_KEYS = ['rubber', 'band', 'rim', 'nut'] as const;
-export const WHEEL_UV: Record<string, [number, number]> = {
-  rubber: [0.125, 0.5],
-  band: [0.375, 0.5],
-  rim: [0.625, 0.5],
-  nut: [0.875, 0.5],
-};
+/**
+ * Wheel atlas rows (top to bottom) of the per-compound wheel texture: rubber, solid compound band, the 2026 sidewall
+ * chequer (compound colour / black squares, tiled around the tyre), rim, nut / lip, brake disc.
+ */
+export const WHEEL_KEYS = ['rubber', 'band', 'chequer', 'rim', 'nut', 'disc'] as const;
+export const WHEEL_ROWS = 8;
+/** v range of an atlas row (inset half a texel row so filtering stays inside it) */
+export function wheelRowV(row: number): [number, number] {
+  const inset = 0.5 / (WHEEL_ROWS * 16);
+  return [1 - (row + 1) / WHEEL_ROWS + inset, 1 - row / WHEEL_ROWS - inset];
+}
+export const WHEEL_UV: Record<string, [number, number]> = Object.fromEntries(
+  WHEEL_KEYS.map((k, i) => [k, [0.5, 1 - (i + 0.5) / WHEEL_ROWS] as [number, number]]),
+);
+/** Sidewall chequer: two rows of squares, the atlas tile (WHEEL_CHEQUER.columns squares) repeated around the tyre. */
+export const WHEEL_CHEQUER = { columns: 16, repeats: 8 } as const;
 
 const v3 = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
 const CARBON: UVMap = { kind: 'swatch', name: 'carbon' };
@@ -190,8 +240,25 @@ function coverTop(cover: readonly LoftStation[], z: number): number {
   return st[st.length - 1].yt;
 }
 
-/** Sidepod inlet: a slanted D-shaped opening (outboard top corner high, inboard low) just inside the pod mouth. */
-export function addPodInlet(list: PartList, st: BodyStations, fine: boolean): void {
+/** Mouth rake per inlet type: z shift per metre of height above the mouth centre (overbite: upper lip ahead). */
+const POD_RAKE: Record<PodInlet, number> = { oval: 0.12, letterbox: 0.2, overbite: 0.55, tall: 0.15 };
+
+/** Sidepod loft (left side) with the mouth raked back from its upper lip as the design's inlet asks. */
+export function podLoft(st: BodyStations, design: CarDesign, segments: number): THREE.BufferGeometry {
+  const g = loft(st.pod, { segments, capStart: true, capEnd: false });
+  const s = st.pod[st.pod.length - 1];
+  const rake = POD_RAKE[design.pod.inlet];
+  const yc = (s.yb + s.yt) / 2;
+  const p = g.attributes.position as THREE.BufferAttribute;
+  for (let i = 0; i < p.count; i++) {
+    if (Math.abs(p.getZ(i) - s.z) < 1e-6) p.setZ(i, s.z + rake * (p.getY(i) - yc));
+  }
+  // (normals stay those of the unraked loft: the merged loft is non-indexed, recomputing would facet it)
+  return g;
+}
+
+/** Sidepod inlet: a slanted D-shaped opening (outboard top corner high, inboard low) just inside the raked pod mouth. */
+export function addPodInlet(list: PartList, st: BodyStations, design: CarDesign, fine: boolean): void {
   const s = st.pod[st.pod.length - 1];
   const a = s.hw * 0.88;
   const b = ((s.yt - s.yb) / 2) * 0.84;
@@ -208,21 +275,75 @@ export function addPodInlet(list: PartList, st: BodyStations, fine: boolean): vo
   }
   shape.closePath();
   const g = new THREE.ShapeGeometry(shape);
+  const rake = Math.atan(POD_RAKE[design.pod.inlet]);
+  g.scale(1, 1 / Math.cos(rake), 1).rotateX(rake);
   g.translate(s.xc ?? 0, (s.yb + s.yt) / 2, s.z - 0.012);
   list.add(g, BLACK, true);
 }
 
+/** Interpolated loft section at z (stations sorted by z, clamped at the ends). */
+function sectionAt(stations: readonly LoftStation[], z: number): LoftStation {
+  const st = [...stations].sort((a, b) => a.z - b.z);
+  if (z <= st[0].z) return st[0];
+  for (let i = 1; i < st.length; i++) {
+    const p = st[i - 1];
+    const q = st[i];
+    if (z <= q.z) {
+      const t = (z - p.z) / (q.z - p.z);
+      const m = (a: number | undefined, b: number | undefined): number => (a ?? 0) + ((b ?? 0) - (a ?? 0)) * t;
+      return { z, xc: m(p.xc, q.xc), hw: m(p.hw, q.hw), yb: m(p.yb, q.yb), yt: m(p.yt, q.yt), n: m(p.n ?? 2.6, q.n ?? 2.6) };
+    }
+  }
+  return st[st.length - 1];
+}
+
+/** Height of a loft's upper surface at (x, z). */
+function loftTop(stations: readonly LoftStation[], x: number, z: number): number {
+  const s = sectionAt(stations, z);
+  const n = s.n ?? 2.6;
+  const u = Math.min(1, Math.abs(x - (s.xc ?? 0)) / s.hw);
+  return (s.yb + s.yt) / 2 + ((s.yt - s.yb) / 2) * Math.pow(Math.max(0, 1 - Math.pow(u, n)), 1 / n);
+}
+
+/** Sidepod louvre panel: slats (count), their spacing along z, the first slat z, panel spacing across x. */
+const POD_LOUVRES = { slats: 5, pitch: 0.07, z0: -0.38, panelGap: 0.075 } as const;
+
 /**
- * Floor plate, edge wing / fence and diffuser. 2025: tunnel-inlet fences, a two-element curled edge wing, a tall
- * diffuser with strakes and a dark exit cavity. 2026: flatter, 150 mm narrower floor with a plain edge fence and a
- * smaller diffuser. `fine` adds the small parts (fences, second edge element, strakes, exit cavity).
+ * Design details on the body (LOD0, mirrored): louvre panels on each sidepod top, and a serrated cooling spine either
+ * side of the engine cover running into the fin.
+ */
+export function addDesignDetails(list: PartList, st: BodyStations, design: CarDesign): void {
+  const L = POD_LOUVRES;
+  for (let i = 0; i < design.louvres; i++) {
+    for (let k = 0; k < L.slats; k++) {
+      const z = L.z0 - k * L.pitch;
+      const s = sectionAt(st.pod, z);
+      const x = (s.xc ?? 0) + (i - (design.louvres - 1) / 2) * L.panelGap;
+      const y = loftTop(st.pod, x, z);
+      const slope = Math.atan2(loftTop(st.pod, x, z + 0.02) - loftTop(st.pod, x, z - 0.02), 0.04);
+      list.add(new THREE.BoxGeometry(0.058, 0.007, 0.024).rotateX(-slope - 0.25).translate(x, y + 0.002, z), BLACK, true);
+    }
+  }
+  if (design.cover.serrated) {
+    for (let k = 0; k < 7; k++) {
+      const z = -1.08 - k * 0.075;
+      const s = sectionAt(st.cover, z);
+      const x = s.hw * 0.5;
+      const y = loftTop(st.cover, x, z) - 0.006;
+      list.add(plateZY([[z + 0.03, y], [z - 0.025, y + 0.026], [z - 0.035, y]], x - 0.003, 0.006), CARBON, true);
+    }
+  }
+}
+
+/**
+ * Floor plate, edge fence and diffuser: the flatter, narrower 2026 floor with a plain low edge fence and a smaller
+ * diffuser. `fine` adds the small parts (side walls, strakes, exit cavity).
  */
 export function addFloor(list: PartList, d: CarDims, fine: boolean): void {
-  const is26 = d.regulation === '2026';
   const fz = d.frontAxleZ;
   const rz = d.rearAxleZ;
   const kx = d.width / 2.0;
-  const inset = is26 ? 0.03 : 0;
+  const inset = 0.03;
   const half: [number, number][] = [
     [0.3, fz - 0.5],
     [0.62, fz - 0.8],
@@ -237,32 +358,18 @@ export function addFloor(list: PartList, d: CarDims, fine: boolean): void {
   ];
   list.add(plateXZ(outline, 0.035, 0.03), SATIN);
   const ex = 0.78 * kx - inset - 0.01;
-  if (is26) {
-    // plain low edge fence
-    list.add(plateZY([[0.6, 0.035], [0.6, 0.075], [-1.2, 0.085], [-1.2, 0.035]], ex, 0.012), SATIN, true);
-  } else {
-    // curled edge wing (outer element, plus a shorter inner one when fine)
-    list.add(tiltedPlate([[0.55, 0], [0.55, 0.06], [-1.15, 0.11], [-1.15, 0]], ex, 0.035, 0.6, 0.01), SATIN, true);
-    if (fine) {
-      list.add(tiltedPlate([[0.25, 0], [0.25, 0.05], [-1.0, 0.1], [-1.0, 0]], ex - 0.05, 0.035, 0.42, 0.01), SATIN, true);
-      // Venturi tunnel inlet fences ahead of the sidepod mouth
-      for (let i = 0; i < 3; i++) {
-        const z0 = 1.0 - 0.12 * i;
-        const h = 0.12 + 0.03 * i;
-        list.add(plateZY([[z0, 0.035], [z0 - 0.04, h], [z0 - 0.5, h + 0.04], [z0 - 0.5, 0.035]], (0.42 + 0.07 * i) * kx, 0.012), SATIN, true);
-      }
-    }
-  }
+  // plain low edge fence
+  list.add(plateZY([[0.6, 0.035], [0.6, 0.075], [-1.2, 0.085], [-1.2, 0.035]], ex, 0.012), SATIN, true);
   // diffuser ramp, upswept to the tail; when fine: side walls, vertical strakes that stand proud of a recessed dark exit
   // cavity and a lighter trailing-edge slab, so the rear reads as a tunnelled diffuser instead of one black box
   const dz0 = rz + 0.2;
-  const dz1 = rz - (is26 ? 0.4 : 0.65);
-  const top = is26 ? 0.24 : 0.3;
+  const dz1 = rz - 0.4;
+  const top = 0.24;
   list.add(plateZY([[dz0, 0.035], [dz1, top], [dz1, top + 0.03], [dz0, 0.065]], -0.5 * kx, 1.0 * kx), SATIN);
   if (!fine) return;
   const lip = 0.07;
   list.add(plateZY([[dz0, 0.035], [dz1, top + 0.03], [dz1 - lip, top + 0.03], [dz1 - lip, 0.03]], 0.5 * kx - 0.022, 0.022), SATIN, true);
-  for (const x of is26 ? [0.16, 0.32] : [0.12, 0.3]) {
+  for (const x of [0.16, 0.32]) {
     list.add(plateZY([[dz0, 0.035], [dz1, top], [dz1 - lip, top], [dz1 - lip, 0.03]], x * kx - 0.011, 0.022), SATIN, true);
   }
   list.add(new THREE.BoxGeometry(1.0 * kx - 0.04, top - 0.07, 0.01).translate(0, 0.035 + (top - 0.07) / 2, dz1 + 0.05), CARBON);
@@ -322,23 +429,29 @@ export function addSuspension(list: PartList, d: CarDims, full: boolean, radial:
   list.add(rod(v3(0.1, d.rearWheelRadius, rz), v3(rx, d.rearWheelRadius, rz), 0.024, radial), { kind: 'swatch', name: 'metal' }, true);
 }
 
+/** In-wash boards ahead of the sidepods: element count, toe-in (rad), length (m), element height / pitch (m). */
+const INWASH = { elements: 3, toe: (15 * Math.PI) / 180, length: 0.36, height: 0.04, pitch: 0.065, lead: 1.18 } as const;
+
 /**
- * Wheel aero (LOD0): 2025 over-tyre brake-duct deflector winglets above each front wheel; 2026 prescribed front
- * wheel bodywork (fairing behind the tyre) and in-washing boards ahead of the floor.
+ * Wheel aero (LOD0): the prescribed 2026 front wheel bodywork (fairing behind the tyre) and the in-wash boards on the
+ * floor ahead of each sidepod: three slotted horizontal elements on a leading strut, toed in 15° to turn the front
+ * wheel wake inboard.
  */
 export function addWheelAero(list: PartList, d: CarDims): void {
   const fz = d.frontAxleZ;
   const kx = d.width / 2.0;
   const inner = d.frontHalfTrack - d.frontTyreWidth / 2;
-  if (d.regulation === '2026') {
-    list.add(plateZY([[fz + 0.3, 0.12], [fz + 0.2, 0.48], [fz - 0.26, 0.48], [fz - 0.4, 0.12]], inner - 0.026, 0.014), CARBON, true);
-    list.add(tiltedPlate([[1.15, 0], [1.15, 0.17], [0.8, 0.2], [0.8, 0]], 0.5 * kx, 0.035, 0.12, 0.012), SATIN, true);
-    return;
+  list.add(plateZY([[fz + 0.3, 0.12], [fz + 0.2, 0.48], [fz - 0.26, 0.48], [fz - 0.4, 0.12]], inner - 0.026, 0.014), CARBON, true);
+  const W = INWASH;
+  const x = 0.5 * kx;
+  const place = (g: THREE.BufferGeometry): THREE.BufferGeometry => g.rotateY(W.toe).translate(x, 0, W.lead);
+  const top = 0.07 + (W.elements - 1) * W.pitch + W.height;
+  list.add(place(plateZY([[0, 0.035], [0, top], [-0.035, top], [-0.035, 0.035]], -0.005, 0.01)), SATIN, true);
+  for (let k = 0; k < W.elements; k++) {
+    const y = 0.07 + k * W.pitch;
+    const rise = 0.012 + k * 0.006;
+    list.add(place(plateZY([[0, y], [0, y + W.height], [-W.length, y + W.height + rise], [-W.length, y + rise]], -0.004, 0.008)), CARBON, true);
   }
-  for (let k = 0; k < 3; k++) {
-    list.add(airfoil(inner - 0.24, inner - 0.04, 0.55 + 0.04 * k, fz + 0.1 - 0.015 * k, 0.12, 0.08, 0.12 + 0.18 * k, 0.03, 6), CARBON, true);
-  }
-  list.add(plateZY([[fz + 0.1, 0.5], [fz + 0.1, 0.66], [fz - 0.04, 0.66], [fz - 0.04, 0.5]], inner - 0.043, 0.012), CARBON, true);
 }
 
 /** Halo hoop + centre pillar tubes. */
@@ -386,10 +499,10 @@ export function addFin(list: PartList, d: CarDims, st: BodyStations): void {
 }
 
 /** Rounded rear-wing endplate outline (z, y): integrated swept shape instead of a square plate. */
-function rearEndplate(d: CarDims, is26: boolean, fine: boolean): [number, number][] {
+function rearEndplate(d: CarDims, fine: boolean): [number, number][] {
   const z1 = d.rearWingZ1;
   const z0 = d.rearWingZ0;
-  const bottom = is26 ? 0.52 : 0.38;
+  const bottom = 0.52;
   const top = 1.045;
   const na = fine ? 4 : 2;
   return [
@@ -403,28 +516,30 @@ function rearEndplate(d: CarDims, is26: boolean, fine: boolean): [number, number
 /** Rear endplate louvres (LOD0): count, spacing (m), slat chord (m), drop towards the trailing edge (rad). */
 const REAR_LOUVRES = { count: 4, pitch: 0.034, chord: 0.15, drop: 0.12 } as const;
 
+/** Rear wing pylons: two swan necks (mandatory double mounts) at ±x, plate thickness. */
+const REAR_PYLON = { x: 0.055, thickness: 0.016 } as const;
+
 /**
- * Rear wing: rounded endplates, mainplane, swan-neck pylon, and (2025 only) a two-element beam wing
- * (one element when not `fine`); LOD0 adds louvre slats at the top of the endplates and a trailing-edge strip.
+ * Rear wing (no beam wing under 2026 rules): rounded endplates, mainplane, twin swan-neck pylons; LOD0 adds louvre
+ * slats at the top of the endplates, a trailing-edge strip and, on 'swage' designs, the steep upwash crease on the
+ * outer face of each endplate. The two flaps (Corner / Straight mode) are the separate rear-flap part.
  */
-export function addRearWing(list: PartList, d: CarDims, is26: boolean, foil: number, fine: boolean): void {
+export function addRearWing(list: PartList, d: CarDims, design: CarDesign, foil: number, fine: boolean): void {
   const rs = d.rearWingHalfSpan;
   const z1 = d.rearWingZ1;
-  list.add(plateZY(rearEndplate(d, is26, fine), rs, 0.02), REAR_WING, true);
+  const z0 = d.rearWingZ0;
+  list.add(plateZY(rearEndplate(d, fine), rs, 0.02), REAR_WING, true);
   list.add(airfoil(-rs, rs, 0.8, z1 - 0.04, 0.3, 0.1, 0.22, 0.06, foil), CARBON);
-  if (!is26) {
-    const bw = rs - 0.03;
-    list.add(airfoil(-bw, bw, 0.4, z1 - 0.06, 0.17, 0.1, 0.12, 0.04, foil), SATIN);
-    if (fine) list.add(airfoil(-bw, bw, 0.5, z1 - 0.15, 0.13, 0.1, 0.35, 0.04, foil), SATIN);
-  }
-  // swan-neck pylon: leans forward from the crash structure, then curves back under the mainplane
+  // swan-neck pylons: lean forward from the crash structure, then curve back over the mainplane
   const n = fine ? 5 : 2;
   const spine = quadCurve([z1 + 0.04, 0.38], [z1 + 0.04, 0.78], [z1 - 0.14, 0.79], n);
   const pylon: [number, number][] = [
     ...spine.map(([z, y]) => [z + 0.02, y] as [number, number]),
     ...[...spine].reverse().map(([z, y]) => [z - 0.025, y - 0.012] as [number, number]),
   ];
-  list.add(plateZY(pylon, -0.01, 0.02), CARBON);
+  // (LOD1: one centre pylon stands in for the pair)
+  if (fine) list.add(plateZY(pylon, REAR_PYLON.x - REAR_PYLON.thickness / 2, REAR_PYLON.thickness), CARBON, true);
+  else list.add(plateZY(pylon, -0.01, 0.02), CARBON);
   if (fine) {
     const L = REAR_LOUVRES;
     const x = rs + 0.02 + 0.003;
@@ -432,19 +547,36 @@ export function addRearWing(list: PartList, d: CarDims, is26: boolean, foil: num
       const y = 0.975 - i * L.pitch;
       list.add(new THREE.BoxGeometry(0.006, 0.008, L.chord).rotateX(-L.drop).translate(x, y, z1 - 0.05 - L.chord / 2), CARBON, true);
     }
-    list.add(new THREE.BoxGeometry(0.008, 0.3, 0.012).translate(rs + 0.02 + 0.004, 0.8, d.rearWingZ0 + 0.012), CARBON, true);
+    list.add(new THREE.BoxGeometry(0.008, 0.3, 0.012).translate(rs + 0.02 + 0.004, 0.8, z0 + 0.012), CARBON, true);
+    if (design.rearEndplate === 'swage') {
+      // crease rising steeply towards the trailing edge, from the foot of the plate to under the louvres
+      const [za, ya, zb, yb] = [z1 - 0.06, 0.56, z0 + 0.1, 0.9];
+      const len = Math.hypot(zb - za, yb - ya);
+      list.add(
+        new THREE.BoxGeometry(0.008, 0.014, len).rotateX(Math.atan2(yb - ya, za - zb)).translate(x + 0.001, (ya + yb) / 2, (za + zb) / 2),
+        CARBON,
+        true,
+      );
+    }
   }
 }
 
-/** Rear DRS / active flap: pivot-local, or (`closedInPlace`) rotated closed and moved to its pivot. */
+/**
+ * Rear active flaps: two elements (Corner mode stacked steep behind the mainplane, Straight mode laid flat) on one
+ * pivot, with the actuator pod on the top flap; pivot-local. `closedInPlace` (LOD1): one element of the pair's
+ * chord, rotated closed and moved to its pivot.
+ */
 export function addRearFlap(list: PartList, d: CarDims, foil: number, closedInPlace: boolean): void {
   const rs = d.rearWingHalfSpan;
-  const g = airfoil(-rs + 0.005, rs - 0.005, 0, 0, 0.22, 0.09, 0, 0.05, foil);
   if (closedInPlace) {
     const p = rearFlapPivotOf(d);
-    g.rotateX(REAR_FLAP_CLOSED).translate(p.x, p.y, p.z);
+    list.add(airfoil(-rs + 0.005, rs - 0.005, 0, 0, 0.24, 0.09, 0.1, 0.06, foil).rotateX(REAR_FLAP_CLOSED).translate(p.x, p.y, p.z), REAR_FLAP);
+    return;
   }
-  list.add(g, REAR_FLAP);
+  list.add(airfoil(-rs + 0.005, rs - 0.005, 0, 0, 0.14, 0.09, 0, 0.05, foil), REAR_FLAP);
+  list.add(airfoil(-rs + 0.005, rs - 0.005, 0.015, -0.125, 0.11, 0.09, 0.2, 0.05, foil), REAR_FLAP);
+  // actuator pod: a slim bullet fairing on the top flap's centre
+  list.add(new THREE.CapsuleGeometry(0.018, 0.08, 3, 8).rotateX(Math.PI / 2 + 0.2).translate(0, 0.042, -0.169), CARBON);
 }
 
 /** Wing element split into spanwise pieces whose height and pitch rise towards the endplates (curved look). */
@@ -469,40 +601,55 @@ function curvedElement(
 
 /**
  * Front endplate detail (LOD0): outboard dive plane (chord, span out of the plate — no wider than the footplate, so
- * within the car width —, height, pitch) and an inboard fence.
+ * within the car width —, height, pitch) and an inboard fence; 'winglet' endplates carry two stacked, longer planes.
  */
 const FRONT_DIVE_PLANE = { chord: 0.16, span: 0.03, y: 0.205, pitch: 0.2 } as const;
+const FRONT_WINGLETS = [
+  { chord: 0.22, span: 0.03, y: 0.19, pitch: 0.24 },
+  { chord: 0.15, span: 0.03, y: 0.25, pitch: 0.34 },
+] as const;
 
 /**
- * One front endplate built for the left (+X) side at x: plate, outboard curl, footplate; LOD0 adds a dive plane on the
+ * One front endplate built for the left (+X) side at x: plate, footplate and, per style, the outboard curl ('diveplane'
+ * / 'winglet') or a squared plate with a ridged footplate and twin vanes ('squared'); LOD0 adds the planes on the
  * outside and a low fence on the inside.
  */
-function frontEndplateParts(d: CarDims, fs: number, fine: boolean): [() => THREE.BufferGeometry, UVMap][] {
+function frontEndplateParts(d: CarDims, fs: number, style: FrontEndplate, fine: boolean): [() => THREE.BufferGeometry, UVMap][] {
   const z1 = d.frontWingZ1;
   const z0 = d.frontWingZ0;
-  const plate: [number, number][] = [[z1, 0.03], [z1, 0.17], [z1 - 0.1, 0.27], [z1 - 0.3, 0.3], [z0 + 0.12, 0.3], [z0, 0.22], [z0, 0.03]];
+  const squared = style === 'squared';
+  const plate: [number, number][] = squared
+    ? [[z1, 0.03], [z1, 0.24], [z1 - 0.05, 0.3], [z0, 0.3], [z0, 0.03]]
+    : [[z1, 0.03], [z1, 0.17], [z1 - 0.1, 0.27], [z1 - 0.3, 0.3], [z0 + 0.12, 0.3], [z0, 0.22], [z0, 0.03]];
   const parts: [() => THREE.BufferGeometry, UVMap][] = [
     [() => plateZY(plate, fs, 0.02), FRONT_WING],
-    // upper edge curls outboard
-    [() => tiltedPlate([[z1 - 0.16, 0], [z1 - 0.3, 0.06], [z0 + 0.12, 0.06], [z0 + 0.04, 0]], fs + 0.005, 0.292, 0.7, 0.008), FRONT_WING],
     [() => new THREE.BoxGeometry(0.05, 0.012, z1 - z0 - 0.04).translate(fs + 0.025, 0.036, (z1 + z0) / 2), CARBON],
   ];
-  if (!fine) return [parts[0], parts[2]];
-  const dp = FRONT_DIVE_PLANE;
-  parts.push(
-    [() => new THREE.BoxGeometry(dp.span, 0.006, dp.chord).rotateX(dp.pitch).translate(fs + 0.02 + dp.span / 2, dp.y, z1 - 0.06 - dp.chord / 2), CARBON],
-    [() => plateZY([[z0 + 0.28, 0.04], [z0 + 0.26, 0.15], [z0 + 0.06, 0.13], [z0 + 0.04, 0.04]], fs - 0.01, 0.01), CARBON],
-  );
+  if (!fine) return parts;
+  if (squared) {
+    // ridgeline along the footplate and two small vanes standing on it
+    parts.push([() => new THREE.BoxGeometry(0.008, 0.016, z1 - z0 - 0.1).translate(fs + 0.03, 0.05, (z1 + z0) / 2), CARBON]);
+    for (const z of [z1 - 0.12, z1 - 0.26]) {
+      parts.push([() => plateZY([[z, 0.042], [z - 0.02, 0.1], [z - 0.1, 0.1], [z - 0.11, 0.042]], fs + 0.036, 0.006), CARBON]);
+    }
+  } else {
+    // upper edge curls outboard
+    parts.push([() => tiltedPlate([[z1 - 0.16, 0], [z1 - 0.3, 0.06], [z0 + 0.12, 0.06], [z0 + 0.04, 0]], fs + 0.005, 0.292, 0.7, 0.008), FRONT_WING]);
+    const planes = style === 'winglet' ? FRONT_WINGLETS : [FRONT_DIVE_PLANE];
+    for (const dp of planes) {
+      parts.push([() => new THREE.BoxGeometry(dp.span, 0.006, dp.chord).rotateX(dp.pitch).translate(fs + 0.02 + dp.span / 2, dp.y, z1 - 0.06 - dp.chord / 2), CARBON]);
+    }
+  }
+  parts.push([() => plateZY([[z0 + 0.28, 0.04], [z0 + 0.26, 0.15], [z0 + 0.06, 0.13], [z0 + 0.04, 0.04]], fs - 0.01, 0.01), CARBON]);
   return parts;
 }
 
 /**
- * Front wing: mainplane, fixed flaps (when `includeFlaps`: 3 curved flaps in 2025, 2 in 2026), nose pylons and
- * curled endplates with footplates; damaged = the +X half missing. Without `fine` (LOD1) every element is one piece
- * and 2025 keeps two flaps.
+ * Front wing: mainplane, the two flap elements fixed in place (when `includeFlaps`: the damaged wing, which drops its
+ * active flaps), nose pylons and the design's endplates with footplates; damaged = the +X half missing. A short nose
+ * rests on a fixed centre piece of the middle element. Without `fine` (LOD1) every element is one piece.
  */
-export function addFrontWing(list: PartList, d: CarDims, damaged: boolean, includeFlaps: boolean, foil: number, fine = true): void {
-  const is26 = d.regulation === '2026';
+export function addFrontWing(list: PartList, d: CarDims, design: CarDesign, damaged: boolean, includeFlaps: boolean, foil: number, fine = true): void {
   const { fs, fwz } = frontWingSpan(d);
   const mainX1 = damaged ? 0.3 : fs;
   const mainBreaks = fine ? [-0.4, 0.4] : [];
@@ -511,25 +658,31 @@ export function addFrontWing(list: PartList, d: CarDims, damaged: boolean, inclu
     const elements: { y: number; dz: number; chord: number; pitch: number; map: UVMap }[] = [
       { y: 0.115, dz: 0.22, chord: 0.2, pitch: 0.32, map: CARBON },
       { y: 0.165, dz: 0.36, chord: 0.17, pitch: 0.55, map: FRONT_WING },
-      { y: 0.215, dz: 0.47, chord: 0.13, pitch: 0.75, map: FRONT_WING },
     ];
-    const count = fine && !is26 ? 3 : 2;
     const sides: [number, number][] = damaged ? [[-fs, -0.22], [0.22, 0.4]] : [[-fs, -0.22], [0.22, fs]];
     const breaks = fine ? [-0.62, 0.62] : [];
     sides.forEach(([x0, x1], i) => {
-      elements.slice(0, count).forEach((el, k) => {
+      elements.forEach((el, k) => {
         if (damaged && i === 1 && k > 0) return;
         curvedElement(list, x0, x1, breaks, el.y, fwz - el.dz, el.chord, el.pitch, el.map, foil);
       });
     });
   }
-  // nose pylons (mainplane to nose)
+  // nose pylons: from the nose down to the mainplane, or (short nose) onto the fixed middle-element centre piece
   const tip = d.noseTipZ;
-  list.add(plateZY([[tip + 0.01, 0.19], [tip - 0.04, 0.075], [tip - 0.22, 0.075], [tip - 0.26, 0.19]], 0.05, 0.02), CARBON, true);
-  for (const [build, map] of frontEndplateParts(d, fs, fine)) addSides(list, build, map, !damaged, true);
+  const top = 0.19 + design.nose.lift;
+  const px = 0.05 * Math.min(1, design.nose.width);
+  if (design.nose.tip === 'middle') {
+    curvedElement(list, -0.22, 0.22, [], 0.115, fwz - 0.22, 0.2, 0.32, CARBON, foil);
+    // (LOD1: the nose simply rests on the centre piece)
+    if (fine) list.add(plateZY([[tip + 0.01, top], [tip + 0.01, 0.15], [tip - 0.12, 0.17], [tip - 0.18, top]], px, 0.02), CARBON, true);
+  } else {
+    list.add(plateZY([[tip + 0.01, top], [tip - 0.04, 0.075], [tip - 0.22, 0.075], [tip - 0.26, top]], px, 0.02), CARBON, true);
+  }
+  for (const [build, map] of frontEndplateParts(d, fs, design.frontEndplate, fine)) addSides(list, build, map, !damaged, true);
 }
 
-/** 2026 active-aero front flaps: pivot-local, or (`closedInPlace`) rotated closed and moved to their pivot. */
+/** Active-aero front flaps: pivot-local, or (`closedInPlace`) rotated closed and moved to their pivot. */
 export function addFrontFlaps(list: PartList, d: CarDims, foil: number, closedInPlace: boolean): void {
   const { fs } = frontWingSpan(d);
   const p = frontFlapPivotOf(d);

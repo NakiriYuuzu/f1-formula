@@ -6,8 +6,8 @@ import { carDims } from '../src/render/car/dims';
 import { footprintAlpha, raceFootprint } from '../src/render/fx/contactShadows';
 
 describe('contact shadow footprint', () => {
-  for (const reg of ['2025', '2026'] as const) {
-    const d = carDims(reg);
+  for (const reg of ['2026'] as const) {
+    const d = carDims();
     const f = raceFootprint(d);
 
     test(`${reg}: dark under the floor and the tyres, clear well outside the car`, () => {

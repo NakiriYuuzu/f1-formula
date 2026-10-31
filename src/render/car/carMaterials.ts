@@ -1,18 +1,22 @@
 /**
- * Materials shared by every car of a scene: per-compound wheel materials (tyre sidewall colour band from
- * COMPOUND_INFO; on high / ultra physical rubber with sheen and graining, see TYRE_RUBBER), the livery-atlas surface
+ * Materials shared by every car of a scene: per-compound wheel materials (tyre sidewall band and the 2026 chequered
+ * sidewall marking in the COMPOUND_INFO colour, open rims, brake discs; on high / ultra physical rubber with sheen and
+ * graining, see TYRE_RUBBER), the livery-atlas surface
  * map (clear coat / roughness / metalness), the damage scuff map over the livery UVs, ghost wheel material and the
  * rain-light lamp.
  * Per-car materials (livery body, brake glow) are created by carModel.ts.
  */
 import * as THREE from 'three';
-import type { QualityLevel, TireCompound } from '../../core/types';
+import type { LiveryPattern, QualityLevel, TireCompound } from '../../core/types';
 import { COMPOUNDS, COMPOUND_INFO } from '../../core/defaults';
 import { canvasTexture, createCanvas, Rng } from '../core/canvas';
-import { surfaceMapTexture } from './atlas';
+import { carbonZones, surfaceMapTexture } from './atlas';
 import { carSurfaceDetail, TYRE_RUBBER, TYRE_SURFACE } from './carQuality';
+import { carDims } from './dims';
+import { WHEEL_CHEQUER, WHEEL_KEYS, WHEEL_ROWS } from './sharedParts';
 
 export class CarSharedResources {
+  /** surface map of the layouts without bare carbon (see surfaceMapFor) */
   readonly surfaceMap: THREE.CanvasTexture;
   /** damage scuffs over the livery UVs (see scuffTexture) */
   readonly scuffMap: THREE.CanvasTexture;
@@ -21,11 +25,13 @@ export class CarSharedResources {
   readonly ghostWheelMaterial: THREE.MeshStandardMaterial;
   readonly rainLightMaterial: THREE.MeshBasicMaterial;
   private readonly wheelMaps: THREE.CanvasTexture[] = [];
+  /** per 2026 livery layout: its bare-carbon zones baked in (created on first use) */
+  private readonly layoutMaps = new Map<LiveryPattern, THREE.CanvasTexture>();
 
   /** `quality` picks the tyre material (physical rubber on high / ultra); default high */
   constructor(quality: QualityLevel = 'high') {
     const rubber = carSurfaceDetail(quality) === 'full';
-    this.surfaceMap = surfaceMapTexture();
+    this.surfaceMap = surfaceMapTexture(carDims());
     this.scuffMap = scuffTexture();
     this.wheelSurface = wheelSurfaceTexture();
     const mats = {} as Record<TireCompound, THREE.MeshStandardMaterial>;
@@ -57,8 +63,20 @@ export class CarSharedResources {
     this.rainLightMaterial = new THREE.MeshBasicMaterial({ name: 'rain-light', color: new THREE.Color(1, 0.08, 0.06), toneMapped: false });
   }
 
+  /** Surface map for a livery layout (shared by every car painted in it). */
+  surfaceMapFor(pattern: LiveryPattern | undefined): THREE.CanvasTexture {
+    if (!pattern || carbonZones(carDims(), pattern).length === 0) return this.surfaceMap;
+    let map = this.layoutMaps.get(pattern);
+    if (!map) {
+      map = surfaceMapTexture(carDims(), pattern);
+      this.layoutMaps.set(pattern, map);
+    }
+    return map;
+  }
+
   dispose(): void {
     for (const m of Object.values(this.wheelMaterials)) m.dispose();
+    for (const t of this.layoutMaps.values()) t.dispose();
     this.ghostWheelMaterial.dispose();
     this.rainLightMaterial.dispose();
     for (const t of this.wheelMaps) t.dispose();
@@ -69,8 +87,8 @@ export class CarSharedResources {
 }
 
 /**
- * Physical tyre material: sheen for the soft lustre of rubber at grazing angles, and on the rubber column of the
- * wheel atlas (u < 0.25) a lighter worn-grey albedo with fine graining (value noise in wheel space, faded once the
+ * Physical tyre material: sheen for the soft lustre of rubber at grazing angles, and on the rubber row of the
+ * wheel atlas (the top row) a lighter worn-grey albedo with fine graining (value noise in wheel space, faded once the
  * grains are sub-pixel) that also varies the roughness.
  */
 function rubberMaterial(params: THREE.MeshStandardMaterialParameters): THREE.MeshPhysicalMaterial {
@@ -111,7 +129,7 @@ float tyreNoise( vec3 x ) {
 float tyreRub = 0.0;
 float tyreGrain = 0.5;
 #ifdef USE_MAP
-  tyreRub = 1.0 - step( 0.25, vMapUv.x );
+  tyreRub = step( ${f(1 - 1 / WHEEL_ROWS)}, vMapUv.y );
   tyreGrain = mix( 0.5, tyreNoise( vTyrePos ) * 0.65 + tyreNoise( vTyrePos * 2.7 + 3.1 ) * 0.35, 1.0 - smoothstep( 0.25, 0.6, length( fwidth( vTyrePos ) ) ) );
   diffuseColor.rgb *= mix( 1.0, ${f(TYRE_RUBBER.albedo)} * ( 1.0 + ${f(TYRE_RUBBER.grain * 2)} * ( tyreGrain - 0.5 ) ), tyreRub );
 #endif`,
@@ -125,26 +143,42 @@ float tyreGrain = 0.5;
   return mat;
 }
 
-/** 4-column wheel atlas: rubber / compound band / rim / nut. */
-function wheelTexture(band: string): THREE.CanvasTexture {
-  const c = createCanvas(64, 16);
-  const cols = ['#161618', band, '#2b2d32', '#c9ccd2'];
-  cols.forEach((col, i) => {
-    c.ctx.fillStyle = col;
-    c.ctx.fillRect(i * 16, 0, 16, 16);
-  });
-  return canvasTexture(c, { nearest: true });
+/** Atlas row height (px); the atlas is 256 px wide (u repeats, for the chequer tiled around the tyre). */
+const WHEEL_ROW_PX = 16;
+
+/** Row of each wheel key, filled by `paint` (rows past the keys stay rubber). */
+function wheelAtlas(paint: (key: (typeof WHEEL_KEYS)[number], ctx: CanvasRenderingContext2D, y: number, w: number) => void, srgb: boolean): THREE.CanvasTexture {
+  const c = createCanvas(256, WHEEL_ROWS * WHEEL_ROW_PX);
+  for (let r = 0; r < WHEEL_ROWS; r++) paint(WHEEL_KEYS[r] ?? 'rubber', c.ctx, r * WHEEL_ROW_PX, c.w);
+  const tex = canvasTexture(c, { srgb });
+  tex.wrapS = THREE.RepeatWrapping;
+  return tex;
 }
 
-/** Roughness (G) / metalness (B) per wheel atlas column, from TYRE_SURFACE (matte rubber). */
+/**
+ * Wheel atlas rows: rubber / solid compound band / sidewall chequer (two rows of compound-colour and black squares) /
+ * rim (dark graphite) / nut and rim lip / brake disc.
+ */
+function wheelTexture(band: string): THREE.CanvasTexture {
+  const fills: Record<(typeof WHEEL_KEYS)[number], string> = { rubber: '#161618', band, chequer: band, rim: '#1f2125', nut: '#c9ccd2', disc: '#3b3735' };
+  return wheelAtlas((key, ctx, y, w) => {
+    ctx.fillStyle = key === 'chequer' ? '#161618' : fills[key];
+    ctx.fillRect(0, y, w, WHEEL_ROW_PX);
+    if (key !== 'chequer') return;
+    const sq = w / WHEEL_CHEQUER.columns;
+    const h = WHEEL_ROW_PX / 2;
+    ctx.fillStyle = band;
+    for (let i = 0; i < WHEEL_CHEQUER.columns; i++) ctx.fillRect(i * sq, y + (i % 2) * h, sq, h);
+  }, true);
+}
+
+/** Roughness (G) / metalness (B) per wheel atlas row, from TYRE_SURFACE (matte rubber). */
 function wheelSurfaceTexture(): THREE.CanvasTexture {
-  const c = createCanvas(64, 16);
-  const vals = [TYRE_SURFACE.rubber, TYRE_SURFACE.band, TYRE_SURFACE.rim, TYRE_SURFACE.nut];
-  vals.forEach(([r, m], i) => {
-    c.ctx.fillStyle = `rgb(0,${Math.round(r * 255)},${Math.round(m * 255)})`;
-    c.ctx.fillRect(i * 16, 0, 16, 16);
-  });
-  return canvasTexture(c, { srgb: false, nearest: true });
+  return wheelAtlas((key, ctx, y, w) => {
+    const [r, m] = TYRE_SURFACE[key];
+    ctx.fillStyle = `rgb(0,${Math.round(r * 255)},${Math.round(m * 255)})`;
+    ctx.fillRect(0, y, w, WHEEL_ROW_PX);
+  }, false);
 }
 
 /**

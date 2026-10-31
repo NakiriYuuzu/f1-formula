@@ -270,7 +270,7 @@ describe('polish round (r3 screenshots)', () => {
   test('skid sparks (pale dots over the road) only exist at dusk / night', () => {
     installFakeDom();
     const count = (time: 'day' | 'dusk' | 'night'): number => {
-      const fx = new CarEffects(768, 192, 'temperate', carDims('2025'), time);
+      const fx = new CarEffects(768, 192, 'temperate', carDims(), time);
       for (let i = 0; i < 90; i++) fx.update([state({ z: i * 1.3 })], [], 0, 1 / 60);
       const n = fx.sparks.activeCount;
       fx.dispose();
@@ -282,7 +282,7 @@ describe('polish round (r3 screenshots)', () => {
   });
 
   test('spark particles are streaks (velocity attribute + streak shader), smoke stays round', () => {
-    const fx = new CarEffects(64, 64, 'temperate', carDims('2025'), 'night');
+    const fx = new CarEffects(64, 64, 'temperate', carDims(), 'night');
     const sparkMat = fx.sparks.points.material as THREE.ShaderMaterial;
     const smokeMat = fx.smoke.points.material as THREE.ShaderMaterial;
     expect(fx.sparks.points.geometry.getAttribute('aVel')).toBeDefined();
@@ -293,7 +293,7 @@ describe('polish round (r3 screenshots)', () => {
 
   test('night contact footprints are darker than daytime ones and draw after the additive light pools', () => {
     const alpha = (time: 'day' | 'night'): number => {
-      const cs = new ContactShadows(new Disposer(), carDims('2025'), 2, time);
+      const cs = new ContactShadows(new Disposer(), carDims(), 2, time);
       const mesh = cs.group.children[0] as THREE.InstancedMesh;
       const tex = (mesh.material as THREE.MeshBasicMaterial).map as THREE.DataTexture;
       const data = tex.image.data as Uint8Array;

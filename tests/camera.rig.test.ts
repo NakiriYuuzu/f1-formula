@@ -27,7 +27,7 @@ import {
 import { TrackFrame } from '../src/render/track/trackFrame';
 
 const DEG = 180 / Math.PI;
-const dims = carDims('2025');
+const dims = carDims();
 const track = getLayout('mirage-sands');
 const trackFrame = new TrackFrame(track);
 

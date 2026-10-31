@@ -1,6 +1,8 @@
 /**
  * Original, fictional teams and drivers (owned by the architect). Any resemblance to real
  * teams/drivers must be avoided — do not rename these to real-world entities.
+ * Liveries use the 2026-style layouts (bare-carbon lower bodywork, matte / satin / gloss paint); each team's body
+ * concept is in render/car/designs.ts.
  */
 import type { DriverDef, TeamDef } from '../core/types';
 
@@ -9,7 +11,7 @@ export const TEAMS: TeamDef[] = [
     id: 'vanta',
     name: 'Vanta Motorsport',
     shortName: 'VAN',
-    livery: { primary: '#111214', secondary: '#d4a017', accent: '#f4f1e8' },
+    livery: { primary: '#111214', secondary: '#d4a017', accent: '#f4f1e8', pattern: 'arrow', finish: 'matte', parts: { frontWing: '#d4a017' } },
     base: '霍爾姆港',
     powerUnit: 'Kairos',
     rating: { aero: 1.0, power: 0.99, chassis: 0.99, reliability: 0.96 },
@@ -19,7 +21,7 @@ export const TEAMS: TeamDef[] = [
     id: 'aurora',
     name: 'Aurora Racing',
     shortName: 'AUR',
-    livery: { primary: '#12b5a6', secondary: '#f2f5f7', accent: '#0b2b33' },
+    livery: { primary: '#12b5a6', secondary: '#f2f5f7', accent: '#0b2b33', pattern: 'sweep', finish: 'satin', parts: { halo: '#0b2b33', rearWing: '#0b2b33' } },
     base: '北湖',
     powerUnit: 'Helion',
     rating: { aero: 0.98, power: 1.0, chassis: 0.97, reliability: 0.97 },
@@ -29,7 +31,7 @@ export const TEAMS: TeamDef[] = [
     id: 'kestrel',
     name: 'Kestrel Grand Prix',
     shortName: 'KES',
-    livery: { primary: '#c8102e', secondary: '#ffffff', accent: '#1a1a1a' },
+    livery: { primary: '#c8102e', secondary: '#ffffff', accent: '#1a1a1a', pattern: 'tail', finish: 'gloss' },
     base: '紅崖',
     powerUnit: 'Kestrel',
     rating: { aero: 0.97, power: 0.98, chassis: 0.97, reliability: 0.94 },
@@ -39,7 +41,7 @@ export const TEAMS: TeamDef[] = [
     id: 'nordlys',
     name: 'Nordlys Racing',
     shortName: 'NRD',
-    livery: { primary: '#7fd3ff', secondary: '#0a1f44', accent: '#ffffff' },
+    livery: { primary: '#7fd3ff', secondary: '#0a1f44', accent: '#ffffff', pattern: 'duo', finish: 'matte', parts: { frontWing: '#0a1f44', rearWing: '#0a1f44' } },
     base: '冰峽灣',
     powerUnit: 'Kairos',
     rating: { aero: 0.96, power: 0.97, chassis: 0.96, reliability: 0.95 },
@@ -49,7 +51,7 @@ export const TEAMS: TeamDef[] = [
     id: 'helix',
     name: 'Helix Dynamics',
     shortName: 'HLX',
-    livery: { primary: '#5b2a86', secondary: '#ff7a1a', accent: '#ffffff' },
+    livery: { primary: '#5b2a86', secondary: '#ff7a1a', accent: '#ffffff', pattern: 'shard', finish: 'gloss', parts: { halo: '#ff7a1a' } },
     base: '螺旋谷',
     powerUnit: 'Helion',
     rating: { aero: 0.94, power: 0.95, chassis: 0.94, reliability: 0.93 },
@@ -59,7 +61,7 @@ export const TEAMS: TeamDef[] = [
     id: 'meridian',
     name: 'Meridian Autosport',
     shortName: 'MER',
-    livery: { primary: '#ffd400', secondary: '#1e3fae', accent: '#111111' },
+    livery: { primary: '#ffd400', secondary: '#1e3fae', accent: '#111111', pattern: 'flank', finish: 'satin', parts: { frontWing: '#1e3fae', rearWing: '#1e3fae' } },
     base: '子午城',
     powerUnit: 'Helion',
     rating: { aero: 0.92, power: 0.95, chassis: 0.92, reliability: 0.94 },
@@ -69,7 +71,7 @@ export const TEAMS: TeamDef[] = [
     id: 'tempest',
     name: 'Tempest F-Team',
     shortName: 'TMP',
-    livery: { primary: '#e0218a', secondary: '#c0c6cc', accent: '#1b1b1b' },
+    livery: { primary: '#e0218a', secondary: '#c0c6cc', accent: '#1b1b1b', pattern: 'arrow', finish: 'gloss', parts: { halo: '#c0c6cc' } },
     base: '風暴角',
     powerUnit: 'Orion',
     rating: { aero: 0.91, power: 0.92, chassis: 0.91, reliability: 0.92 },
@@ -79,7 +81,7 @@ export const TEAMS: TeamDef[] = [
     id: 'solace',
     name: 'Solace Engineering',
     shortName: 'SOL',
-    livery: { primary: '#a6e22e', secondary: '#2b2d31', accent: '#ffffff' },
+    livery: { primary: '#a6e22e', secondary: '#2b2d31', accent: '#ffffff', pattern: 'sweep', finish: 'matte', parts: { engineCover: '#2b2d31' } },
     base: '晴原',
     powerUnit: 'Volta',
     rating: { aero: 0.9, power: 0.9, chassis: 0.9, reliability: 0.93 },
@@ -89,7 +91,7 @@ export const TEAMS: TeamDef[] = [
     id: 'ironbark',
     name: 'Ironbark Racing',
     shortName: 'IRB',
-    livery: { primary: '#1f5e3b', secondary: '#b0763b', accent: '#f1e6d0' },
+    livery: { primary: '#1f5e3b', secondary: '#b0763b', accent: '#f1e6d0', pattern: 'duo', finish: 'satin', parts: { halo: '#b0763b' } },
     base: '鐵木鎮',
     powerUnit: 'Orion',
     rating: { aero: 0.89, power: 0.9, chassis: 0.89, reliability: 0.91 },
@@ -99,7 +101,7 @@ export const TEAMS: TeamDef[] = [
     id: 'corvid',
     name: 'Corvid Racing Team',
     shortName: 'CRV',
-    livery: { primary: '#3a3f47', secondary: '#00e5ff', accent: '#e6e6e6' },
+    livery: { primary: '#3a3f47', secondary: '#00e5ff', accent: '#e6e6e6', pattern: 'shard', finish: 'matte', parts: { frontWing: '#00e5ff' } },
     base: '鴉嶺',
     powerUnit: 'Volta',
     rating: { aero: 0.87, power: 0.88, chassis: 0.87, reliability: 0.9 },

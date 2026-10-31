@@ -14,6 +14,7 @@ import { TEAMS, DRIVERS } from '../data/teams';
 import type { GameRenderer } from './GameRenderer';
 import { CarSharedResources } from './car/carMaterials';
 import { createCarModel, type CarModel } from './car/carModel';
+import { designForTeam } from './car/designs';
 import { canvasTexture, createCanvas, Rng, UI_FONT } from './core/canvas';
 import { Disposer } from './core/disposer';
 import { SHOWROOM_RIM_HDR_GAIN, acesFilmicInverse, createPostLook, showroomLook } from './core/post';
@@ -250,12 +251,12 @@ export class ShowroomScene {
     this.turntable.add(this.car.root);
   }
 
-  /** Show a car on the turntable (repaints in place when the regulation is unchanged). */
+  /** Show a car on the turntable (repaints in place when the regulation and the team's body design are unchanged). */
   setCar(livery: Livery, number: number, teamShort: string, helmet: Livery, regulation?: Regulation): void {
     if (this.disposed) return;
     this.carSpec = { livery, number, teamShort, helmet };
     const reg = regulation ?? this.regulation;
-    if (this.car && reg === this.regulation) this.car.setLivery(livery, number, teamShort, helmet);
+    if (this.car && reg === this.regulation && this.car.design === designForTeam(teamShort)) this.car.setLivery(livery, number, teamShort, helmet);
     else {
       this.regulation = reg;
       this.rebuildCar();

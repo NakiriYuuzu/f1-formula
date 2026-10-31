@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { CarRenderState } from '../src/core/types';
 import { buildCarGeometry } from '../src/render/car/carGeometry';
 import { createCarModel } from '../src/render/car/carModel';
+import { BASE_DESIGN, TEAM_DESIGNS } from '../src/render/car/designs';
 import { carDims } from '../src/render/car/dims';
 import { blade } from '../src/render/car/shapes';
 import { Disposer } from '../src/render/core/disposer';
@@ -18,6 +19,7 @@ import { installFakeDom } from './renderHarness';
 installFakeDom();
 
 const REGS = ['2025', '2026'] as const;
+const DESIGNS = [BASE_DESIGN, ...Object.values(TEAM_DESIGNS)];
 const LIVERY = { primary: '#d6222a', secondary: '#f2c200', accent: '#ffffff' } as never;
 
 function state(over: Partial<CarRenderState> & { groundPitch?: number }): CarRenderState {
@@ -65,7 +67,7 @@ describe('tyres on the ground', () => {
       for (const c of tyreClearances(model, 0)) expect(Math.abs(c)).toBeLessThan(0.01);
     });
     test(`${reg}: lowest car geometry is the tyres, floor plank 3 cm above the ground`, () => {
-      const s = buildCarGeometry(reg);
+      const s = buildCarGeometry(model.design);
       s.body.computeBoundingBox();
       expect(s.body.boundingBox?.min.y).toBeCloseTo(0.03, 3);
       model.apply(state({}), 0.016);
@@ -76,7 +78,7 @@ describe('tyres on the ground', () => {
 
 describe('contact footprint', () => {
   for (const reg of REGS) {
-    const d = carDims(reg);
+    const d = carDims();
     const f = raceFootprint(d);
     test(`${reg}: extends beyond the car outline (tyre outer edges, wing tips, nose and tail) and shades around each tyre`, () => {
       for (const [z, track, w] of [[d.frontAxleZ, d.frontHalfTrack, d.frontTyreWidth], [d.rearAxleZ, d.rearHalfTrack, d.rearTyreWidth]] as const) {
@@ -92,7 +94,7 @@ describe('contact footprint', () => {
   }
 
   test('is tilted with the road grade, lifted CONTACT_LIFT above the car ground point', () => {
-    const cs = new ContactShadows(new Disposer(), carDims('2025'), 2);
+    const cs = new ContactShadows(new Disposer(), carDims(), 2);
     const grade = Math.atan(0.095);
     cs.update([state({ y: 10, pitch: grade + 0.03, groundPitch: grade })], null);
     const mesh = cs.group.children[0] as THREE.InstancedMesh;
@@ -137,9 +139,9 @@ describe('LOD1 suspension blades', () => {
       expect(faceVsNormal(g)).toBe(0);
     }
   });
-  for (const reg of REGS) {
-    test(`${reg}: LOD1 body has no inverted triangles`, () => {
-      const s = buildCarGeometry(reg);
+  for (const design of DESIGNS) {
+    test(`${design.id}: LOD0 / LOD1 bodies have no inverted triangles`, () => {
+      const s = buildCarGeometry(design);
       expect(faceVsNormal(s.lod1.body)).toBe(0);
       expect(faceVsNormal(s.body)).toBe(0);
     });
@@ -154,7 +156,7 @@ describe('tyre smoke', () => {
   });
   test('a 20-car launch with full wheelspin keeps the number of live puffs low, and more slip means more smoke', () => {
     const run = (slip: number): number => {
-      const fx = new CarEffects(768, 128, 'temperate', carDims('2025'));
+      const fx = new CarEffects(768, 128, 'temperate', carDims());
       const cars = Array.from({ length: 20 }, (_, i) => state({ carId: i, x: (i % 2) * 8, z: -Math.floor(i / 2) * 8, speed: 10, slip, lockup: 0 }));
       for (let t = 0; t < 120; t++) fx.update(cars, [], 0, 1 / 60);
       const n = fx.smoke.activeCount;

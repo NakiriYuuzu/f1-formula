@@ -1,14 +1,21 @@
 /**
  * Livery parts and finish (roster packs): part swatch colours with their defaults, the per-zone body paint
- * (recorded fillRect calls of a fake 2D canvas), the finish on the car material, clones and pack validation.
+ * (recorded fillRect calls of a fake 2D canvas), the finish on the car material, clones and pack validation; the
+ * 2026 layouts (bare-carbon zones, ≥ 55 % painted, per-layout surface maps, editor / sanitiser coverage).
  */
 import { describe, expect, test } from 'bun:test';
 import * as THREE from 'three';
 import type { Livery } from '../src/core/types';
 import { cloneLivery } from '../src/meta/roster';
 import { parseRosterPack, ROSTER_PACK_FORMAT } from '../src/meta/rosterPack';
-import { FIN_U0, paintLiveryCanvas, swatchColors } from '../src/render/car/atlas';
+import { TEAMS } from '../src/data/teams';
+import { LIVERY_PATTERNS, sanitizeLivery } from '../src/meta/guards';
+import { BODY_V0, carbonZones, FIN_U0, paintLiveryCanvas, swatchColors } from '../src/render/car/atlas';
+import { buildCarGeometry } from '../src/render/car/carGeometry';
+import { CarSharedResources } from '../src/render/car/carMaterials';
 import { createCarModel } from '../src/render/car/carModel';
+import { designForTeam } from '../src/render/car/designs';
+import { PATTERN_LABEL } from '../src/ui/menus/components/forms';
 import { CAR_FINISH, CAR_PAINT } from '../src/render/car/carQuality';
 import { carDims } from '../src/render/car/dims';
 import { installFakeDom } from './renderHarness';
@@ -59,7 +66,7 @@ function paintRecorded(size: number, livery: Livery): Rect[] {
   const original = doc.createElement;
   doc.createElement = () => ({ width: 1, height: 1, getContext: () => ctx });
   try {
-    paintLiveryCanvas(size, carDims('2026'), { livery, helmet: BASE, number: 7, teamShort: 'TST' });
+    paintLiveryCanvas(size, carDims(), { livery, helmet: BASE, number: 7, teamShort: 'TST' });
   } finally {
     doc.createElement = original;
   }
@@ -83,7 +90,7 @@ describe('part swatches', () => {
 
 describe('body zones', () => {
   const size = 512;
-  const d = carDims('2026');
+  const d = carDims();
   const uOf = (z: number): number => ((z - d.wrapZMin) / (d.wrapZMax - d.wrapZMin)) * size;
 
   test('no parts: none of the part colours is painted', () => {
@@ -192,5 +199,74 @@ describe('roster pack liveries', () => {
       const r = pack(livery);
       expect(r.ok).toBe(false);
     }
+  });
+});
+
+describe('2026 layouts', () => {
+  /** point in a left-side UV polygon or its right-side mirror */
+  const inside = (poly: [number, number][], u: number, v: number): boolean => {
+    let hit = false;
+    for (const vv of [v, 1 - v]) {
+      let c = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [ui, vi] = poly[i]!;
+        const [uj, vj] = poly[j]!;
+        if (vi > vv !== vj > vv && u < ((uj - ui) * (vv - vi)) / (vj - vi) + ui) c = !c;
+      }
+      hit ||= c;
+    }
+    return hit;
+  };
+
+  test('every team runs a 2026 layout with bare carbon, and at least 55 % of the bodywork stays painted', () => {
+    for (const team of TEAMS) {
+      const pattern = team.livery.pattern ?? 'classic';
+      const zones = carbonZones(carDims(), pattern);
+      expect(zones.length).toBeGreaterThan(0);
+      // area-weighted over the wrapped bodywork of the team's own car
+      const g = buildCarGeometry(designForTeam(team.shortName)).body;
+      const pos = g.getAttribute('position');
+      const uv = g.getAttribute('uv');
+      const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];
+      let total = 0;
+      let carbon = 0;
+      for (let t = 0; t + 2 < pos.count; t += 3) {
+        const u = (uv.getX(t) + uv.getX(t + 1) + uv.getX(t + 2)) / 3;
+        const v = (uv.getY(t) + uv.getY(t + 1) + uv.getY(t + 2)) / 3;
+        if (v <= BODY_V0) continue;
+        P.forEach((p, k) => p.fromBufferAttribute(pos, t + k));
+        const area = P[1]!.clone().sub(P[0]!).cross(P[2]!.clone().sub(P[0]!)).length() / 2;
+        const V = (v - BODY_V0) / (1 - BODY_V0);
+        total += area;
+        if (V < 0.06 || V > 0.94 || zones.some((z) => inside(z, u, V))) carbon += area;
+      }
+      expect(carbon / total).toBeGreaterThan(0.12);
+      expect(1 - carbon / total).toBeGreaterThanOrEqual(0.55);
+    }
+  });
+
+  test('bare carbon is painted carbon and baked into one surface map per layout', () => {
+    const shared = new CarSharedResources('low');
+    expect(shared.surfaceMapFor('classic')).toBe(shared.surfaceMap);
+    expect(shared.surfaceMapFor(undefined)).toBe(shared.surfaceMap);
+    const arrow = shared.surfaceMapFor('arrow');
+    expect(arrow).not.toBe(shared.surfaceMap);
+    expect(shared.surfaceMapFor('arrow')).toBe(arrow);
+    expect(shared.surfaceMapFor('duo')).not.toBe(arrow);
+    const model = createCarModel({ number: 7, teamShort: 'TST', helmet: BASE, regulation: '2026', livery: { ...BASE, pattern: 'arrow' }, shared, quality: 'low' });
+    const m = model.nodes.body.material as THREE.MeshStandardMaterial;
+    expect(m.roughnessMap).toBe(arrow);
+    model.setLivery(BASE, 7, 'TST', BASE);
+    expect(m.roughnessMap).toBe(shared.surfaceMap);
+    model.dispose();
+    shared.dispose();
+  });
+
+  test('the new layouts are offered in the editor and survive sanitising', () => {
+    for (const p of LIVERY_PATTERNS) {
+      expect(PATTERN_LABEL[p]).toBeTruthy();
+      expect(sanitizeLivery({ ...BASE, pattern: p }, BASE).pattern).toBe(p);
+    }
+    expect(LIVERY_PATTERNS).toContain('arrow');
   });
 });

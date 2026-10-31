@@ -202,7 +202,7 @@ describe('pit crews on a built track', () => {
   test('one crew of 16 per team box; a team car standing in its box is serviced and lifted, then released', () => {
     const track = buildTrack(longDef());
     const { ctx, disposer } = makeContext(track);
-    const crew = new PitCrew(ctx, carDims('2025'), new Map([[7, 2]]));
+    const crew = new PitCrew(ctx, carDims(), new Map([[7, 2]]));
     expect(crew.boxCount).toBe(Math.min(12, ctx.teamColors.length));
     const people = (): number => {
       let n = 0;
@@ -228,7 +228,7 @@ describe('pit crews on a built track', () => {
     expect(crew.liftFor(7)).toBeGreaterThan(CREW_LIFT * 0.9);
     expect(crew.liftFor(8)).toBe(0);
     // another team's car standing in box 2 is not this crew's business
-    const other = new PitCrew(ctx, carDims('2025'), new Map([[9, 5]]));
+    const other = new PitCrew(ctx, carDims(), new Map([[9, 5]]));
     other.update([carState({ carId: 9, x: box.x, y: box.y, z: box.z, yaw: box.yaw })], 1, []);
     expect(other.boxInfo(2)?.phase).toBe('idle');
     // pulling away: release, then idle once it has gone
@@ -316,7 +316,7 @@ describe('car damage presentation', () => {
 
 describe('crash debris', () => {
   test('a hard impact throws shards that land and rest; damage already present at first sight throws none; reset clears', () => {
-    const fx = new DebrisFx(64, carDims('2025'), new Map([[1, '#ff0000']]));
+    const fx = new DebrisFx(64, carDims(), new Map([[1, '#ff0000']]));
     fx.update([carState({ carId: 1, impact: 0, damage: { frontWing: 0.9, rearWing: 0 } })], 0.016);
     expect(fx.mesh.count).toBe(0);
     fx.update([carState({ carId: 1, impact: 3000, speed: 40, damage: { frontWing: 0.9, rearWing: 0 } })], 0.016);
@@ -336,7 +336,7 @@ describe('crash debris', () => {
   });
 
   test('a wing breaking off throws a livery-coloured piece', () => {
-    const fx = new DebrisFx(64, carDims('2025'), new Map([[1, '#ff0000']]));
+    const fx = new DebrisFx(64, carDims(), new Map([[1, '#ff0000']]));
     fx.update([carState({ carId: 1 })], 0.016);
     fx.update([carState({ carId: 1, damage: { frontWing: 0.7, rearWing: 0 } })], 0.016);
     expect(fx.mesh.count).toBeGreaterThan(2);

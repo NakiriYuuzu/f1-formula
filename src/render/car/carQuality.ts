@@ -111,12 +111,14 @@ export const CAR_FINISH: Record<LiveryFinish, { roughness: number; clearcoat: nu
   matte: { roughness: 2.3, clearcoat: 0 },
 };
 
-/** Tyre atlas columns: [roughness, metalness]. Rubber stays matte. */
-export const TYRE_SURFACE: Record<'rubber' | 'band' | 'rim' | 'nut', readonly [number, number]> = {
+/** Tyre atlas rows: [roughness, metalness]. Rubber stays matte. */
+export const TYRE_SURFACE: Record<'rubber' | 'band' | 'chequer' | 'rim' | 'nut' | 'disc', readonly [number, number]> = {
   rubber: [0.95, 0],
   band: [0.7, 0],
-  rim: [0.38, 0.7],
+  chequer: [0.75, 0],
+  rim: [0.42, 0.75],
   nut: [0.3, 0.9],
+  disc: [0.6, 0.35],
 };
 
 // ───────────────────────────── surface detail ─────────────────────────────

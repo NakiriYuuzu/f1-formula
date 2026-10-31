@@ -165,7 +165,7 @@ export class RaceScene {
     this.settings = opts.settings;
     this.quality = qualityProfile(opts.settings.quality);
     this.settingsVersion = gr.settingsVersion;
-    this.dims = carDims(opts.regulation);
+    this.dims = carDims();
     this.scene.name = `race:${track.id}`;
     const biome = track.def?.biome ?? 'temperate';
     const street = track.def?.street === true;

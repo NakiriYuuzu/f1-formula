@@ -10,6 +10,7 @@
  *   swatch u 0..0.5625, v 0.1875..0.25 (9 base swatches)    fin panel u 0.5625..1, v 0.125..0.25
  *          u 0..0.25,   v 0.125..0.1875 (4 part swatches: halo, wings, rear flap)
  *   helmet u 0..1,   v 0..0.125
+ * 2026-style layouts leave bare-carbon zones on the body (carbonZones), baked into that layout's surface map.
  */
 import * as THREE from 'three';
 import type { Livery, LiveryParts, LiveryPattern } from '../../core/types';
@@ -101,6 +102,67 @@ export interface LiveryPaint {
   number: number;
   teamShort: string;
 }
+
+/** Polygon in body-wrap UV (U along the car, V around it), given for the left side (V ≥ 0.5). */
+export type UVPoly = [number, number][];
+
+/** Points of a quadratic Bezier in UV (n + 1 points). */
+function quadUV(p0: [number, number], p1: [number, number], p2: [number, number], n: number): UVPoly {
+  const out: UVPoly = [];
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const a = (1 - t) * (1 - t);
+    const b = 2 * (1 - t) * t;
+    const c = t * t;
+    out.push([a * p0[0] + b * p1[0] + c * p2[0], a * p0[1] + b * p1[1] + c * p2[1]]);
+  }
+  return out;
+}
+
+/** Fill a left-side body polygon and its mirror on the right side (V → 1 − V); body region is W × bh px. */
+function fillUV(ctx: CanvasRenderingContext2D, color: string, poly: UVPoly, W: number, bh: number): void {
+  ctx.fillStyle = color;
+  for (const mirror of [false, true]) {
+    ctx.beginPath();
+    poly.forEach(([u, v], i) => {
+      const x = u * W;
+      const y = (1 - (mirror ? 1 - v : v)) * bh;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+/**
+ * Bare-carbon areas of the 2026-style layouts (left-side polygons, mirrored): the lower flanks and undercut, per layout
+ * also the lower nose or the tail end. Painted in carbon on the livery and baked as carbon into the layout's surface
+ * map, so they get the carbon weave; the rest (≥ 55 % of the body) stays painted. Older layouts: none.
+ */
+export function carbonZones(d: CarDims, pattern: LiveryPattern): UVPoly[] {
+  const U = (z: number): number => (z - d.wrapZMin) / (d.wrapZMax - d.wrapZMin);
+  const flank = (top: number, z0: number, z1: number): [number, number][] => [[U(z0), top], [U(z1), top], [U(z1), 1], [U(z0), 1]];
+  switch (pattern) {
+    case 'arrow':
+      return [flank(0.8, -2.3, 0.85), [[U(0.85), 0.84], [U(2.2), 0.9], [U(2.2), 1], [U(0.85), 1]]];
+    case 'sweep':
+      return [[[U(-2.4), 0.78], [U(-0.6), 0.8], [U(0.7), 0.85], [U(1.2), 0.9], [U(1.2), 1], [U(-2.4), 1]]];
+    case 'tail':
+      return [[[0, 0.5], [U(-2.15), 0.5], [U(-2.15), 0.78], [U(0.9), 0.82], [U(0.9), 1], [0, 1]]];
+    case 'shard':
+      return [[[U(-2.3), 0.8], [U(-1.2), 0.76], [U(-0.5), 0.81], [U(0.3), 0.77], [U(0.9), 0.83], [U(0.9), 1], [U(-2.3), 1]]];
+    case 'duo':
+      return [flank(0.8, -2.5, 1.2)];
+    case 'flank':
+      return [flank(0.86, -2.3, 1.0)];
+    default:
+      return [];
+  }
+}
+
+/** Layouts whose sidepod code sits on the secondary colour (the label outline / fill contrast against it). */
+const SECONDARY_SIDE: ReadonlySet<LiveryPattern> = new Set(['classic', 'arrow', 'shard', 'duo', 'flank']);
 
 const CARBON = '#1d1e21';
 /** Satin carbon (floor, diffuser, unpainted wing parts): a touch lighter and rougher than the weave above. */
@@ -218,6 +280,55 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
       ctx.fillRect(bx(0.2), by(0.225), bx(0.98) - bx(0.2), by(0.2) - by(0.225));
       break;
     }
+    case 'arrow': {
+      // secondary arrowhead from the engine cover along the sidepod, pointing ahead of the inlet; accent upper edge
+      const fill = (c: string, poly: UVPoly): void => fillUV(ctx, c, poly, W, bh);
+      fill(accent, [[uOf(-2.0), 0.585], [uOf(0.2), 0.615], [uOf(1.62), 0.715], [uOf(0.2), 0.8], [uOf(-2.0), 0.8]]);
+      fill(secondary, [[uOf(-2.0), 0.6], [uOf(0.2), 0.63], [uOf(1.55), 0.72], [uOf(0.2), 0.8], [uOf(-2.0), 0.8]]);
+      ctx.fillStyle = accent;
+      ctx.fillRect(bx(uOf(d.noseTipZ - 0.1)), 0, W, bh);
+      break;
+    }
+    case 'sweep': {
+      // crescent swoosh rising from the sidepod front to the engine cover, accent along its upper edge
+      const upper = quadUV([uOf(-2.1), 0.53], [uOf(-0.4), 0.53], [uOf(1.4), 0.77], 12);
+      const lower = quadUV([uOf(1.4), 0.77], [uOf(0.0), 0.79], [uOf(-2.1), 0.62], 12);
+      const lip = quadUV([uOf(1.46), 0.77], [uOf(-0.4), 0.515], [uOf(-2.1), 0.515], 12);
+      fillUV(ctx, accent, [...upper, ...lip], W, bh);
+      fillUV(ctx, secondary, [...upper, ...lower], W, bh);
+      break;
+    }
+    case 'tail': {
+      // secondary tail behind a forward-leaning split, accent stripe on the split; secondary nose
+      fillUV(ctx, secondary, [[0, 0.5], [uOf(-0.95), 0.5], [uOf(-0.35), 0.8], [uOf(-0.35), 1], [0, 1]], W, bh);
+      const a = 0.018;
+      fillUV(ctx, accent, [[uOf(-0.95), 0.5], [uOf(-0.95) + a, 0.5], [uOf(-0.35) + a, 0.8], [uOf(-0.35) + a, 1], [uOf(-0.35), 1], [uOf(-0.35), 0.8]], W, bh);
+      ctx.fillStyle = accent;
+      ctx.fillRect(bx(uOf(1.95)), 0, bx(uOf(2.0)) - bx(uOf(1.95)), bh);
+      ctx.fillStyle = secondary;
+      ctx.fillRect(bx(uOf(2.0)), 0, W, bh);
+      break;
+    }
+    case 'shard': {
+      // angular shards: a long secondary blade on the sidepod, an accent shard ahead of it, a chevron on the cover
+      fillUV(ctx, secondary, [[uOf(-1.7), 0.78], [uOf(0.75), 0.58], [uOf(0.75), 0.79]], W, bh);
+      fillUV(ctx, accent, [[uOf(0.82), 0.6], [uOf(1.5), 0.73], [uOf(0.82), 0.79]], W, bh);
+      fillUV(ctx, secondary, [[uOf(-2.4), 0.5], [uOf(-0.7), 0.5], [uOf(-2.4), 0.6]], W, bh);
+      fillUV(ctx, secondary, [[uOf(1.6), 0.5], [uOf(2.7), 0.5], [uOf(2.7), 0.66]], W, bh);
+      break;
+    }
+    case 'duo': {
+      // two-tone: primary top, secondary flanks sweeping up towards the nose, accent line on the split
+      fillUV(ctx, accent, [[0, 0.63], [uOf(0), 0.61], [1, 0.56], [1, 1], [0, 1]], W, bh);
+      fillUV(ctx, secondary, [[0, 0.645], [uOf(0), 0.625], [1, 0.575], [1, 1], [0, 1]], W, bh);
+      break;
+    }
+    case 'flank': {
+      // wide secondary band along the side with a pointed front, accent pinline above it
+      fillUV(ctx, accent, [[uOf(-1.6), 0.615], [uOf(1.8), 0.615], [uOf(2.42), 0.75], [uOf(1.8), 0.86], [uOf(-1.6), 0.86]], W, bh);
+      fillUV(ctx, secondary, [[uOf(-1.6), 0.635], [uOf(1.8), 0.635], [uOf(2.35), 0.75], [uOf(1.8), 0.86], [uOf(-1.6), 0.86]], W, bh);
+      break;
+    }
     default: {
       // classic: side bands in secondary with accent pinstripes, accent nose tip
       ctx.fillStyle = secondary;
@@ -254,6 +365,8 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
   }
   const lower = partColor(parts, 'lower');
   if (lower) sides(lower, zoneU(d.wrapZMin, d.wrapZMax), 0.04, 0.2);
+  // 2026 layouts: bare carbon (matches the layout's surface map)
+  for (const poly of carbonZones(d, pattern)) fillUV(ctx, CARBON, poly, W, bh);
 
   // underside / seam band in carbon
   ctx.fillStyle = CARBON;
@@ -277,7 +390,7 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
     const cx = bx(uOf(d.sidepodTextZ));
     const glyphH = (0.16 / 0.6) * (by(0.7) - by(0.8));
     const run = (0.5 / (d.wrapZMax - d.wrapZMin)) * W;
-    const sideBg = sidepods ?? (pattern === 'classic' ? secondary : primary);
+    const sideBg = sidepods ?? (SECONDARY_SIDE.has(pattern) ? secondary : primary);
     ctx.save();
     ctx.translate(cx, by(0.75));
     ctx.rotate(Math.PI);
@@ -368,9 +481,12 @@ export function liveryTexture(size: number, d: CarDims, p: LiveryPaint, anisotro
   return canvasTexture(paintLiveryCanvas(size, d, p), { anisotropy });
 }
 
-/** Shared surface map with the atlas layout: R = clear coat, G = roughness, B = metalness. Caller owns disposal. */
-export function surfaceMapTexture(): THREE.CanvasTexture {
-  const c = createCanvas(256, 256);
+/**
+ * Surface map with the atlas layout (R = clear coat, G = roughness, B = metalness), shared by every car with the same
+ * livery layout: a 2026 layout's bare-carbon zones are baked as carbon. Caller owns disposal.
+ */
+export function surfaceMapTexture(d: CarDims, pattern: LiveryPattern = 'classic'): THREE.CanvasTexture {
+  const c = createCanvas(512, 512);
   const { ctx } = c;
   const px = (k: keyof typeof CAR_SURFACE): string => {
     const [r, m, cc] = CAR_SURFACE[k];
@@ -393,6 +509,7 @@ export function surfaceMapTexture(): THREE.CanvasTexture {
   const bh = c.h * (1 - BODY_V0);
   ctx.fillRect(0, 0, c.w, bh * 0.06);
   ctx.fillRect(0, bh * 0.94, c.w, bh * 0.06);
+  for (const poly of carbonZones(d, pattern)) fillUV(ctx, px('carbon'), poly, c.w, bh);
   return canvasTexture(c, { srgb: false });
 }
 

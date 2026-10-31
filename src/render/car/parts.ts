@@ -13,8 +13,16 @@ export type UVMap =
   | { kind: 'swatch'; name: Swatch }
   | { kind: 'fin' }
   | { kind: 'helmet'; centre: THREE.Vector3 }
-  /** per-vertex `key` attribute (from revolve) -> fixed UV per key */
-  | { kind: 'keyed'; keys: string[]; uv: Record<string, [number, number]> };
+  /**
+   * per-vertex `key` attribute (from revolve) -> fixed UV per key; the `around` key instead tiles its atlas row
+   * around the X axle (u = angle / 2π · repeats, v across the row from radius r[0] to r[1])
+   */
+  | {
+      kind: 'keyed';
+      keys: string[];
+      uv: Record<string, [number, number]>;
+      around?: { key: string; repeats: number; r: [number, number]; v: [number, number] };
+    };
 
 export class PartList {
   private readonly parts: THREE.BufferGeometry[] = [];
@@ -160,9 +168,23 @@ export class PartList {
           break;
         }
         case 'keyed': {
+          const ar = map.around;
+          let phi: number[] | null = null;
           for (let k = 0; k < 3; k++) {
             const ki = key ? Math.round(key.getX(t + k)) : 0;
             const name = map.keys[ki] ?? map.keys[0];
+            if (ar && name === ar.key) {
+              const p = [a, b, c];
+              if (!phi) {
+                phi = p.map((q) => Math.atan2(q.z, q.y));
+                // keep the triangle on one side of the ±π seam
+                if (Math.max(...phi) - Math.min(...phi) > Math.PI) phi = phi.map((f) => (f < 0 ? f + Math.PI * 2 : f));
+              }
+              const q = p[k];
+              const s = Math.min(1, Math.max(0, (Math.hypot(q.y, q.z) - ar.r[0]) / (ar.r[1] - ar.r[0])));
+              set(k, (phi[k] / (Math.PI * 2)) * ar.repeats, ar.v[0] + (ar.v[1] - ar.v[0]) * s);
+              continue;
+            }
             const v = map.uv[name] ?? [0.5, 0.5];
             set(k, v[0], v[1]);
           }
