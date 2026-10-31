@@ -471,7 +471,8 @@ export interface DamageState {
   rearWing: number;
   floor: number;
   /** suspension / structure from heavy impacts: bent costs grip, 1 = broken (no drive, the car retires); a pit stop
-   * cannot repair it (only the red-flag suspension does, for a car still running) */
+   * only straightens a bent one back to a small residual bend, never fully (the red-flag suspension repairs it fully,
+   * for a car still running) */
   suspension: number;
 }
 

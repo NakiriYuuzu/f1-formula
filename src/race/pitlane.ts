@@ -4,7 +4,8 @@
  *
  * Autopilot (AI, and humans with the pit assist): moves the car kinematically along the lane: entry (blend from the
  * current lateral onto the lane, hold speed and brake to reach the limit at the line) → lane (limiter, drive to the
- * box, queue behind a team-mate) → stopped (held, 2.0–3.5 s seeded + repair of every damaged part) → lane → exit ramp
+ * box, queue behind a team-mate) → stopped (held, 2.0–3.5 s seeded + repair of every damaged part; a bent suspension is
+ * only straightened back to SUSPENSION_PIT_RESIDUAL) → lane → exit ramp
  * (accelerate from the line, merge at the road edge) → control handed back at pit.exit.
  *
  * Manual (humans without the pit assist, CarRaceInternal.pitManual): the driver drives the lane with full physics and
@@ -45,10 +46,16 @@ const EXIT_ACCEL = 11;
 const BOX_LATERAL = 4;
 /** Queue spot (m) behind an occupied box. */
 const QUEUE_GAP = 9;
-/** Extra stationary time (s) to repair each part, in full from REPAIR_FULL damage (less for lighter damage). The
- * suspension is not repaired at a stop (garage work). */
+/** Extra stationary time (s) to repair each part, in full from REPAIR_FULL damage (less for lighter damage). */
 const REPAIR_TIME: Record<Exclude<keyof DamageState, 'suspension'>, number> = { frontWing: 6, rearWing: 8, floor: 10 };
 const REPAIR_FULL = 0.3;
+/**
+ * A stop cannot fully repair a bent suspension: it is straightened back to this bend (a little grip lost, the wheel a
+ * touch out of line), never further; a lighter bend is left as it is. A car whose suspension broke never gets here.
+ */
+export const SUSPENSION_PIT_RESIDUAL = 0.25;
+/** Extra stationary time (s) to straighten a suspension from just short of breaking (less for a lighter bend). */
+const SUSPENSION_REPAIR_TIME = 10;
 /** Manual pit: distance (m) before the stop spot where the autopilot takes over the box manoeuvre. */
 const BOX_APPROACH = 30;
 /** Manual pit: distance (m) past the box where the car, back on the lane centre, is handed back to the driver. */
@@ -377,12 +384,14 @@ function startStop(world: WorldState, car: CarEntry): void {
   const r = car.race;
   const pit = car.pit;
   pit.phase = 'stopped';
-  // every damaged part is repaired
+  // every damaged part is repaired, a bent suspension partly
   const dmg = car.phys.damage;
   let repair = 0;
   for (const part of ['frontWing', 'rearWing', 'floor'] as const) {
     if (dmg[part] > 0) repair += REPAIR_TIME[part] * Math.min(1, dmg[part] / REPAIR_FULL);
   }
+  const bend = fin(dmg.suspension) - SUSPENSION_PIT_RESIDUAL;
+  if (bend > 0) repair += SUSPENSION_REPAIR_TIME * Math.min(1, bend / (1 - SUSPENSION_PIT_RESIDUAL));
   r.pitRepair = repair > 0;
   // unserved time penalties first: the car stands for them before anyone may work on it (FIA B1.9.6 b)
   const pen = car.penalties;
@@ -403,9 +412,13 @@ function serviceDone(world: WorldState, car: CarEntry): void {
   const pit = car.pit;
   const compound = pit.nextCompound;
   fitTyres(p, compound, r.pitRepair);
-  // repaired parts report damage again from zero (reportedDamage: [frontWing, rearWing, floor, suspension]; the
-  // suspension is not repaired)
-  if (r.pitRepair) r.reportedDamage.fill(0, 0, 3);
+  // repaired parts report damage again from where they now are (reportedDamage: [frontWing, rearWing, floor,
+  // suspension]; the suspension keeps its residual bend)
+  if (r.pitRepair) {
+    p.damage.suspension = Math.min(fin(p.damage.suspension), SUSPENSION_PIT_RESIDUAL);
+    r.reportedDamage.fill(0, 0, 3);
+    r.reportedDamage[3] = Math.min(r.reportedDamage[3] ?? 0, p.damage.suspension);
+  }
   if (isDry(compound)) {
     if (!r.usedCompounds.includes(compound)) r.usedCompounds.push(compound);
   } else {

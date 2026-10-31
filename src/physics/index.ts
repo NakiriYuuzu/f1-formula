@@ -129,8 +129,8 @@ export function isCarHeld(car: CarPhysicsState): boolean {
   return car.internal.held;
 }
 
-/** Fit a new set of tyres (wear 0, warm-ish blanket temp) and optionally repair the wings and floor (a pit stop cannot
- * repair the suspension). */
+/** Fit a new set of tyres (wear 0, warm-ish blanket temp) and optionally repair the wings and floor (a pit stop only
+ * straightens a bent suspension partly: race/pitlane.ts). */
 export function fitTyres(car: CarPhysicsState, compound: TireCompound, repair: boolean): void {
   car.tire = { compound, wear: 0, temp: COMPOUND_PARAMS[compound].blanketTemp, laps: 0 };
   if (repair) {

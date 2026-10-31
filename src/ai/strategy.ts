@@ -47,6 +47,8 @@ const WEAR_PER_METER: Record<TireCompound, number> = {
 const WEATHER_DEBOUNCE = 5;
 /** Pit loss (s) when the race runtime gives none. */
 const DEFAULT_PIT_LOSS = 22;
+/** Suspension bend (0..1, 1 = broken) at which an AI car boxes to have it straightened. */
+const DAMAGE_STOP_SUSPENSION = 0.5;
 /** The race-time model plans up to four stops (planRace; under a safety car a stop now may be worth one more). */
 const MAX_STOPS = 4;
 
@@ -667,8 +669,10 @@ function evaluate(
   }
   if (!isDry(cur)) return ev;
   const exclude = ctx.mandatoryOpen ? ctx.usedCompounds : [];
-  // the repair stop also serves the mandatory stop (a compound not used yet)
-  if (p.damage.frontWing > 0.4 && after >= 2) return stop(chooseDryCompound(car, track, after, exclude), 'damage');
+  // the repair stop also serves the mandatory stop (a compound not used yet); a badly bent suspension is straightened
+  // at the stop too (partly: race/pitlane.ts)
+  const repairDue = p.damage.frontWing > 0.4 || p.damage.suspension > DAMAGE_STOP_SUSPENSION;
+  if (repairDue && after >= 2) return stop(chooseDryCompound(car, track, after, exclude), 'damage');
   if (world.config.kind !== 'race') return ev;
 
   const busy = teammateBusy(world, car);

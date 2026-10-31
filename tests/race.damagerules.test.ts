@@ -2,7 +2,8 @@
  * Damage and penalty rules (2025 / 2026 sporting regulations): a broken suspension withdraws the car where it stops
  * (B1.8.9) in every session and with or without race control; the black-and-orange flag calls a car with a wing hanging
  * off in and black-flags it at the second line crossing without a stop (B1.8.7); 5 / 10 s penalties are served
- * stationary at the next stop, else added to the race time (B1.9.6); the flashback target of a crash; HUD helpers.
+ * stationary at the next stop, else added to the race time (B1.9.6); a stop straightens a bent suspension only back to
+ * a residual bend; the flashback target of a crash; HUD helpers.
  */
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
@@ -14,6 +15,7 @@ import { buildSessionResult, cancelPit, crashTime, createWorld, isSessionOver, r
 import { raceTotal, unservedPenalty } from '../src/race/classification';
 import { BLACK_ORANGE_CROSSINGS, BROKEN_REASON } from '../src/race/damageRules';
 import { applyTimePenalty } from '../src/race/legality';
+import { SUSPENSION_PIT_RESIDUAL } from '../src/race/pitlane';
 import { finishCar } from '../src/race/session';
 import { forwardDistance } from '../src/track/track';
 import { rewindableCrash } from '../src/app/flashback';
@@ -263,6 +265,47 @@ describe('black-and-orange flag', () => {
     expect(row.points).toBe(0);
     expect(row.gapText).toBe('取消資格');
     expect(rows[rows.length - 1].carId).toBe(me.id);
+  }, 120_000);
+});
+
+describe('bent suspension at a pit stop', () => {
+  test('a nearly broken suspension is straightened back to the residual bend, never fully, and the stop takes longer', () => {
+    const world = createWorld(config({ safetyCar: 'off', laps: 4 }), track);
+    const me = world.cars.find((c) => c.playerIndex === 0)!;
+    run(world, track, 25);
+    me.phys.damage.suspension = 0.95;
+    requestPit(world, me.id, 'hard');
+    const events = run(world, track, 400, { until: () => me.pit.stops > 0 });
+    expect(me.phys.damage.suspension).toBe(SUSPENSION_PIT_RESIDUAL);
+    const stop = ofType(events, 'pitStop').find((e) => e.carId === me.id)!;
+    // 2–3.5 s service + ~9 s to straighten 0.95 → 0.25
+    expect(stop.duration).toBeGreaterThan(2 + 8);
+    expect(me.status).not.toBe('retired');
+    // a later stop cannot take it below the residual bend
+    requestPit(world, me.id, 'medium');
+    run(world, track, 800, { until: () => me.pit.stops > 1 });
+    expect(me.phys.damage.suspension).toBe(SUSPENSION_PIT_RESIDUAL);
+  }, 120_000);
+
+  test('a light bend is left as it is', () => {
+    const world = createWorld(config({ safetyCar: 'off', laps: 4 }), track);
+    const me = world.cars.find((c) => c.playerIndex === 0)!;
+    run(world, track, 25);
+    me.phys.damage.suspension = 0.15;
+    requestPit(world, me.id, 'hard');
+    run(world, track, 400, { until: () => me.pit.stops > 0 });
+    expect(me.phys.damage.suspension).toBeCloseTo(0.15, 9);
+  }, 120_000);
+
+  test('an AI car with a badly bent suspension boxes to have it straightened', () => {
+    const world = createWorld(config({ safetyCar: 'off', laps: 5 }), track);
+    run(world, track, 30);
+    const car = world.cars[2];
+    car.phys.damage.suspension = 0.8;
+    run(world, track, 400, { until: () => car.pit.stops > 0 && car.pit.phase === 'none' });
+    expect(car.pit.stops).toBe(1);
+    expect(car.phys.damage.suspension).toBe(SUSPENSION_PIT_RESIDUAL);
+    expect(car.status).toBe('running');
   }, 120_000);
 });
 
