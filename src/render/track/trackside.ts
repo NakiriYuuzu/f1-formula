@@ -14,7 +14,8 @@ import type { Disposer } from '../core/disposer';
 import { blockedAt, headingAt, sidePoint, wrapIndex, type SceneryContext } from './context';
 import type { MarshalSite } from './marshalPanels';
 import { jitterColor } from './props';
-import { patchTintMask } from './sceneryMaterials';
+import { SHOULDER_PIVOT } from './crowdMotion';
+import { patchCrowd, patchTintMask } from './sceneryMaterials';
 
 export interface TvSpot {
   /** sample index the spot looks after */
@@ -46,8 +47,14 @@ export const CROWD_SEAT_PITCH = 0.62;
 export const CROWD_OCCUPANCY: readonly [number, number] = [0.17, 0.7];
 /** Share of spectators wearing a team colour (each stand favours two teams); the rest use the muted palette. */
 export const CROWD_TEAM_SHARE = 0.3;
-/** Spectator mesh detail: 'simple' = 12 triangles (torso + head), 'full' = 20 (+ legs, rounder head). */
-export const CROWD_DETAIL: Record<QualityLevel, 'simple' | 'full'> = { low: 'simple', medium: 'full', high: 'full', ultra: 'full' };
+/**
+ * Spectator mesh detail: 'simple' = 12 triangles (torso + head), 'full' = 25 (+ legs, rounder head, hair / cap),
+ * 'cheer' = 33 (+ arms, shins) for spectators that stand up and wave.
+ */
+export type CrowdDetail = 'simple' | 'full' | 'cheer';
+export const CROWD_DETAIL: Record<QualityLevel, CrowdDetail> = { low: 'simple', medium: 'full', high: 'cheer', ultra: 'cheer' };
+/** Crowd motion by quality: none (static, as before), idle (sway, head turns), cheer (also standing up and waving). */
+export const CROWD_MOTION: Record<QualityLevel, 'none' | 'idle' | 'cheer'> = { low: 'none', medium: 'idle', high: 'cheer', ultra: 'cheer' };
 /** One instanced mesh per grandstand (view culling) from this quality up; 'low' merges all stands into one. */
 const CROWD_PER_STAND: Record<QualityLevel, boolean> = { low: false, medium: true, high: true, ultra: true };
 const CROWD_MUTED = ['#2f3440', '#4a5160', '#6f7682', '#a7a9ad', '#d9d6cf', '#ece9e2', '#2c4a6b', '#5a3e33', '#4a6347', '#8a3b34', '#c9a66b', '#1f2a36'];
@@ -59,12 +66,34 @@ function quadFacing(b: GeoBuilder, p0: THREE.Vector3, p1: THREE.Vector3, p2: THR
   else b.flatQuad(p0, p3, p2, p1);
 }
 
-/** Seated spectator facing local +Z, origin on the seat: shirt torso (tint 1), skin head (tint 2), legs (tint 0.3). */
-function spectatorGeometry(detail: 'simple' | 'full'): THREE.BufferGeometry {
+/** Flat triangle p0, p1, p2 wound so its face normal points along `facing`. */
+function flatTri(b: GeoBuilder, p0: THREE.Vector3, p1: THREE.Vector3, p2: THREE.Vector3, facing: THREE.Vector3): void {
+  _n.crossVectors(_e1.subVectors(p1, p0), _e2.subVectors(p2, p0));
+  const flip = _n.dot(facing) < 0;
+  _n.normalize();
+  if (flip) _n.negate();
+  const a = b.vertex(p0.x, p0.y, p0.z, _n.x, _n.y, _n.z, 0, 0);
+  const c = b.vertex(p1.x, p1.y, p1.z, _n.x, _n.y, _n.z, 1, 0);
+  const d = b.vertex(p2.x, p2.y, p2.z, _n.x, _n.y, _n.z, 0.5, 1);
+  if (flip) b.tri(a, d, c);
+  else b.tri(a, c, d);
+}
+
+/**
+ * Seated spectator facing local +Z, origin on the seat: shirt torso (tint 1), skin head (tint 2), legs (tint 0.3).
+ * Every vertex also carries its body part (crowdPart, see crowdMotion.ts) for the vertex-shader motion. 'full' adds
+ * hair (tint 3) with a cap brim (tint 4, shown for a share of spectators); 'cheer' adds arms (sleeve tint 1, forearm
+ * and hand skin) that can be raised, and shins so the legs can straighten when the spectator stands up.
+ */
+function spectatorGeometry(detail: CrowdDetail): THREE.BufferGeometry {
   const b = new GeoBuilder(true);
   const mask: number[] = [];
-  const mark = (from: number, m: number): void => {
-    for (let i = from; i < b.vertexCount; i++) mask.push(m);
+  const parts: number[] = [];
+  const mark = (from: number, m: number, part: number): void => {
+    for (let i = from; i < b.vertexCount; i++) {
+      mask.push(m);
+      parts.push(part);
+    }
   };
   const v = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3(x, y, z);
   // torso: tapered, open back / bottom (hidden by the row behind and the seat)
@@ -79,23 +108,65 @@ function spectatorGeometry(detail: 'simple' | 'full'): THREE.BufferGeometry {
   quadFacing(b, v(hip, 0, zf), v(hip, 0, zb), v(sh, top, zb), v(sh, top, zf - 0.02), new THREE.Vector3(1, 0, 0));
   quadFacing(b, v(-hip, 0, zb), v(-hip, 0, zf), v(-sh, top, zf - 0.02), v(-sh, top, zb), new THREE.Vector3(-1, 0, 0));
   quadFacing(b, v(-sh, top, zf - 0.02), v(sh, top, zf - 0.02), v(sh, top, zb), v(-sh, top, zb), _up);
-  mark(from, 1);
+  mark(from, 1, 1);
   // head
   from = b.vertexCount;
-  const head = detail === 'full' ? new THREE.OctahedronGeometry(0.12, 0) : new THREE.TetrahedronGeometry(0.14, 0);
+  const head = detail !== 'simple' ? new THREE.OctahedronGeometry(0.12, 0) : new THREE.TetrahedronGeometry(0.14, 0);
   addGeometry(b, head, new THREE.Matrix4().compose(v(0, 0.76, 0), new THREE.Quaternion(), v(1, 1.15, 1)));
   head.dispose();
-  mark(from, 2);
-  if (detail === 'full') {
+  mark(from, 2, 2);
+  if (detail !== 'simple') {
+    // hair / cap dome and the cap's brim: the head turn reads through them
+    from = b.vertexCount;
+    b.setColor(_white);
+    // upper half of an octahedron a little bigger than the head (4 triangles)
+    const octa = new THREE.OctahedronGeometry(0.134, 0);
+    const all = octa.getAttribute('position').array;
+    const half: number[] = [];
+    for (let t = 0; t < all.length; t += 9) if (all[t + 1] + all[t + 4] + all[t + 7] > 0) for (let k = 0; k < 9; k++) half.push(all[t + k]);
+    octa.dispose();
+    const dome = new THREE.BufferGeometry();
+    dome.setAttribute('position', new THREE.Float32BufferAttribute(half, 3));
+    dome.computeVertexNormals();
+    addGeometry(b, dome, new THREE.Matrix4().compose(v(0, 0.765, -0.006), new THREE.Quaternion(), v(1.02, 1.12, 1.05)));
+    dome.dispose();
+    mark(from, 3, 2);
+    from = b.vertexCount;
+    flatTri(b, v(-0.085, 0.8, 0.09), v(0.085, 0.8, 0.09), v(0, 0.795, 0.21), _up);
+    mark(from, 4, 2);
     // thighs on the seat, pointing at the track
     from = b.vertexCount;
     b.setColor(new THREE.Color('#34405a'));
     quadFacing(b, v(-0.17, 0.15, 0.46), v(0.17, 0.15, 0.46), v(0.17, 0.15, 0.08), v(-0.17, 0.15, 0.08), _up);
-    quadFacing(b, v(-0.17, 0, 0.46), v(0.17, 0, 0.46), v(0.17, 0.15, 0.46), v(-0.17, 0.15, 0.46), new THREE.Vector3(0, 0, 1));
-    mark(from, 0.3);
+    // (the shins' front faces cover the thigh ends of the 'cheer' detail)
+    if (detail === 'full') quadFacing(b, v(-0.17, 0, 0.46), v(0.17, 0, 0.46), v(0.17, 0.15, 0.46), v(-0.17, 0.15, 0.46), new THREE.Vector3(0, 0, 1));
+    mark(from, 0.3, 5);
+  }
+  if (detail === 'cheer') {
+    // shins hanging from the knees to the floor (front faces only)
+    from = b.vertexCount;
+    for (const sx of [-1, 1]) quadFacing(b, v(sx * 0.03, -0.45, 0.5), v(sx * 0.17, -0.45, 0.5), v(sx * 0.17, 0.15, 0.5), v(sx * 0.03, 0.15, 0.5), new THREE.Vector3(0, 0, 1));
+    mark(from, 0.3, 6);
+    // arms as flat ribbons facing the track: sleeve to the elbow, bare forearm toward the knees
+    const ribbon = (a: THREE.Vector3, c: THREE.Vector3, w: number): void => {
+      quadFacing(b, v(a.x - w, a.y, a.z), v(a.x + w, a.y, a.z), v(c.x + w, c.y, c.z), v(c.x - w, c.y, c.z), new THREE.Vector3(0, 0, 1));
+    };
+    // forearm: one triangle narrowing to the hand
+    const taper = (a: THREE.Vector3, c: THREE.Vector3, w: number): void => flatTri(b, v(a.x - w, a.y, a.z), v(a.x + w, a.y, a.z), c, new THREE.Vector3(0, 0, 1));
+    for (const sx of [1, -1]) {
+      from = b.vertexCount;
+      b.setColor(_white);
+      ribbon(v(sx * SHOULDER_PIVOT[0], SHOULDER_PIVOT[1], 0.04), v(sx * 0.27, 0.27, 0.06), 0.05);
+      mark(from, 1, sx > 0 ? 3 : 4);
+      from = b.vertexCount;
+      b.setColor(_white);
+      taper(v(sx * 0.27, 0.27, 0.06), v(sx * 0.25, 0.14, 0.2), 0.045);
+      mark(from, 2, sx > 0 ? 3 : 4);
+    }
   }
   const g = b.build() ?? new THREE.BufferGeometry();
   g.setAttribute('tintMask', new THREE.Float32BufferAttribute(mask, 1));
+  g.setAttribute('crowdPart', new THREE.Float32BufferAttribute(parts, 1));
   return g;
 }
 
@@ -141,7 +212,9 @@ class CrowdBuilder {
     if (!groups.some((g) => g.matrices.length > 0)) return meshes;
     const geo = disposer.add(spectatorGeometry(CROWD_DETAIL[this.level] ?? 'full'));
     const mat = disposer.add(new THREE.MeshLambertMaterial({ name: 'crowd', vertexColors: true }));
-    patchTintMask(mat, true);
+    const motion = CROWD_MOTION[this.level] ?? 'none';
+    if (motion === 'none') patchTintMask(mat, true);
+    else patchCrowd(mat, motion);
     for (const grp of groups) {
       if (grp.matrices.length === 0) continue;
       const mesh = disposer.add(new THREE.InstancedMesh(geo, mat, grp.matrices.length));
@@ -495,6 +568,8 @@ export function buildTrackside(ctx: SceneryContext, heightAtXZ: (x: number, z: n
         // head leans over towards the track
         const hx = _p.x - side * t.rx[k] * (tower ? 0.6 : 1.4);
         const hz = _p.z - side * t.rz[k] * (tower ? 0.6 : 1.4);
+        // light source of the pooled spot lights (core/lampLights.ts): the head, aimed at the track centre here
+        ctx.lampSites.push({ x: hx, y: g + height + (tower ? 1.1 : -0.2), z: hz, ax: t.px[k], ay: t.py[k], az: t.pz[k], tower });
         if (tower) {
           poolSites.push(k);
           lampFrames.setColor(col.set('#30333a'));

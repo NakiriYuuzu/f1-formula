@@ -75,6 +75,7 @@ export function makeContext(track: BuiltTrack, opts: StaticOptions = {}): { ctx:
     exclusions: [],
     lampMaterials: [],
     lampBase: [],
+    lampSites: [],
     terrainEdits: [],
     featureStands: [],
     tunnels: [],

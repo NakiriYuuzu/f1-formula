@@ -8,8 +8,10 @@
  * Levels of detail (THREE.LOD inside the root, picked per camera at render time, so every split-screen view
  * chooses its own): LOD0 = the full model, LOD1 = simplified merged body + front wing + low-segment wheels that
  * still steer / spin, LOD2 = one low-poly silhouette. Switch distances follow the quality (CAR_LOD_DISTANCES)
- * and are scaled by the camera FOV, so zoomed tv shots keep full detail. The rain light hangs off the root and
- * shows at every level. The ghost car is LOD0 only. Paint: clear-coated MeshPhysicalMaterial on high / ultra,
+ * and are scaled by the camera FOV, so zoomed tv shots keep full detail. On high / ultra neighbouring levels
+ * cross-fade (dithered) over a band around each switch distance instead of popping (applyLodFade; each level has
+ * its own livery material and wheel set for that). The rain light hangs off the root and shows at every level. The
+ * ghost car is LOD0 only. Paint: clear-coated MeshPhysicalMaterial on high / ultra,
  * MeshStandardMaterial below (CAR_PAINT / CAR_SURFACE); carbon weave, metallic flakes and paint flop on top
  * (applySurfaceDetail, carSurfaceDetail per quality).
  *
@@ -28,22 +30,27 @@ import { liveryTexture, paintLiveryCanvas, type LiveryPaint } from './atlas';
 import { acquireCarGeometry, releaseCarGeometry, type CarGeometrySet } from './carGeometry';
 import { designForTeam, type CarDesign } from './designs';
 import { createDamageLook, damageLook, scuffAfterImpact } from './carDamage';
-import { CarSharedResources } from './carMaterials';
+import { applyLodFade, lodFadeUniform, CarSharedResources } from './carMaterials';
 import {
   carLodDistances,
   carSurfaceDetail,
   inferCarQuality,
+  lodFadeVisible,
   lodFovScale,
   selectLodLevel,
   usesClearcoatPaint,
+  usesLodCrossFade,
   CARBON_WEAVE,
   CAR_FINISH,
   CAR_LOD_HYSTERESIS,
   CAR_PAINT,
   CAR_SURFACE,
+  LOD_FADE_MARGIN,
   PAINT_FLAKE,
   PAINT_FLOP,
+  PAINT_PEEL,
   SURFACE_DETAIL_MIN_PX,
+  VISOR_TINT,
 } from './carQuality';
 
 export interface CarModelOptions {
@@ -161,12 +168,15 @@ const _lodPos = new THREE.Vector3();
 class CarLOD extends THREE.LOD {
   private readonly thresholds: number[];
   private readonly hysteresis: number;
+  /** cross-fade (usesLodCrossFade): every level whose dither window covers the distance is drawn */
+  private readonly fade: boolean;
   private level = 0;
 
-  constructor(objects: THREE.Object3D[], distances: readonly number[], hysteresis: number) {
+  constructor(objects: THREE.Object3D[], distances: readonly number[], hysteresis: number, fade: boolean) {
     super();
     this.name = 'carLod';
     this.hysteresis = hysteresis;
+    this.fade = fade;
     objects.forEach((o, i) => this.addLevel(o, i === 0 ? 0 : (distances[i - 1] ?? Infinity), hysteresis));
     this.thresholds = this.levels.slice(1).map((l) => l.distance);
   }
@@ -182,8 +192,12 @@ class CarLOD extends THREE.LOD {
     _lodPos.setFromMatrixPosition(this.matrixWorld);
     const persp = camera as THREE.PerspectiveCamera;
     const scale = persp.isPerspectiveCamera === true ? lodFovScale(persp.fov) / Math.max(1e-3, persp.zoom) : 1;
-    this.level = selectLodLevel(_camPos.distanceTo(_lodPos) * scale, this.thresholds, this.level, this.hysteresis);
-    for (let i = 0; i < levels.length; i++) levels[i].object.visible = i === this.level;
+    const dist = _camPos.distanceTo(_lodPos) * scale;
+    this.level = selectLodLevel(dist, this.thresholds, this.level, this.hysteresis);
+    if (this.fade && Number.isFinite(dist)) {
+      // the shaders keep each level's share of the pixels (lodFadeShare) per mesh; the margin covers mesh offsets
+      for (let i = 0; i < levels.length; i++) levels[i].object.visible = lodFadeVisible(dist, this.thresholds, i, LOD_FADE_MARGIN * scale);
+    } else for (let i = 0; i < levels.length; i++) levels[i].object.visible = i === this.level;
   }
 }
 
@@ -224,6 +238,11 @@ function applyScuffShader(mat: THREE.MeshStandardMaterial, scuffMap: THREE.Textu
 }
 
 const glslNum = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${+v.toFixed(6)}`);
+/** An sRGB hex colour as a linear GLSL vec3 (the shader works on linear colour). */
+const glslRgb = (hex: string): string => {
+  const c = new THREE.Color(hex);
+  return `vec3( ${glslNum(c.r)}, ${glslNum(c.g)}, ${glslNum(c.b)} )`;
+};
 /** Surface-map texel (R clear coat, G roughness, B metalness) of an atlas region, as a GLSL vec3. */
 const surfaceKey = (k: keyof typeof CAR_SURFACE): string => {
   const [r, m, cc] = CAR_SURFACE[k];
@@ -235,8 +254,9 @@ const surfaceKey = (k: keyof typeof CAR_SURFACE): string => {
  * the shared surface map. Carbon and satin carbon get a 2 × 2 twill weave, tri-planar in car space: the two tow
  * directions in different shades with dark gaps between the tows, normalised so the far average is the plain colour.
  * With `full` (high / ultra) every tow is also rounded in the normal, so the weave catches the light under the smooth
- * clear coat; the painted regions get metallic flakes (a random normal tilt per cell, visible up close) and a colour
- * flop (deeper towards grazing angles). Detail finer than SURFACE_DETAIL_MIN_PX pixels fades to its average.
+ * clear coat; the painted regions get metallic flakes (a random normal tilt per cell, visible up close), a colour
+ * flop (deeper towards grazing angles) and a faint orange peel in the clear coat's own normal (PAINT_PEEL); the visor
+ * turns into a tinted iridium mirror (VISOR_TINT). Detail finer than SURFACE_DETAIL_MIN_PX pixels fades to its average.
  */
 function applySurfaceDetail(mat: THREE.MeshStandardMaterial, full: boolean): void {
   const prev = mat.onBeforeCompile;
@@ -264,6 +284,10 @@ vCarAxZ = normalize( ( modelViewMatrix * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );`,
       .replace(
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
+float cPeelK = 0.0;
+vec2 cPeelP = vec2( 0.0 );
+vec3 cPeelU = vec3( 0.0 );
+vec3 cPeelV = vec3( 0.0 );
 #ifdef USE_ROUGHNESSMAP
 {
   vec3 cSurf = texture2D( roughnessMap, vRoughnessMapUv ).rgb;
@@ -303,12 +327,50 @@ ${
   vec3 cCell = floor( cQ );
   vec2 cR = fract( sin( vec2( dot( cCell, vec3( 127.1, 311.7, 74.7 ) ), dot( cCell, vec3( 269.5, 183.3, 246.1 ) ) ) ) * 43758.5453 ) - 0.5;
   float cFl = 1.0 - smoothstep( ${fadeA}, ${fadeB}, length( fwidth( cQ ) ) );
-  normal = normalize( normal + ( cU * cR.x + cV * cR.y ) * ( ${glslNum(PAINT_FLAKE.tilt * 2)} * cPaint * cFl ) );`
+  normal = normalize( normal + ( cU * cR.x + cV * cR.y ) * ( ${glslNum(PAINT_FLAKE.tilt * 2)} * cPaint * cFl ) );
+  // visor: tinted iridium mirror, the thin film shifting from face-on to grazing
+  float cVisor = 1.0 - smoothstep( 0.03, 0.08, distance( cSurf, ${surfaceKey('visor')} ) );
+  diffuseColor.rgb = mix( diffuseColor.rgb, mix( ${glslRgb(VISOR_TINT.edge)}, ${glslRgb(VISOR_TINT.face)}, pow( cNv, 0.6 ) ), cVisor );
+  // orange peel (clear coat normal, below)
+  cPeelK = cPaint;
+  cPeelP = cP * ${glslNum(w.tow / PAINT_PEEL.size)};
+  cPeelU = cU;
+  cPeelV = cV;`
     : ''
 }
 }
 #endif`,
       );
+    if (full) {
+      sh.fragmentShader = sh.fragmentShader.replace(
+        '#include <clearcoat_normal_fragment_maps>',
+        `#include <clearcoat_normal_fragment_maps>
+#ifdef USE_CLEARCOAT
+if ( cPeelK > 0.0 ) {
+  // two octaves of value-noise gradient tilt the coat's normal; sub-pixel ripples fade to the smooth coat
+  float pFade = cPeelK * ( 1.0 - smoothstep( ${fadeA}, ${fadeB}, length( fwidth( cPeelP ) ) ) );
+  if ( pFade > 0.0 ) {
+    vec2 g = peelGrad( cPeelP ) * 0.65 + peelGrad( mat2( 0.8, -0.6, 0.6, 0.8 ) * cPeelP * 2.13 + 5.7 ) * 0.35;
+    clearcoatNormal = normalize( clearcoatNormal + ( cPeelU * g.x + cPeelV * g.y ) * ( ${glslNum(PAINT_PEEL.tilt)} * pFade ) );
+  }
+}
+#endif`,
+      ).replace(
+        '#include <common>',
+        `#include <common>
+vec2 peelGrad( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 f = fract( p );
+  vec2 u = f * f * ( 3.0 - 2.0 * f );
+  vec2 du = 6.0 * f * ( 1.0 - f );
+  float a = fract( sin( dot( i, vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+  float b = fract( sin( dot( i + vec2( 1.0, 0.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+  float c = fract( sin( dot( i + vec2( 0.0, 1.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+  float d = fract( sin( dot( i + vec2( 1.0, 1.0 ), vec2( 127.1, 311.7 ) ) ) * 43758.5453 );
+  return du * ( vec2( b - a, c - a ) + ( a - b - c + d ) * u.yx );
+}`,
+      );
+    }
   };
   const prevKey = mat.customProgramCacheKey;
   mat.customProgramCacheKey = () => `${prevKey.call(mat)}|car-detail-${full ? 1 : 0}`;
@@ -352,12 +414,23 @@ export function createCarModel(opts: CarModelOptions): CarModel {
 
   const paint: LiveryPaint = { livery: opts.livery, helmet: opts.helmet, number: opts.number, teamShort: opts.teamShort };
   let livTex = liveryTexture(size, d, paint, aniso);
-  const bodyMat = createLiveryMaterial(livTex, shared.surfaceMapFor(opts.livery.pattern), ghost, usesClearcoatPaint(quality));
-  applyFinish(bodyMat, opts.livery.finish, ghost);
   const scuffAmount: THREE.IUniform<number> = { value: 0 };
-  if (!ghost) applyScuffShader(bodyMat, shared.scuffMap, scuffAmount);
   const surfaceDetail = carSurfaceDetail(quality);
-  if (!ghost && surfaceDetail !== 'off') applySurfaceDetail(bodyMat, surfaceDetail === 'full');
+  const lodDistances = carLodDistances(quality);
+  const crossFade = !ghost && usesLodCrossFade(quality);
+  /** The livery material of one LOD level (`level` set: cross-faded; all levels share one program). */
+  const liveryMaterial = (level: number | null): THREE.MeshStandardMaterial => {
+    const m = createLiveryMaterial(livTex, shared.surfaceMapFor(opts.livery.pattern), ghost, usesClearcoatPaint(quality));
+    applyFinish(m, opts.livery.finish, ghost);
+    if (!ghost) applyScuffShader(m, shared.scuffMap, scuffAmount);
+    if (!ghost && surfaceDetail !== 'off') applySurfaceDetail(m, surfaceDetail === 'full');
+    if (level !== null) applyLodFade(m, lodFadeUniform(lodDistances, level));
+    return m;
+  };
+  const bodyMat = liveryMaterial(crossFade ? 0 : null);
+  // cross-fading levels need their own windows: one livery material per level (same textures, same program)
+  const lodMats = crossFade ? [bodyMat, liveryMaterial(1), liveryMaterial(2)] : [bodyMat, bodyMat, bodyMat];
+  const liveryMats = [...new Set(lodMats)];
   if (ghost) {
     bodyMat.color.setRGB(0.75, 0.95, 1.25);
     bodyMat.emissive.setRGB(0.05, 0.12, 0.18);
@@ -426,15 +499,20 @@ export function createCarModel(opts: CarModelOptions): CarModel {
     [-d.rearHalfTrack, d.rearAxleZ, false],
   ];
   let compound: TireCompound = 'medium';
-  const wheelMat = (c: TireCompound): THREE.Material => (ghost ? shared.ghostWheelMaterial : shared.wheelMaterials[c] ?? shared.wheelMaterials.medium);
-  /** Four steerable / spinning wheels under `parent` (order FL, FR, RL, RR); brake-glow rings when `glow` is set. */
-  const buildWheels = (parent: THREE.Object3D, front: THREE.BufferGeometry, rear: THREE.BufferGeometry, glow: boolean): WheelSet => {
+  const wheelSets = crossFade ? [shared.fadedWheelMaterials(lodDistances, 0), shared.fadedWheelMaterials(lodDistances, 1)] : [shared.wheelMaterials, shared.wheelMaterials];
+  const wheelMat = (c: TireCompound, level: number): THREE.Material => {
+    if (ghost) return shared.ghostWheelMaterial;
+    const set = wheelSets[level] ?? shared.wheelMaterials;
+    return set[c] ?? set.medium;
+  };
+  /** Four steerable / spinning wheels under `parent` (order FL, FR, RL, RR) of LOD `level`; brake-glow rings when `glow` is set. */
+  const buildWheels = (parent: THREE.Object3D, front: THREE.BufferGeometry, rear: THREE.BufferGeometry, glow: boolean, level: number): WheelSet => {
     const out: WheelSet = { pivots: [], spinners: [], wheels: [], glows: [] };
     for (const [x, z, isFront] of corners) {
       const pivot = new THREE.Group();
       pivot.position.set(x, isFront ? d.frontWheelRadius : d.rearWheelRadius, z);
       const spinner = new THREE.Group();
-      const wheel = mk(isFront ? front : rear, wheelMat(compound), 'wheel');
+      const wheel = mk(isFront ? front : rear, wheelMat(compound, level), 'wheel');
       if (x < 0) wheel.rotation.y = Math.PI; // outer cover face towards the car's right (-X)
       spinner.add(wheel);
       pivot.add(spinner);
@@ -454,7 +532,7 @@ export function createCarModel(opts: CarModelOptions): CarModel {
     return out;
   };
   const wheelRadii = [d.frontWheelRadius, d.frontWheelRadius, d.rearWheelRadius, d.rearWheelRadius];
-  const w0 = buildWheels(level0, geo.wheelFront, geo.wheelRear, true);
+  const w0 = buildWheels(level0, geo.wheelFront, geo.wheelRear, true, 0);
   const wheelPivots = w0.pivots;
   const wheelSpinners = w0.spinners;
   const wheels = w0.wheels;
@@ -469,13 +547,13 @@ export function createCarModel(opts: CarModelOptions): CarModel {
   else {
     const level1 = new THREE.Group();
     level1.name = 'lod1';
-    frontWing1 = mk(geo.lod1.frontWing, bodyMat, 'frontWing');
-    frontWingDamaged1 = mk(geo.lod1.frontWingDamaged, bodyMat, 'frontWingDamaged');
+    frontWing1 = mk(geo.lod1.frontWing, lodMats[1], 'frontWing');
+    frontWingDamaged1 = mk(geo.lod1.frontWingDamaged, lodMats[1], 'frontWingDamaged');
     frontWingDamaged1.visible = false;
-    level1.add(mk(geo.lod1.body, bodyMat, 'body'), frontWing1, frontWingDamaged1);
-    w1 = buildWheels(level1, geo.lod1.wheelFront, geo.lod1.wheelRear, false);
-    const level2 = mk(geo.lod2, bodyMat, 'lod2');
-    lod = new CarLOD([level0, level1, level2], carLodDistances(quality), CAR_LOD_HYSTERESIS);
+    level1.add(mk(geo.lod1.body, lodMats[1], 'body'), frontWing1, frontWingDamaged1);
+    w1 = buildWheels(level1, geo.lod1.wheelFront, geo.lod1.wheelRear, false, 1);
+    const level2 = mk(geo.lod2, lodMats[2], 'lod2');
+    lod = new CarLOD([level0, level1, level2], lodDistances, CAR_LOD_HYSTERESIS, crossFade);
     root.add(lod);
   }
 
@@ -573,8 +651,8 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       // tyre compound (sidewall band)
       if (state.compound !== compound && !ghost) {
         compound = state.compound in shared.wheelMaterials ? state.compound : 'medium';
-        for (const w of wheels) w.material = wheelMat(compound);
-        if (w1) for (const w of w1.wheels) w.material = wheelMat(compound);
+        for (const w of wheels) w.material = wheelMat(compound, 0);
+        if (w1) for (const w of w1.wheels) w.material = wheelMat(compound, 1);
       }
 
       // DRS / active aero flaps
@@ -620,14 +698,16 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       next.colorSpace = livTex.colorSpace;
       next.anisotropy = livTex.anisotropy;
       next.needsUpdate = true;
-      bodyMat.map = next;
       // the layout's bare-carbon zones live in its surface map
       const surface = shared.surfaceMapFor(livery.pattern);
-      bodyMat.roughnessMap = surface;
-      bodyMat.metalnessMap = surface;
-      if ((bodyMat as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) (bodyMat as THREE.MeshPhysicalMaterial).clearcoatMap = surface;
-      applyFinish(bodyMat, livery.finish, ghost);
-      bodyMat.needsUpdate = true;
+      for (const m of liveryMats) {
+        m.map = next;
+        m.roughnessMap = surface;
+        m.metalnessMap = surface;
+        if ((m as THREE.MeshPhysicalMaterial).isMeshPhysicalMaterial) (m as THREE.MeshPhysicalMaterial).clearcoatMap = surface;
+        applyFinish(m, livery.finish, ghost);
+        m.needsUpdate = true;
+      }
       livTex.dispose();
       livTex = next;
     },
@@ -640,7 +720,7 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       disposed = true;
       root.removeFromParent();
       livTex.dispose();
-      bodyMat.dispose();
+      for (const m of liveryMats) m.dispose();
       glowMat.dispose();
       releaseCarGeometry(design);
       if (ownShared) shared.dispose();

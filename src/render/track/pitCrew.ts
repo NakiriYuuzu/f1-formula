@@ -1,7 +1,9 @@
 /**
- * Pit crews: 16 mechanics per team box in team-coloured overalls with helmets, gloves and boots (instanced in three
- * poses: standing, kneeling, crouching), with wheel guns, jacks and carried tyres, plus two blanket-wrapped spare
- * tyre stacks by every garage door. Each box follows pitCrewMath: waiting in front of the garage, out to their spots
+ * Pit crews: 16 mechanics per team box in team-coloured overalls with helmets, gloves and boots, with wheel guns, jacks
+ * and carried tyres, plus two blanket-wrapped spare tyre stacks by every garage door. From medium quality up every
+ * mechanic is an articulated rig (pitCrewRig.ts / pitCrewPose.ts: walk / run cycle, smooth stand ↔ kneel ↔ crouch,
+ * hands on the tyre / gun / jack, idle weight shifts, head turns, body-size variety); low keeps three rigid instanced
+ * poses (standing, kneeling, crouching). Each box follows pitCrewMath: waiting in front of the garage, out to their spots
  * when a team car comes down the pit lane, kneeling / crouching at the wheels while it stands in the box (jacks up,
  * old tyres off, new tyres on, jacks down), stepping back as it pulls away, then walking home.
  *
@@ -33,6 +35,22 @@ import {
   type CrewPose,
   type CrewTarget,
 } from './pitCrewMath';
+import { CHEER_CARS, selectCheerCars } from './crowdMotion';
+import { CrewRig } from './pitCrewRig';
+import { CROWD_CARS } from './sceneryMaterials';
+import { CROWD_MOTION } from './trackside';
+import {
+  GAIT_RATE,
+  approachPose,
+  blendHold,
+  createJoints,
+  createPoseState,
+  hash01,
+  solvePose,
+  type PoseInput,
+  type PoseState,
+  type V3 as PoseV3,
+} from './pitCrewPose';
 import { PIT_BOX_COUNT, PIT_BOX_LATERAL, PIT_BOX_SPACING, PIT_LANE_HALF } from './trackFrame';
 
 /** Crews are drawn (and their instances rebuilt) only while some camera is within this distance (m) of the pit boxes. */
@@ -40,6 +58,14 @@ const CREW_VIEW_DISTANCE = 420;
 const POSES: readonly CrewPose[] = ['stand', 'kneel', 'crouch'];
 
 type V3 = readonly [number, number, number];
+
+/** Where a carried item sits per stance on the articulated rig (hands reach it; kept inside arm reach of each stance). */
+export const RIG_TYRE_HOLD: Record<CrewPose, PoseV3> = { stand: [0, 0.98, 0.42], kneel: [0, 0.72, 0.55], crouch: [0, 0.7, 0.6] };
+export const RIG_GUN_HOLD: Record<CrewPose, PoseV3> = { stand: [0.18, 1.0, 0.36], kneel: [0, 0.76, 0.5], crouch: [0, 0.78, 0.52] };
+export const RIG_JACK_HOLD: Record<CrewPose, PoseV3> = { stand: [0, 0.95, 0.34], kneel: [0, 0.74, 0.5], crouch: [0, 0.74, 0.62] };
+export const RIG_JACK_PITCH: Record<CrewPose, number> = { stand: 0.78, kneel: 0.6, crouch: 0.55 };
+/** Body-size variety of the mechanics (scale range). */
+const CREW_SCALE: readonly [number, number] = [0.95, 1.06];
 
 /** Joint positions of one pose (metres, feet at y = 0, facing +Z, +X = the person's left). */
 interface Skeleton {
@@ -111,6 +137,8 @@ const _m2 = new THREE.Matrix4();
 const _s = new THREE.Vector3(1, 1, 1);
 const _up = new THREE.Vector3(0, 1, 0);
 const _e = new THREE.Euler(0, 0, 0, 'YXZ');
+const _hold: PoseV3 = [0, 0, 0];
+const _input: PoseInput = { state: createPoseState(), phase: 0, time: 0, seed: 0, item: 'none', hold: _hold, pitch: 0 };
 
 /** Capsule from `a` to `b` (radius r) appended to a builder. */
 function limb(b: GeoBuilder, a: V3, c: V3, r: number): void {
@@ -206,6 +234,10 @@ interface Member {
   walked: number;
   moving: boolean;
   target: CrewTarget;
+  /** articulated rig: smoothed stance / gait state, idle-motion seed (0..1) and body scale */
+  state: PoseState;
+  seed: number;
+  scale: number;
 }
 
 interface Box {
@@ -241,6 +273,13 @@ export class PitCrew {
   private readonly tyres: THREE.InstancedMesh;
   private readonly guns: THREE.InstancedMesh;
   private readonly jacks: THREE.InstancedMesh;
+  /** articulated bodies (medium quality and up); null = the three rigid poses */
+  private readonly rig: CrewRig | null = null;
+  private readonly joints = createJoints();
+  private now = 0;
+  /** the crowd stands up for passing cars at this quality; this class hands it the cars (it already gets them every frame) */
+  private readonly cheers: boolean;
+  private readonly cheerCars = new Float32Array(CHEER_CARS * 4);
   private readonly shape: CrewCarShape;
   private readonly ctx: SceneryContext;
   private readonly carBox: Map<number, number>;
@@ -253,6 +292,7 @@ export class PitCrew {
   constructor(ctx: SceneryContext, dims: CarDims, carBox: Map<number, number>) {
     this.ctx = ctx;
     this.carBox = carBox;
+    this.cheers = CROWD_MOTION[ctx.quality.level] === 'cheer';
     this.group.name = 'pitCrew';
     const { track: t, frame: f, disposer } = ctx;
     this.shape = {
@@ -300,7 +340,20 @@ export class PitCrew {
       };
       for (let i = 0; i < CREW_SLOTS.length; i++) {
         const target = crewTarget(i, 'idle', 0, this.shape, garageR, ps);
-        box.members.push({ f: target.f, r: target.r, yaw: target.yaw, walked: 0, moving: false, target });
+        const id = b * CREW_SLOTS.length + i + 1;
+        const state = createPoseState();
+        approachPose(state, target.pose, false, target.item !== 'none', 0, true);
+        box.members.push({
+          f: target.f,
+          r: target.r,
+          yaw: target.yaw,
+          walked: 0,
+          moving: false,
+          target,
+          state,
+          seed: hash01(id),
+          scale: CREW_SCALE[0] + (CREW_SCALE[1] - CREW_SCALE[0]) * hash01(id + 0.5),
+        });
       }
       this.boxes.push(box);
       this.centre.x += p.x;
@@ -321,13 +374,19 @@ export class PitCrew {
       this.group.add(m);
       return m;
     };
-    const suitMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-suit', vertexColors: true, roughness: 0.82 }));
-    const gearMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-gear', vertexColors: true, roughness: 0.32, metalness: 0.05 }));
     const toolMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-tools', vertexColors: true, roughness: 0.55, metalness: 0.35 }));
-    for (const pose of POSES) {
-      const g = buildPerson(pose);
-      this.suits.push(mesh(g.suit, suitMat, people, `crewSuit-${pose}`));
-      this.gears.push(mesh(g.gear, gearMat, people, `crewGear-${pose}`));
+    if (ctx.quality.level !== 'low') {
+      this.rig = new CrewRig(ctx.quality.level, people, disposer, mesh);
+      this.boxes.forEach((box, bi) => box.members.forEach((_, i) => this.rig?.setColor(bi * CREW_SLOTS.length + i, box.color)));
+      this.rig.setCount(this.boxes.length * CREW_SLOTS.length);
+    } else {
+      const suitMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-suit', vertexColors: true, roughness: 0.82 }));
+      const gearMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-gear', vertexColors: true, roughness: 0.32, metalness: 0.05 }));
+      for (const pose of POSES) {
+        const g = buildPerson(pose);
+        this.suits.push(mesh(g.suit, suitMat, people, `crewSuit-${pose}`));
+        this.gears.push(mesh(g.gear, gearMat, people, `crewGear-${pose}`));
+      }
     }
     const tools = buildTools();
     this.tyres = mesh(buildTyre(), toolMat, Math.max(1, this.boxes.length * 8), 'crewTyres');
@@ -390,11 +449,18 @@ export class PitCrew {
    * a camera is near. `cams` = camera positions of the last frame.
    */
   update(cars: readonly CarRenderState[], time: number, cams: readonly THREE.Vector3[]): void {
+    if (this.cheers) {
+      selectCheerCars(cars, cams, this.cheerCars);
+      for (let i = 0; i < CHEER_CARS; i++) CROWD_CARS.value[i].set(this.cheerCars[i * 4], this.cheerCars[i * 4 + 1], this.cheerCars[i * 4 + 2], 0);
+    }
     if (this.boxes.length === 0) return;
     const now = Number.isFinite(time) ? time : 0;
     const jump = !Number.isFinite(this.lastTime) || now < this.lastTime - 0.05 || now - this.lastTime > 2;
     const dt = jump ? 0 : Math.min(0.1, Math.max(0, now - this.lastTime));
     this.lastTime = now;
+    this.now = now;
+    // the articulated bodies never rest (idle weight shifts, head turns): redraw whenever sim time moved
+    if (this.rig && (jump || dt > 0)) this.dirty = true;
     this.observe(cars);
     this.lifts.clear();
     for (const box of this.boxes) {
@@ -416,6 +482,7 @@ export class PitCrew {
           m.r = m.target.r;
           m.yaw = m.target.yaw;
           m.moving = false;
+          approachPose(m.state, m.target.pose, false, m.target.item !== 'none', 0, true);
           this.dirty = true;
           continue;
         }
@@ -425,6 +492,7 @@ export class PitCrew {
         const wasMoving = m.moving;
         m.moving = walkToward(m, m.target, dt);
         m.walked += Math.hypot(m.f - f0, m.r - r0);
+        if (this.rig) approachPose(m.state, m.moving ? 'stand' : m.target.pose, m.moving, m.target.item !== 'none', dt);
         if (m.f !== f0 || m.r !== r0 || m.yaw !== y0 || m.moving !== wasMoving) this.dirty = true;
       }
       if (box.phase === 'service') this.dirty = true;
@@ -485,6 +553,10 @@ export class PitCrew {
   /** Write every member / tool instance from the current positions. */
   private rebuild(): void {
     this.dirty = false;
+    if (this.rig) {
+      this.rebuildRig(this.rig);
+      return;
+    }
     const counts = [0, 0, 0];
     let tyres = 0;
     let guns = 0;
@@ -526,6 +598,56 @@ export class PitCrew {
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     });
+    for (const [mesh, count] of [
+      [this.tyres, tyres],
+      [this.guns, guns],
+      [this.jacks, jacks],
+    ] as const) {
+      mesh.count = count;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
+  /** Articulated path: solve every member's joints, write the ten body segments and place the carried items in its hands. */
+  private rebuildRig(rig: CrewRig): void {
+    let person = 0;
+    let tyres = 0;
+    let guns = 0;
+    let jacks = 0;
+    const j = this.joints;
+    for (const box of this.boxes) {
+      for (const m of box.members) {
+        const root = rig.beginPerson(box.x + box.fx * m.f + box.rx * m.r, box.y, box.z + box.fz * m.f + box.rz * m.r, box.yaw + m.yaw, m.scale);
+        const item = m.target.item;
+        const table = item === 'tyre' ? RIG_TYRE_HOLD : item === 'gun' ? RIG_GUN_HOLD : RIG_JACK_HOLD;
+        blendHold(table, m.state, _hold);
+        const st = m.state;
+        const sw = Math.max(0, 1 - st.kneel - st.crouch);
+        const pitch = RIG_JACK_PITCH.stand * sw + RIG_JACK_PITCH.kneel * st.kneel + RIG_JACK_PITCH.crouch * st.crouch;
+        _input.state = st;
+        _input.phase = m.walked * GAIT_RATE;
+        _input.time = this.now;
+        _input.seed = m.seed;
+        _input.item = item;
+        _input.hold = _hold;
+        _input.pitch = pitch;
+        solvePose(j, _input);
+        rig.writePerson(person++, j);
+        if (item === 'tyre') {
+          _m2.makeTranslation(_hold[0], _hold[1], _hold[2]);
+          this.tyres.setMatrixAt(tyres++, _m2.premultiply(root));
+        } else if (item === 'gun') {
+          _e.set(0, 0, gunWobble(box.phase, box.t));
+          _m2.compose(_b.set(_hold[0], _hold[1], _hold[2]), _q.setFromEuler(_e), _s);
+          this.guns.setMatrixAt(guns++, _m2.premultiply(root));
+        } else if (item === 'jack') {
+          _e.set(pitch, 0, 0);
+          _m2.compose(_b.set(_hold[0], _hold[1], _hold[2]), _q.setFromEuler(_e), _s);
+          this.jacks.setMatrixAt(jacks++, _m2.premultiply(root));
+        }
+      }
+    }
+    rig.markDirty();
     for (const [mesh, count] of [
       [this.tyres, tyres],
       [this.guns, guns],

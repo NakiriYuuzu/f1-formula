@@ -76,9 +76,10 @@ describe('post look: AO and lens', () => {
     expect(aoAmount('dusk', 1, 99)).toBeLessThanOrEqual(1);
   });
 
-  test('neutral look has no AO / lens; showroom AO follows the flag', () => {
+  test('neutral look has no AO / grain / display LUT; showroom AO follows the flag', () => {
     const n = createPostLook();
-    expect([n.ao, n.chroma, n.grain]).toEqual([0, 0, 0]);
+    expect([n.ao, n.grain, n.lutAmount]).toEqual([0, 0, 0]);
+    expect(n.lut).toBeNull();
     expect(showroomLook('high', true, createPostLook(), true).ao).toBeGreaterThan(0);
     expect(showroomLook('high', true, createPostLook(), false).ao).toBe(0);
     expect(showroomLook('low', false).grain).toBe(0);
@@ -207,7 +208,7 @@ describe('pit crews on a built track', () => {
     const people = (): number => {
       let n = 0;
       crew.group.traverse((o) => {
-        if ((o as THREE.InstancedMesh).isInstancedMesh && o.name.startsWith('crewSuit')) n += (o as THREE.InstancedMesh).count;
+        if ((o as THREE.InstancedMesh).isInstancedMesh && (o.name.startsWith('crewSuit') || o.name === 'crewRig-torso')) n += (o as THREE.InstancedMesh).count;
       });
       return n;
     };

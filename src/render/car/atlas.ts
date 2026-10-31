@@ -8,14 +8,14 @@
  * Atlas (three.js UV, v up):
  *   body   u 0..1,   v 0.25..1
  *   swatch u 0..0.5625, v 0.1875..0.25 (9 base swatches)    fin panel u 0.5625..1, v 0.125..0.25
- *          u 0..0.25,   v 0.125..0.1875 (4 part swatches: halo, wings, rear flap)
+ *          u 0..0.3125, v 0.125..0.1875 (4 part swatches: halo, wings, rear flap; glass)
  *   helmet u 0..1,   v 0..0.125
  * 2026-style layouts leave bare-carbon zones on the body (carbonZones), baked into that layout's surface map.
  */
 import * as THREE from 'three';
 import type { Livery, LiveryParts, LiveryPattern } from '../../core/types';
 import { canvasTexture, createCanvas, fitFont, luminance, mixHex, safeHex, UI_FONT, type Canvas2D } from '../core/canvas';
-import { CAR_SURFACE } from './carQuality';
+import { CAR_SURFACE, VISOR_TINT } from './carQuality';
 import type { CarDims } from './dims';
 
 export const SWATCHES = [
@@ -33,6 +33,8 @@ export const SWATCHES = [
   'frontWing',
   'rearWing',
   'rearFlap',
+  // dark glass of the mirrors and the steering-wheel screen (the visor has its own tinted swatch)
+  'glass',
 ] as const;
 export type Swatch = (typeof SWATCHES)[number];
 
@@ -190,7 +192,8 @@ export function swatchColors(l: Livery): Record<Swatch, string> {
     accent: safeHex(l.accent, '#ffffff'),
     carbon: CARBON,
     metal: '#9a9ea6',
-    visor: '#121418',
+    visor: VISOR_TINT.swatch,
+    glass: '#121418',
     black: '#0b0b0c',
     white: '#f2f2f2',
     satin: SATIN,

@@ -53,6 +53,56 @@ export function selectLodLevel(distance: number, thresholds: readonly number[], 
 }
 
 /**
+ * LOD cross-fade (high / ultra, usesLodCrossFade): around each switch distance T both neighbouring levels are drawn
+ * over T × (1 ± LOD_FADE_BAND) and screen-door dithered with complementary masks, so a level change dissolves over
+ * a few metres instead of popping. Lower tiers keep the hard switch (no discard in their car shaders).
+ */
+export const LOD_FADE_BAND = 0.08;
+/** Extra distance (m, FOV-scaled) a fading level stays drawn: its meshes (wheels, wings) sit up to ~3 m off the car's origin. */
+export const LOD_FADE_MARGIN = 3;
+
+export function usesLodCrossFade(quality: QualityLevel): boolean {
+  return quality === 'high' || quality === 'ultra';
+}
+
+/**
+ * Fade window of a level for the shader: [inLo, inHi, outLo, outHi]. The level's kept share at distance d is
+ * smoothstep(inLo, inHi, d) − smoothstep(outLo, outHi, d) (lodFadeShare); the first level is always faded in, the
+ * last never faded out.
+ */
+export function lodFadeWindow(thresholds: readonly number[], level: number): [number, number, number, number] {
+  const b = LOD_FADE_BAND;
+  const tin = level > 0 ? thresholds[level - 1] : undefined;
+  const tout = level < thresholds.length ? thresholds[level] : undefined;
+  return [
+    tin !== undefined ? tin * (1 - b) : -2,
+    tin !== undefined ? tin * (1 + b) : -1,
+    tout !== undefined ? tout * (1 - b) : 1e9,
+    tout !== undefined ? tout * (1 + b) : 2e9,
+  ];
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Share (0..1) of a level's pixels kept at FOV-scaled distance d; the shares of all levels sum to 1. */
+export function lodFadeShare(d: number, thresholds: readonly number[], level: number): number {
+  if (!Number.isFinite(d)) return 0;
+  const [a, b, c, e] = lodFadeWindow(thresholds, level);
+  return Math.max(0, smoothstep(a, b, d) - smoothstep(c, e, d));
+}
+
+/** Whether a level must be drawn at FOV-scaled distance d (its window widened by `margin`). */
+export function lodFadeVisible(d: number, thresholds: readonly number[], level: number, margin: number): boolean {
+  if (!Number.isFinite(d)) return false;
+  const [a, , , e] = lodFadeWindow(thresholds, level);
+  const m = Number.isFinite(margin) ? Math.max(0, margin) : 0;
+  return d >= a - m && d <= e + m;
+}
+
+/**
  * Quality guess for callers that do not pass CarModelOptions.quality: the scenes size the livery atlas
  * (low / medium 512, high / ultra ≥ 1024) and anisotropy (1 / 2 / 4 / 8) from the quality profile.
  */
@@ -79,7 +129,8 @@ export const CAR_PAINT = {
 /**
  * Surface response per livery-atlas region: [roughness, metalness, clear-coat amount 0..1]. Baked into the
  * shared surface map (G = roughness, B = metalness, R = clear coat). Carbon is a darker satin weave under a
- * thin coat, black covers tyres / intakes / cockpit walls (matte), the visor is glossy.
+ * thin coat, black covers tyres / intakes / cockpit walls (matte), the visor is a glossy tinted mirror, the glass
+ * (mirrors, steering-wheel screen) glossy dark.
  */
 export const CAR_SURFACE: Record<Swatch | 'paint' | 'fin' | 'helmet' | 'underside', readonly [number, number, number]> = {
   paint: [0.3, 0.05, 1],
@@ -91,7 +142,8 @@ export const CAR_SURFACE: Record<Swatch | 'paint' | 'fin' | 'helmet' | 'undersid
   underside: [0.58, 0.15, 0.3],
   satin: [0.7, 0.12, 0.12],
   metal: [0.28, 0.85, 0],
-  visor: [0.06, 0.7, 1],
+  visor: [0.05, 0.9, 1],
+  glass: [0.06, 0.7, 1],
   black: [0.9, 0.0, 0],
   white: [0.4, 0.0, 0.6],
   helmet: [0.18, 0.1, 1],
@@ -146,6 +198,17 @@ export const CARBON_WEAVE = { tow: 0.012, contrast: 0.22, gap: 0.45, bump: 0.35 
 export const PAINT_FLAKE = { size: 0.0016, tilt: 0.24 } as const;
 /** Paint flop ('full'): brightness of the painted regions at grazing / face-on view (deeper colour along the edges). */
 export const PAINT_FLOP: readonly [number, number] = [0.8, 1.05];
+/**
+ * Orange peel of the clear coat ('full'): the coat's own normal ripples gently (two octaves of value noise, ripple
+ * size in m), so reflected edges waver slightly in close-ups while the paint underneath stays smooth.
+ */
+export const PAINT_PEEL = { size: 0.009, tilt: 0.014 } as const;
+/**
+ * Helmet visor: a tinted iridium mirror (sRGB). `swatch` is its atlas colour on every quality; on 'full' a thin-film
+ * shift runs from `face` (seen head-on) to `edge` (grazing). The mirror glass and the steering-wheel screen keep the
+ * plain dark glass swatch.
+ */
+export const VISOR_TINT = { swatch: '#34457a', face: '#2b3f94', edge: '#c49a3a' } as const;
 /** Weave and flakes fade to their average once a cell spans fewer pixels than this. */
 export const SURFACE_DETAIL_MIN_PX = 2;
 

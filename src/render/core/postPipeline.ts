@@ -2,22 +2,26 @@
  * Post-processing chain for one full-screen view (owned by GameRenderer, shared by RaceScene and ShowroomScene):
  * RenderPass into a half-float HDR target (MSAA) -> optional ambient occlusion (GTAO from the scene target's resolved
  * depth, at reduced resolution, multiplied onto the frame in place) -> selective bloom (UnrealBloomPass with a soft-knee
- * brightest-channel bright pass, optionally at reduced resolution) -> chromatic aberration + speed blur + aerial
- * perspective (haze from the resolved depth) + grade + vignette + film grain ShaderPass -> OutputPass.
+ * brightest-channel bright pass, optionally at reduced resolution) -> speed blur + aerial perspective (haze from the
+ * resolved depth) + grade + vignette + film grain ShaderPass -> GradedOutputPass (tone mapping, sRGB, the display
+ * LUT grade of the time of day, dither) -> optional SMAA.
  * While the chain is used the scene renders un-tone-mapped in linear space (three only tone-maps to the screen), so
- * OutputPass alone applies renderer.toneMapping / toneMappingExposure and the sRGB transfer: tone mapping runs once.
+ * the output pass alone applies renderer.toneMapping / toneMappingExposure and the sRGB transfer: tone mapping runs once.
  * Sizes are drawing-buffer pixels (the composer runs at pixel ratio 1).
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FullScreenQuad, Pass } from 'three/addons/postprocessing/Pass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { clamp } from '../../core/math';
+import { buildLutData, LUT_BY_TIME, LUT_SIZE } from './lutGrade';
+import { WetReflectionPass } from './wetReflectionPass';
 import {
+  SSR_SCALE,
   AO_RADIUS,
   AO_SAMPLES,
   AO_THICKNESS,
@@ -35,6 +39,7 @@ import {
   VIGNETTE_START,
   type PostLook,
 } from './post';
+import type { TimeOfDay } from '../../core/types';
 
 function glslVec3(v: readonly [number, number, number]): string {
   return `vec3(${v.map((x) => x.toFixed(4)).join(', ')})`;
@@ -71,8 +76,7 @@ void main() {
 }`;
 
 /**
- * Lateral chromatic aberration (red sampled toward the centre, blue away, growing to the corners), radial speed blur
- * (taps toward the screen centre, faded in from speedBlurStart so the centre stays sharp), aerial perspective (USE_HAZE:
+ * Radial speed blur (taps toward the screen centre, faded in from speedBlurStart so the centre stays sharp), aerial perspective (USE_HAZE:
  * the view ray rebuilt from the resolved depth; exponential height fog integrated along it; transmitted light loses
  * blue, the veil is bluer on steep paths and glows toward the sun; the sky, depth 1, keeps its own horizon), then grade
  * (tint, saturation, pivot-power contrast, toe lift) + vignette + animated film grain, all in linear HDR before OutputPass.
@@ -140,7 +144,6 @@ uniform float vignetteStart;
 uniform float aspect;
 uniform float speedBlur;
 uniform float speedBlurStart;
-uniform float chroma;
 uniform float grain;
 uniform float grainSeed;
 uniform float split;
@@ -163,11 +166,6 @@ void main() {
     vec3 nb = texture2D(tDiffuse, vUv + vec2(texel.x, 0.0)).rgb + texture2D(tDiffuse, vUv - vec2(texel.x, 0.0)).rgb
       + texture2D(tDiffuse, vUv + vec2(0.0, texel.y)).rgb + texture2D(tDiffuse, vUv - vec2(0.0, texel.y)).rgb;
     sharpD = clamp(c - max(nb * 0.25, vec3(0.0)), -0.25 * c - 0.02, 0.25 * c + 0.02) * sharpen * 4.0;
-  }
-  if (chroma > 0.0) {
-    vec2 ca = (vUv - 0.5) * chroma * r;
-    c.r = max(texture2D(tDiffuse, vUv - ca).r, 0.0);
-    c.b = max(texture2D(tDiffuse, vUv + ca).b, 0.0);
   }
   c = max(c + sharpD, vec3(0.0));
   float blur = speedBlur * smoothstep(speedBlurStart, 1.0, r);
@@ -195,7 +193,8 @@ void main() {
   }
   c *= 1.0 - vignette * smoothstep(vignetteStart, 1.0, r);
   if (grain > 0.0) c *= 1.0 + grain * (hash12(gl_FragCoord.xy + grainSeed * vec2(113.0, 71.0)) * 2.0 - 1.0);
-  gl_FragColor = vec4(c, src.a);
+  // opaque from here on: the scene alpha carried the wet-reflection mask, the canvas must never see it
+  gl_FragColor = vec4(c, 1.0);
 }`;
 
 interface GradeUniforms {
@@ -212,7 +211,6 @@ interface GradeUniforms {
   aspect: THREE.IUniform<number>;
   speedBlur: THREE.IUniform<number>;
   speedBlurStart: THREE.IUniform<number>;
-  chroma: THREE.IUniform<number>;
   grain: THREE.IUniform<number>;
   grainSeed: THREE.IUniform<number>;
   split: THREE.IUniform<number>;
@@ -346,6 +344,169 @@ class AmbientOcclusionPass extends Pass {
   }
 }
 
+/**
+ * three's OutputPass (renderer.toneMapping with toneMappingExposure, then the sRGB transfer) plus, in the same shader,
+ * the display grade of the time of day from a 3D LUT (blended by `lutAmount`; 0 = none) and a ±½ LSB dither that keeps
+ * 8-bit sky gradients from banding (film grain used to do that). GLSL 3 raw shader: sampler3D needs it.
+ */
+const OUTPUT_VERT = /* glsl */ `
+precision highp float;
+uniform mat4 modelViewMatrix;
+uniform mat4 projectionMatrix;
+in vec3 position;
+in vec2 uv;
+out vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const OUTPUT_FRAG = /* glsl */ `
+precision highp float;
+precision highp sampler3D;
+uniform sampler2D tDiffuse;
+uniform sampler3D lut;
+uniform float lutAmount;
+uniform float lutSize;
+#include <tonemapping_pars_fragment>
+#include <colorspace_pars_fragment>
+in vec2 vUv;
+out vec4 outColor;
+void main() {
+  vec4 c = texture(tDiffuse, vUv);
+  #ifdef LINEAR_TONE_MAPPING
+  c.rgb = LinearToneMapping(c.rgb);
+  #elif defined(REINHARD_TONE_MAPPING)
+  c.rgb = ReinhardToneMapping(c.rgb);
+  #elif defined(CINEON_TONE_MAPPING)
+  c.rgb = CineonToneMapping(c.rgb);
+  #elif defined(ACES_FILMIC_TONE_MAPPING)
+  c.rgb = ACESFilmicToneMapping(c.rgb);
+  #elif defined(AGX_TONE_MAPPING)
+  c.rgb = AgXToneMapping(c.rgb);
+  #elif defined(NEUTRAL_TONE_MAPPING)
+  c.rgb = NeutralToneMapping(c.rgb);
+  #elif defined(CUSTOM_TONE_MAPPING)
+  c.rgb = CustomToneMapping(c.rgb);
+  #endif
+  #ifdef SRGB_TRANSFER
+  c = sRGBTransferOETF(c);
+  #endif
+  if (lutAmount > 0.0) {
+    vec3 g = texture(lut, clamp(c.rgb, 0.0, 1.0) * ((lutSize - 1.0) / lutSize) + 0.5 / lutSize).rgb;
+    c.rgb = mix(c.rgb, g, lutAmount);
+  }
+  c.rgb += (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) / 255.0;
+  outColor = c;
+}`;
+
+class GradedOutputPass extends Pass {
+  private readonly material: THREE.RawShaderMaterial;
+  private readonly quad: FullScreenQuad;
+  private outputColorSpace: string | null = null;
+  private toneMapping: THREE.ToneMapping | null = null;
+  /** an identity-free stand-in so the sampler is never unbound while no look is set */
+  private readonly blank: THREE.Data3DTexture;
+
+  constructor() {
+    super();
+    this.blank = new THREE.Data3DTexture(new Uint8Array(8 * 4), 2, 2, 2);
+    this.blank.needsUpdate = true;
+    this.material = new THREE.RawShaderMaterial({
+      name: 'post-output-graded',
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        tDiffuse: { value: null },
+        toneMappingExposure: { value: 1 },
+        lut: { value: this.blank },
+        lutAmount: { value: 0 },
+        lutSize: { value: 2 },
+      },
+      vertexShader: OUTPUT_VERT,
+      fragmentShader: OUTPUT_FRAG,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.quad = new FullScreenQuad(this.material);
+  }
+
+  /** The display LUT for the next frames (null / 0 = none). */
+  setLut(lut: THREE.Data3DTexture | null, amount: number): void {
+    const u = this.material.uniforms;
+    const on = lut !== null && Number.isFinite(amount) && amount > 0;
+    u.lut.value = on ? lut : this.blank;
+    u.lutAmount.value = on ? Math.min(1, amount) : 0;
+    u.lutSize.value = on ? lut.image.width : 2;
+  }
+
+  override render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget): void {
+    const u = this.material.uniforms;
+    u.tDiffuse.value = readBuffer.texture;
+    u.toneMappingExposure.value = renderer.toneMappingExposure;
+    // defines follow the renderer as OutputPass does (a change recompiles once)
+    if (this.outputColorSpace !== renderer.outputColorSpace || this.toneMapping !== renderer.toneMapping) {
+      this.outputColorSpace = renderer.outputColorSpace;
+      this.toneMapping = renderer.toneMapping;
+      const d: Record<string, string> = {};
+      if (THREE.ColorManagement.getTransfer(this.outputColorSpace) === THREE.SRGBTransfer) d.SRGB_TRANSFER = '';
+      const tm = this.toneMapping;
+      if (tm === THREE.LinearToneMapping) d.LINEAR_TONE_MAPPING = '';
+      else if (tm === THREE.ReinhardToneMapping) d.REINHARD_TONE_MAPPING = '';
+      else if (tm === THREE.CineonToneMapping) d.CINEON_TONE_MAPPING = '';
+      else if (tm === THREE.ACESFilmicToneMapping) d.ACES_FILMIC_TONE_MAPPING = '';
+      else if (tm === THREE.AgXToneMapping) d.AGX_TONE_MAPPING = '';
+      else if (tm === THREE.NeutralToneMapping) d.NEUTRAL_TONE_MAPPING = '';
+      else if (tm === THREE.CustomToneMapping) d.CUSTOM_TONE_MAPPING = '';
+      this.material.defines = d;
+      this.material.needsUpdate = true;
+    }
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+    if (!this.renderToScreen && this.clear) renderer.clear(renderer.autoClearColor, renderer.autoClearDepth, renderer.autoClearStencil);
+    this.quad.render(renderer);
+    u.tDiffuse.value = null;
+  }
+
+  override dispose(): void {
+    this.material.dispose();
+    this.quad.dispose();
+    this.blank.dispose();
+  }
+}
+
+/**
+ * GradedOutputPass (tone mapping + sRGB + display grade) into an 8-bit target, then SMAA from it to the screen: SMAA's
+ * edge detection and blending are tuned for display-referred values, and the MSAA resolve does not anti-alias shading,
+ * alpha-tested foliage or thin fence wires.
+ */
+class SmaaOutputPass extends Pass {
+  readonly output = new GradedOutputPass();
+  private readonly smaa = new SMAAPass();
+  private readonly ldr = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, type: THREE.UnsignedByteType });
+
+  constructor() {
+    super();
+    this.ldr.texture.name = 'post.ldr';
+  }
+
+  override setSize(width: number, height: number): void {
+    this.ldr.setSize(width, height);
+    this.smaa.setSize(width, height);
+  }
+
+  override render(renderer: THREE.WebGLRenderer, writeBuffer: THREE.WebGLRenderTarget, readBuffer: THREE.WebGLRenderTarget, deltaTime: number, maskActive: boolean): void {
+    this.output.renderToScreen = false;
+    this.output.render(renderer, this.ldr, readBuffer);
+    this.smaa.renderToScreen = this.renderToScreen;
+    this.smaa.render(renderer, writeBuffer, this.ldr, deltaTime, maskActive);
+  }
+
+  override dispose(): void {
+    this.output.dispose();
+    this.smaa.dispose();
+    this.ldr.dispose();
+  }
+}
+
 export interface PostPipelineOptions {
   /** MSAA samples of the scene target (0 = off) */
   samples: number;
@@ -355,6 +516,10 @@ export interface PostPipelineOptions {
   aoScale?: number;
   /** resolve the scene depth for the aerial perspective in the grade pass (AO resolves it anyway) */
   haze?: boolean;
+  /** SMAA after tone mapping (on top of the MSAA resolve) */
+  smaa?: boolean;
+  /** screen-space wet-road reflections (resolves the scene depth) */
+  ssr?: boolean;
 }
 
 /** The composer and its passes; render() draws one scene / camera through the chain to the full canvas. */
@@ -363,10 +528,13 @@ export class PostPipeline {
   private readonly composer: EffectComposer;
   private readonly renderPass: RenderPass;
   private readonly ao: AmbientOcclusionPass | null;
+  private readonly ssr: WetReflectionPass | null;
   private readonly bloom: SelectiveBloomPass;
   private readonly grade: ShaderPass;
   private readonly gradeUniforms: GradeUniforms;
-  private readonly output: OutputPass;
+  private readonly output: GradedOutputPass | SmaaOutputPass;
+  /** display LUTs per time of day (built on first use) */
+  private readonly luts = new Map<TimeOfDay, THREE.Data3DTexture>();
   /** placeholders so the render pass never keeps a disposed scene alive */
   private readonly idleScene = new THREE.Scene();
   private readonly idleCamera = new THREE.Camera();
@@ -386,7 +554,7 @@ export class PostPipeline {
     sceneTarget.texture.name = 'post.scene';
     // AO and the aerial perspective read the scene's depth: resolve it into a depth texture; otherwise depth never needs resolving
     const aoScale = Number.isFinite(opts.aoScale) && (opts.aoScale ?? 0) > 0 ? clamp(opts.aoScale ?? 0, 0.25, 1) : 0;
-    if (aoScale > 0 || opts.haze === true) {
+    if (aoScale > 0 || opts.haze === true || opts.ssr === true) {
       sceneTarget.depthTexture = new THREE.DepthTexture(1, 1);
       sceneTarget.depthTexture.name = 'post.depth';
       sceneTarget.resolveDepthBuffer = true;
@@ -399,6 +567,7 @@ export class PostPipeline {
     this.renderPass = new RenderPass(this.idleScene, this.idleCamera);
     this.ao = sceneTarget.depthTexture && aoScale > 0 ? new AmbientOcclusionPass(sceneTarget.depthTexture, this.idleScene, this.idleCamera, aoScale) : null;
     this.hazeEnabled = sceneTarget.depthTexture !== null;
+    this.ssr = sceneTarget.depthTexture && opts.ssr === true ? new WetReflectionPass(sceneTarget.depthTexture, SSR_SCALE) : null;
     this.bloom = new SelectiveBloomPass(clamp(Number.isFinite(opts.bloomScale) ? opts.bloomScale : 1, 0.25, 1));
     this.gradeUniforms = {
       tDiffuse: { value: null },
@@ -413,7 +582,6 @@ export class PostPipeline {
       aspect: { value: 16 / 9 },
       speedBlur: { value: 0 },
       speedBlurStart: { value: SPEED_BLUR_START },
-      chroma: { value: 0 },
       grain: { value: 0 },
       grainSeed: { value: 0 },
       split: { value: 0 },
@@ -461,9 +629,11 @@ export class PostPipeline {
         depthWrite: false,
       }),
     );
-    this.output = new OutputPass();
+    this.output = opts.smaa === true ? new SmaaOutputPass() : new GradedOutputPass();
     this.composer.addPass(this.renderPass);
     if (this.ao) this.composer.addPass(this.ao);
+    // before bloom: bloom's additive composite overwrites the alpha channel that carries the wet mask
+    if (this.ssr) this.composer.addPass(this.ssr);
     this.composer.addPass(this.bloom);
     this.composer.addPass(this.grade);
     this.composer.addPass(this.output);
@@ -505,7 +675,6 @@ export class PostPipeline {
     u.sharpen.value = Number.isFinite(look.sharpen) ? clamp(look.sharpen, 0, 0.5) : 0;
     u.vignette.value = clamp(look.vignette, 0, 1);
     u.speedBlur.value = Number.isFinite(look.speedBlur) ? clamp(look.speedBlur, 0, 1) : 0;
-    u.chroma.value = Number.isFinite(look.chroma) ? clamp(look.chroma, 0, 0.02) : 0;
     u.grain.value = Number.isFinite(look.grain) ? clamp(look.grain, 0, 0.2) : 0;
     this.grainFrame = (this.grainFrame + 1) % 64;
     u.grainSeed.value = this.grainFrame;
@@ -539,6 +708,14 @@ export class PostPipeline {
       this.ao.intensity = aoIntensity;
       this.ao.setView(scene, camera);
     }
+    if (this.ssr) {
+      const strength = Number.isFinite(look.ssr) ? clamp(look.ssr, 0, 1) : 0;
+      this.ssr.enabled = strength > 0 && persp;
+      this.ssr.strength = strength;
+      this.ssr.setCamera(camera);
+    }
+    const graded = this.output instanceof SmaaOutputPass ? this.output.output : this.output;
+    graded.setLut(look.lut ? this.lutFor(look.lut) : null, look.lutAmount);
     this.renderPass.scene = scene;
     this.renderPass.camera = camera;
     // the scene always lands in the multisampled target, whatever the swap parity left by the previous frame
@@ -555,16 +732,36 @@ export class PostPipeline {
       this.renderPass.scene = this.idleScene;
       this.renderPass.camera = this.idleCamera;
       this.ao?.setView(this.idleScene, this.idleCamera);
+      this.ssr?.setCamera(null);
       // the cloud map belongs to the scene that set it for this frame (it may be disposed with that scene)
       this.gradeUniforms.cloudMap.value = null;
     }
   }
 
+  private lutFor(time: TimeOfDay): THREE.Data3DTexture {
+    let lut = this.luts.get(time);
+    if (!lut) {
+      const look = LUT_BY_TIME[time] ?? LUT_BY_TIME.day;
+      lut = new THREE.Data3DTexture(buildLutData(look, LUT_SIZE), LUT_SIZE, LUT_SIZE, LUT_SIZE);
+      lut.name = `post.lut.${time}`;
+      lut.minFilter = THREE.LinearFilter;
+      lut.magFilter = THREE.LinearFilter;
+      lut.wrapS = lut.wrapT = lut.wrapR = THREE.ClampToEdgeWrapping;
+      lut.unpackAlignment = 1;
+      lut.needsUpdate = true;
+      this.luts.set(time, lut);
+    }
+    return lut;
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const lut of this.luts.values()) lut.dispose();
+    this.luts.clear();
     this.renderPass.dispose();
     this.ao?.dispose();
+    this.ssr?.dispose();
     this.bloom.dispose();
     this.grade.dispose();
     this.output.dispose();

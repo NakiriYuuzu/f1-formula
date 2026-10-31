@@ -12,14 +12,20 @@ import { BASE_DESIGN, TEAM_DESIGNS } from '../src/render/car/designs';
 import {
   carLodDistances,
   inferCarQuality,
+  lodFadeShare,
+  lodFadeVisible,
+  lodFadeWindow,
   lodFovScale,
   selectLodLevel,
   usesClearcoatPaint,
+  usesLodCrossFade,
   CAR_LOD_DISTANCES,
   CAR_LOD_HYSTERESIS,
   CAR_LOD_REFERENCE_FOV,
   CAR_PAINT,
   CAR_SURFACE,
+  LOD_FADE_BAND,
+  LOD_FADE_MARGIN,
   TYRE_SURFACE,
 } from '../src/render/car/carQuality';
 import { qualityProfile } from '../src/render/core/quality';
@@ -63,6 +69,53 @@ describe('LOD level selection', () => {
   test('non-finite distances keep the current level', () => {
     expect(selectLodLevel(Number.NaN, th, 1, 0.1)).toBe(1);
     expect(selectLodLevel(Number.POSITIVE_INFINITY, th, 2, 0.1)).toBe(2);
+  });
+});
+
+describe('LOD cross-fade', () => {
+  const th = [60, 180];
+  test('only high / ultra cross-fade (low / medium keep the hard switch, no discard)', () => {
+    expect(LEVELS.filter(usesLodCrossFade)).toEqual(['high', 'ultra']);
+  });
+  test('the levels share every pixel: shares sum to 1, one level alone outside the bands', () => {
+    for (let d = 0; d <= 400; d += 0.25) {
+      const shares = [0, 1, 2].map((l) => lodFadeShare(d, th, l));
+      expect(shares.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+      for (const s of shares) expect(s >= 0 && s <= 1).toBe(true);
+      const inBand = th.some((t) => d > t * (1 - LOD_FADE_BAND) && d < t * (1 + LOD_FADE_BAND));
+      if (!inBand) expect(shares.filter((s) => s > 0).length).toBe(1);
+    }
+    expect(lodFadeShare(10, th, 0)).toBe(1);
+    expect(lodFadeShare(th[0], th, 0)).toBeCloseTo(0.5, 9);
+    expect(lodFadeShare(th[0], th, 1)).toBeCloseTo(0.5, 9);
+    expect(lodFadeShare(1000, th, 2)).toBe(1);
+  });
+  test('a level is drawn wherever any of its meshes (up to the margin off the origin) keeps pixels', () => {
+    for (let d = 0; d <= 400; d += 0.25) {
+      for (const l of [0, 1, 2]) {
+        const needed = [-LOD_FADE_MARGIN, 0, LOD_FADE_MARGIN].some((o) => lodFadeShare(d + o, th, l) > 0);
+        if (needed) expect(lodFadeVisible(d, th, l, LOD_FADE_MARGIN)).toBe(true);
+      }
+      // never more than two levels at once
+      expect([0, 1, 2].filter((l) => lodFadeVisible(d, th, l, LOD_FADE_MARGIN)).length).toBeLessThanOrEqual(2);
+    }
+    // non-finite distances draw nothing extra
+    expect(lodFadeShare(Number.NaN, th, 0)).toBe(0);
+    expect(lodFadeVisible(Number.NaN, th, 0, LOD_FADE_MARGIN)).toBe(false);
+  });
+  test('fade windows: the first level never fades in, the last never fades out; bands do not overlap on any tier', () => {
+    const [a0, b0] = lodFadeWindow(th, 0);
+    expect(b0).toBeLessThan(0);
+    expect(a0).toBeLessThan(b0);
+    const [, , c2, e2] = lodFadeWindow(th, 2);
+    expect(c2).toBeGreaterThan(1e8);
+    expect(e2).toBeGreaterThan(c2);
+    for (const q of LEVELS) {
+      const [t0, t1] = carLodDistances(q);
+      expect(t0 * (1 + LOD_FADE_BAND) + 2 * LOD_FADE_MARGIN).toBeLessThan(t1 * (1 - LOD_FADE_BAND));
+      // the followed car stays clear of the first band in chase views
+      expect(Math.hypot(11.6, 3.6) * lodFovScale(108)).toBeLessThan(t0 * (1 - LOD_FADE_BAND) - LOD_FADE_MARGIN);
+    }
   });
 });
 
