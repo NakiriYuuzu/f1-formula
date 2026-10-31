@@ -50,15 +50,23 @@ export function button(o: ButtonOptions): HTMLButtonElement {
   return el;
 }
 
-/** Big angled main-menu tile with index number. */
-export function tile(index: number, label: string, sub: string, onClick: () => void): HTMLButtonElement {
+/** Main-menu row: label, one line on what it opens, a chevron. `primary` = the screen's one primary action. */
+export function tile(label: string, sub: string, onClick: () => void, primary = false): HTMLButtonElement {
   return h(
     'button',
-    { class: 'nvm-tile', attrs: { type: 'button', 'data-sound': 'confirm' }, on: { click: () => onClick() } },
-    h('span', { class: 'nvm-tile__index', text: String(index).padStart(2, '0') }),
+    { class: `nvm-tile${primary ? ' nvm-tile--primary' : ''}`, attrs: { type: 'button', 'data-sound': 'confirm' }, on: { click: () => onClick() } },
     h('span', { class: 'nvm-tile__body' }, h('span', { class: 'nvm-tile__label', text: label }), h('span', { class: 'nvm-tile__sub', text: sub })),
-    h('span', { class: 'nvm-tile__arrow', text: '›' }),
+    h('span', { class: 'nvm-tile__arrow', text: '›', attrs: { 'aria-hidden': 'true' } }),
   );
+}
+
+/**
+ * A key cap: the keyboard spelling, and the gamepad spelling shown instead after pad input (the menu root's
+ * `is-pad` class switches them in CSS).
+ */
+export function keyCap(kb: string, pad?: string): HTMLElement {
+  if (pad === undefined) return h('kbd', { text: kb });
+  return h('kbd', null, h('span', { class: 'nvm-key-kb', text: kb }), h('span', { class: 'nvm-key-pad', text: pad }));
 }
 
 // ───────────────────────────── value rows ─────────────────────────────
@@ -387,18 +395,31 @@ export interface TabsControl {
   setActive(id: string): void;
 }
 
-/** Tab bar; ←/→ on a focused tab switch tabs. */
+/** Tab bars by element: Q / E (LB / RB on a pad) switch the screen's visible tab bar from anywhere (MenuSystem). */
+const tabSwitchers = new WeakMap<HTMLElement, (dir: -1 | 1) => void>();
+
+/** The neighbouring-tab switcher of a tab bar made by `tabs()`. */
+export function getTabSwitcher(el: HTMLElement): ((dir: -1 | 1) => void) | undefined {
+  return tabSwitchers.get(el);
+}
+
+/** Tab bar; ←/→ on a focused tab, or Q / E anywhere on the screen, switch tabs. */
 export function tabs(items: readonly { id: string; label: string }[], active: string, onChange: (id: string) => void): TabsControl {
   const buttons = items.map((item) =>
     h('button', {
       class: 'nvm-tab',
-      attrs: { type: 'button', 'data-sound': 'move', 'data-tab': item.id },
+      attrs: { type: 'button', role: 'tab', 'data-sound': 'move', 'data-tab': item.id },
       text: item.label,
       on: { click: () => select(item.id) },
     }),
   );
   let current = active;
-  const paint = (): void => buttons.forEach((b) => b.classList.toggle('is-active', b.dataset.tab === current));
+  const paint = (): void =>
+    buttons.forEach((b) => {
+      const on = b.dataset.tab === current;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
   const select = (id: string): void => {
     if (id === current) return;
     current = id;
@@ -417,8 +438,27 @@ export function tabs(items: readonly { id: string; label: string }[], active: st
       widgetSound('move');
     }),
   );
+  const el = h(
+    'div',
+    { class: 'nvm-tabs', attrs: { role: 'tablist' } },
+    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true' } }, keyCap('Q', 'LB')),
+    buttons,
+    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true' } }, keyCap('E', 'RB')),
+  );
+  tabSwitchers.set(el, (dir) => {
+    const i = buttons.findIndex((b) => b.dataset.tab === current);
+    const next = buttons[i + dir];
+    const id = next?.dataset.tab;
+    if (!next || !id) return;
+    const wasOnTab = buttons.includes(document.activeElement as HTMLButtonElement);
+    select(id);
+    widgetSound('move');
+    // keep the focus on the bar when it was there, or when the focused control left with the old section
+    const active = document.activeElement;
+    if (wasOnTab || !(active instanceof HTMLElement) || !active.isConnected || active === document.body) focusElement(next);
+  });
   return {
-    el: h('div', { class: 'nvm-tabs', attrs: { role: 'tablist' } }, buttons),
+    el,
     setActive: (id) => {
       current = id;
       paint();

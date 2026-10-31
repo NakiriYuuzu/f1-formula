@@ -212,6 +212,8 @@ export class HudLayer {
     this.strip = new SessionStrip(this.split ? bottomLeft : topLeft, track);
     this.strip.el.classList.add('nvh-panel');
     this.tower = new TimingTower(topLeft);
+    // the column ends above the minimap: a long field then shows a window of rows (pickTowerRows)
+    this.tower.setLimit(bottomLeft);
     this.towerShow = new ShowSlot(this.tower.el);
     this.minimap = new Minimap(bottomLeft, track);
     this.minimapShow = new ShowSlot(this.minimap.el);
@@ -230,7 +232,7 @@ export class HudLayer {
       this.netPanel = new NetPanel(topCentre);
     }
     this.replayBar = new ReplayBar(this.rootEl);
-    this.pause = new PauseMenu(this.rootEl);
+    this.pause = new PauseMenu(this.rootEl, () => this.cb.resume());
     this.help = new ControlsHelp(this.rootEl, () => this.closeHelp());
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -410,13 +412,16 @@ export class HudLayer {
   }
 
   /**
-   * Back (pause key / gamepad B) while paused: closes the 操作說明 panel and returns true — the App must then stay
-   * paused instead of resuming. False when nothing HUD-side was closed.
+   * Back (pause key / gamepad B) while paused: closes the 操作說明 panel or a pause confirm dialog and returns true —
+   * the App must then stay paused instead of resuming. False when nothing HUD-side was closed.
    */
   handleBack(): boolean {
-    if (this.destroyed || !this.help.isOpen()) return false;
-    this.closeHelp();
-    return true;
+    if (this.destroyed) return false;
+    if (this.help.isOpen()) {
+      this.closeHelp();
+      return true;
+    }
+    return this.pause.closeConfirm();
   }
 
   /** The pause key / pad B: 'pause' when running, otherwise 'stay' (the 操作說明 panel just closed) or 'resume'. */
@@ -773,7 +778,7 @@ export class HudLayer {
         kind: 'action',
         id: 'restart',
         label: '重新開始',
-        confirm: '確定重新開始？再按一次確認',
+        confirm: { title: '重新開始？', text: '本節進度會清除，從頭開始這一節。', ok: '重新開始' },
         run: () => this.cb.restart(),
       });
     }
@@ -856,7 +861,11 @@ export class HudLayer {
           kind: 'action',
           id: `retire${pi}`,
           label: `${who}退賽`,
-          confirm: this.split ? `確定讓 P${pi + 1} 退賽？再按一次確認` : '確定退賽？再按一次確認',
+          confirm: {
+            title: this.split ? `P${pi + 1} 退賽？` : '退賽？',
+            text: this.split ? `P${pi + 1} 的賽車會停止比賽，成績記為退賽。` : '你的賽車會停止比賽，成績記為退賽。',
+            ok: `${who}退賽`,
+          },
           run: () => this.cb.retire(pi),
         });
       }
@@ -865,7 +874,7 @@ export class HudLayer {
         kind: 'action',
         id: 'endSession',
         label: '結束節次',
-        confirm: '確定結束節次？再按一次確認',
+        confirm: { title: '結束節次？', text: '節次會立刻結束，並以目前成績前往結果畫面。', ok: '結束節次' },
         run: () => this.cb.endSession(),
       });
     }
@@ -873,7 +882,16 @@ export class HudLayer {
       kind: 'action',
       id: 'quit',
       label: this.online ? '離開房間' : '離開至選單',
-      confirm: this.online === 'host' ? '確定離開？房間會關閉，所有玩家回到選單' : this.online ? '確定離開房間？' : '確定離開？本節進度不會保留',
+      confirm: {
+        title: this.online ? '離開房間？' : '離開至選單？',
+        text:
+          this.online === 'host'
+            ? '房間會關閉，所有玩家都會回到選單。'
+            : this.online
+              ? '你會離開這個房間並回到選單，比賽由其他玩家繼續。'
+              : '本節進度不會保留，回到主選單。',
+        ok: this.online ? '離開房間' : '離開至選單',
+      },
       run: () => this.cb.quit(),
     });
     return items;

@@ -699,7 +699,7 @@ export class SessionRuntime {
     if (m === 'back') {
       if (this.hud.onPauseKey(true) === 'resume') this.setPaused(false);
     } else if (m === 'confirm') this.hud.activateMenu();
-    else this.hud.navigateMenu(m);
+    else if (m !== 'tabPrev' && m !== 'tabNext') this.hud.navigateMenu(m);
   }
 
   private togglePit(playerIndex: 0 | 1): void {

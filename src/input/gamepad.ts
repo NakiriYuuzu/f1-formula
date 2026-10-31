@@ -2,7 +2,7 @@
  * Gamepad mapping (pure, DOM-free). Works on any object shaped like the W3C Gamepad ("standard" mapping):
  * RT throttle, LT brake, left stick X steer, A DRS, X ERS cycle, B flashback, Y camera, LB/RB shift down/up,
  * Start pause, Back MFD, D-pad up Box, R3 look back. Extras: L3 overtake (held), D-pad down pit limiter.
- * Menu navigation (reported separately, e.g. for the pause menu): D-pad, A confirm, B back.
+ * Menu navigation (reported separately, e.g. for the pause menu): D-pad, A confirm, B back, LB/RB previous/next tab.
  */
 import { clamp, clamp01 } from '../core/math';
 import type { KeyAction } from '../core/types';
@@ -35,8 +35,8 @@ export const PAD_BUTTON_ACTIONS: readonly (readonly [number, KeyAction])[] = [
   [13, 'limiter'],
 ];
 
-/** Menu navigation from a pad (pause menu): D-pad directions, A confirm, B back. */
-export type PadMenuInput = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back';
+/** Menu navigation from a pad (menus, pause menu): D-pad directions, A confirm, B back, LB / RB previous / next tab. */
+export type PadMenuInput = 'up' | 'down' | 'left' | 'right' | 'confirm' | 'back' | 'tabPrev' | 'tabNext';
 export const PAD_MENU_BUTTONS: readonly (readonly [number, PadMenuInput])[] = [
   [12, 'up'],
   [13, 'down'],
@@ -44,6 +44,8 @@ export const PAD_MENU_BUTTONS: readonly (readonly [number, PadMenuInput])[] = [
   [15, 'right'],
   [0, 'confirm'],
   [1, 'back'],
+  [4, 'tabPrev'],
+  [5, 'tabNext'],
 ];
 
 /** D-pad left/right (unused while driving): step the tyre compound in an open MFD, per player. */

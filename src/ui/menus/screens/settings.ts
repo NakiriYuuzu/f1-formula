@@ -18,16 +18,14 @@ import { button, cycler, heading, panel, slider, tabs, textField, toggle } from 
 import { ExperienceScreen } from './onboarding';
 import { rosterTab } from './rosterSettings';
 
-type TabId = 'graphics' | 'audio' | 'controls' | 'keysP1' | 'keysP2' | 'hud' | 'roster';
+type TabId = 'graphics' | 'audio' | 'controls' | 'roster';
 type Player = 'p1' | 'p2';
 
+/** Four areas: what you see (graphics + HUD), what you hear, how you drive (controls + both players' keys), the roster. */
 const TABS: { id: TabId; label: string }[] = [
-  { id: 'graphics', label: '畫面' },
+  { id: 'graphics', label: '畫面與 HUD' },
   { id: 'audio', label: '音效' },
-  { id: 'controls', label: '操控' },
-  { id: 'keysP1', label: '按鍵（P1）' },
-  { id: 'keysP2', label: '按鍵（P2）' },
-  { id: 'hud', label: 'HUD' },
+  { id: 'controls', label: '操控與按鍵' },
 ];
 /** Not offered above a paused session: the running session keeps the roster it was built with. */
 const ROSTER_TAB: { id: TabId; label: string } = { id: 'roster', label: '名單' };
@@ -58,6 +56,8 @@ export class SettingsScreen extends Screen {
   readonly title = '設定';
   private s: Settings;
   private tab: TabId = 'graphics';
+  /** whose keys the 操控與按鍵 tab lists */
+  private keysPlayer: Player = 'p1';
   private readonly body: HTMLElement;
   private capture: { player: Player; action: KeyAction; slot: number; el: HTMLButtonElement } | null = null;
 
@@ -152,23 +152,31 @@ export class SettingsScreen extends Screen {
     const focusTab = this.tab;
     switch (focusTab) {
       case 'graphics':
-        setChildren(this.body, this.graphics());
+        setChildren(this.body, h('div', { class: 'nvm-stack nvm-narrow' }, ...Array.from(this.graphics().children), ...Array.from(this.hud().children)));
         break;
       case 'audio':
         setChildren(this.body, this.audio());
         break;
-      case 'controls':
-        setChildren(this.body, this.controls());
+      case 'controls': {
+        const who = cycler<Player>({
+          label: '按鍵設定對象',
+          options: [
+            { value: 'p1', label: '玩家 1' },
+            { value: 'p2', label: '玩家 2（分割畫面）' },
+          ],
+          value: this.keysPlayer,
+          onChange: (v) => {
+            this.cancelCapture();
+            this.keysPlayer = v;
+            this.render();
+            const again = this.body.querySelector<HTMLElement>('.nvm-settings__who .nvm-cycler');
+            if (again) focusElement(again);
+          },
+        });
+        who.el.classList.add('nvm-settings__who');
+        setChildren(this.body, h('div', { class: 'nvm-stack nvm-narrow' }, ...Array.from(this.controls().children), who.el, ...Array.from(this.keys(this.keysPlayer).children)));
         break;
-      case 'keysP1':
-        setChildren(this.body, this.keys('p1'));
-        break;
-      case 'keysP2':
-        setChildren(this.body, this.keys('p2'));
-        break;
-      case 'hud':
-        setChildren(this.body, this.hud());
-        break;
+      }
       case 'roster':
         setChildren(this.body, rosterTab(this.host, () => this.render()));
         break;

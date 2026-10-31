@@ -32,10 +32,19 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(
   return node;
 }
 
-/** A non-focusable clickable element (avoids native button activation clashing with driving keys). */
-export function clickable(className: string, parent: Element, text: string, onClick: () => void): HTMLDivElement {
-  const node = el('div', className, parent, text);
-  node.setAttribute('role', 'button');
+/**
+ * A real <button> for a pointer-only HUD control (tower interval / gap toggle, MFD buttons, replay bar, 操作說明
+ * tabs and 返回). It is out of the tab order (tabindex -1) and never takes focus from a mouse press, so Space / Enter
+ * keep driving the car or the replay instead of re-pressing the last control. Keyboard / pad paths: MFD (1-6 keys,
+ * D-pad), replay bar (Space, arrows, A, D-pad), 操作說明 (arrows / pad, Esc closes). The tower interval / gap toggle
+ * has no key binding yet: HudLayer.toggleTowerMode() is the hook an App key can call. Assistive tech still sees a
+ * button and can activate it.
+ */
+export function clickable(className: string, parent: Element, text: string, onClick: () => void): HTMLButtonElement {
+  const node = el('button', className, parent, text);
+  node.type = 'button';
+  node.tabIndex = -1;
+  node.addEventListener('mousedown', (e) => e.preventDefault());
   node.addEventListener('click', (e) => {
     e.preventDefault();
     onClick();

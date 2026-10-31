@@ -111,7 +111,7 @@ export class ControlsCardScreen extends Screen {
         heading('操作方式', '開始之前'),
         panel('鍵盤', h('div', { class: 'nvm-onboard__rows' }, rows)),
         panel('手把', ...GAMEPAD_LINES.map((t) => h('p', { class: 'nvm-note', text: t }))),
-        h('p', { class: 'nvm-note', text: '按鍵可隨時在 設定 → 按鍵 中修改。' }),
+        h('p', { class: 'nvm-note', text: '按鍵可隨時在 設定 → 操控與按鍵 中修改。' }),
         h('div', { class: 'nvm-actions nvm-actions--bar' }, this.start),
       ),
     );

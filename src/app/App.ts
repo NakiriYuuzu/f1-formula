@@ -283,16 +283,18 @@ export class App {
       this.input.update(dt);
       const actions = this.input.consumeActions();
       const menuInputs = this.input.consumeMenuInputs();
-      // menus own the pad while open (title / menus / results / settings overlay); otherwise the session gets it
-      if (this.menus.isOpen()) for (const m of menuInputs) this.menus.navigate(m);
+      // menus own the pad while open (title / menus / results / settings overlay); otherwise the session gets it.
+      // Read once: a pad press that closes the settings overlay must not reach the pause menu in the same frame.
+      const menusOpen = this.menus.isOpen();
+      if (menusOpen) for (const m of menuInputs) this.menus.navigate(m);
       switch (this.state) {
         case 'session': {
           const s = this.session;
           if (!s) break;
           // menus open above the session (settings overlay, fast-forward card): driving actions are void
-          const acts = this.menus.isOpen() ? [] : actions;
+          const acts = menusOpen ? [] : actions;
           this.feedVehicleSpeeds(s);
-          if (manualSteps === null) s.frame(dt, this.fps.fps, acts, this.menus.isOpen() ? [] : menuInputs, timing);
+          if (manualSteps === null) s.frame(dt, this.fps.fps, acts, menusOpen ? [] : menuInputs, timing);
           else s.advanceManual(manualSteps, this.fps.fps, acts);
           if (this.session === s && s.isOver()) this.finishSession();
           break;

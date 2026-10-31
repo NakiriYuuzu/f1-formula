@@ -3,6 +3,8 @@
  * fixed per slot, so the column always reads 1..N even mid-glide), team colour, abbreviation,
  * tyre letter, gap-to-leader / interval toggle (race) or best-lap gap (other sessions), pit / finished /
  * retired / penalty markers, fastest-lap marker, player highlight and the spectated car's outline. Refreshed at 5 Hz.
+ * When the column would run into the minimap below it, only a window of rows is shown (pickTowerRows): the leaders
+ * plus the rows around the player (or the watched car).
  */
 import type { CarEntry, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
@@ -16,7 +18,33 @@ const REFRESH = 0.2;
 /** row glide duration (matches the .nvh-tw-row transform transition) */
 export const GLIDE_SEC = 0.45;
 
+/** row height in em of the HUD root (--nvh-tw-row in hud.css) */
+export const TOWER_ROW_EM = 1.75;
+/** em kept free between the last row and the block below (the tower's bottom padding plus a clearance) */
+const TOWER_BELOW_EM = 1;
+/** leaders kept at the top of a windowed tower */
+const TOWER_LEADERS = 3;
+
 export type TowerMode = 'interval' | 'gap';
+
+/**
+ * Which classification slots (0-based, ascending) a tower with room for `fit` rows shows.
+ * Everything when it fits. Otherwise the leaders (3 once there are at least 6 rows, 1 from 3 rows) followed by a
+ * window centred on `focus` (the player's or watched car's slot, -1 = none), clamped to the end of the field. When
+ * the focus is within the first `fit` slots, that is simply the top `fit` rows.
+ */
+export function pickTowerRows(count: number, focus: number, fit: number): number[] {
+  const total = Math.max(0, Math.floor(count));
+  if (total === 0) return [];
+  const n = Number.isFinite(fit) ? Math.min(total, Math.max(1, Math.floor(fit))) : total;
+  const all = (k: number, from = 0): number[] => Array.from({ length: k }, (_, i) => from + i);
+  const p = Number.isFinite(focus) ? Math.min(total - 1, Math.max(0, Math.floor(focus))) : 0;
+  if (n >= total || p < n) return all(n);
+  const lead = n >= 6 ? TOWER_LEADERS : n >= 3 ? 1 : 0;
+  const w = n - lead;
+  const start = Math.min(total - w, Math.max(lead, p - Math.floor(w / 2)));
+  return [...all(lead), ...all(w, start)];
+}
 
 interface Row {
   carId: number;
@@ -31,10 +59,16 @@ interface Row {
   status: AttrSlot;
   fastest: AttrSlot;
   watched: AttrSlot;
+  /** a stretch of positions is skipped above this row */
+  gap: AttrSlot;
+  /** hidden while outside the window */
+  show: ShowSlot;
 }
 
 interface NumberSlot {
   node: HTMLElement;
+  label: TextSlot;
+  show: ShowSlot;
   player: AttrSlot;
   status: AttrSlot;
   /** car id whose row is currently shown at this slot */
@@ -66,6 +100,11 @@ export class TimingTower {
   private isRace = true;
   /** cars a spectating player watches */
   private watched: readonly number[] = [];
+  /** the block below the tower (the minimap column): the rows must end above it */
+  private limit: Element | null = null;
+  private bodyRows = -1;
+  /** the last measured fit, kept while the HUD is hidden (H) and nothing has a layout box */
+  private lastFit = Infinity;
 
   constructor(parent: Element) {
     this.el = el('div', 'nvh-tower nvh-panel', parent);
@@ -84,6 +123,12 @@ export class TimingTower {
   /** Cars a spectating player watches (outlined). */
   setWatched(carIds: readonly number[]): void {
     this.watched = carIds.slice();
+    this.accum = REFRESH;
+  }
+
+  /** The element below the tower that its rows must stay clear of (the bottom-left minimap column). */
+  setLimit(below: Element | null): void {
+    this.limit = below;
     this.accum = REFRESH;
   }
 
@@ -115,15 +160,23 @@ export class TimingTower {
 
     const leaderBest = order.length > 0 ? order[0].timing.bestLap : null;
     const fastestId = world.session.fastestLap?.carId ?? -1;
+    const shown = pickTowerRows(order.length, this.focusSlot(order), this.measureFit());
+    this.layoutSlots(shown);
+    const slotOf = new Array<number>(order.length).fill(-1);
+    shown.forEach((idx, k) => (slotOf[idx] = k));
     for (let i = 0; i < order.length; i++) {
       const car = order[i];
       const row = this.rows[car.id];
       if (!row || row.carId !== car.id) continue;
-      if (row.slot !== i) {
-        row.slot = i;
-        row.node.style.transform = `translateY(${i * 100}%)`;
+      const k = slotOf[i];
+      row.show.set(k >= 0);
+      if (k < 0) continue;
+      if (row.slot !== k) {
+        row.slot = k;
+        row.node.style.transform = `translateY(${k * 100}%)`;
       }
-      this.trackSlot(i, car.id);
+      row.gap.set(k > 0 && shown[k] - shown[k - 1] > 1 ? '1' : null);
+      this.trackSlot(k, car.id);
       const compound = car.phys.tire.compound;
       row.tyre.set(COMPOUND_INFO[compound]?.letter ?? '');
       row.tyreCompound.set(compound);
@@ -153,6 +206,37 @@ export class TimingTower {
         row.tag.set('');
         row.tagKind.set(null);
       }
+    }
+  }
+
+  /** Classification slot the window follows: the watched car, else the first human car (-1 = none). */
+  private focusSlot(order: readonly CarEntry[]): number {
+    const watched = order.findIndex((c) => this.watched.includes(c.id));
+    return watched >= 0 ? watched : order.findIndex((c) => c.playerIndex !== -1);
+  }
+
+  /** Rows that fit between the tower body's top and the block below it (Infinity when that cannot be measured). */
+  private measureFit(): number {
+    const below = this.limit;
+    if (!below || typeof below.getBoundingClientRect !== 'function' || typeof getComputedStyle !== 'function') return Infinity;
+    const fs = parseFloat(getComputedStyle(this.body).fontSize);
+    if (!Number.isFinite(fs) || fs <= 0) return Infinity;
+    if (below.getClientRects().length === 0 || this.body.getClientRects().length === 0) return this.lastFit;
+    const room = below.getBoundingClientRect().top - this.body.getBoundingClientRect().top - TOWER_BELOW_EM * fs;
+    this.lastFit = Math.floor(room / (TOWER_ROW_EM * fs));
+    return this.lastFit;
+  }
+
+  /** Position numbers follow the window; slots beyond it are hidden and the body shrinks to the shown rows. */
+  private layoutSlots(shown: readonly number[]): void {
+    for (let k = 0; k < this.slots.length; k++) {
+      const s = this.slots[k];
+      s.show.set(k < shown.length);
+      if (k < shown.length) s.label.set(String(shown[k] + 1));
+    }
+    if (shown.length !== this.bodyRows) {
+      this.bodyRows = shown.length;
+      this.body.style.height = `calc(var(--nvh-tw-row) * ${shown.length})`;
     }
   }
 
@@ -214,14 +298,15 @@ export class TimingTower {
     this.rows = cars.map((car, i) => this.buildRow(car, i));
     this.slots = cars.map((car, i) => {
       const node = el('span', 'nvh-tw-pos', this.body);
-      el('b', undefined, node, String(i + 1));
+      const label = new TextSlot(el('b', undefined, node, String(i + 1)));
       node.style.transform = `translateY(${i * 100}%)`;
       const player = new AttrSlot(node, 'data-player');
       const status = new AttrSlot(node, 'data-status');
-      const slot: NumberSlot = { node, player, status, shown: car.id, pending: -1, due: 0 };
+      const slot: NumberSlot = { node, label, show: new ShowSlot(node), player, status, shown: car.id, pending: -1, due: 0 };
       this.styleSlot(slot);
       return slot;
     });
+    this.bodyRows = cars.length;
     this.body.style.height = `calc(var(--nvh-tw-row) * ${cars.length})`;
   }
 
@@ -250,6 +335,8 @@ export class TimingTower {
       status: new AttrSlot(node, 'data-status'),
       fastest: new AttrSlot(node, 'data-fl'),
       watched: new AttrSlot(node, 'data-watched'),
+      gap: new AttrSlot(node, 'data-gap'),
+      show: new ShowSlot(node),
     };
   }
 }

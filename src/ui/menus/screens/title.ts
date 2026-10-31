@@ -9,7 +9,8 @@ import { Screen, type Host, type StageRequest } from '../screen';
 import { MainMenuScreen } from './mainMenu';
 import { ExperienceScreen } from './onboarding';
 
-const IGNORED = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'F5', 'F11', 'F12']);
+// Esc / pad B is back, and the title has nowhere to go back to: it does nothing here
+const IGNORED = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab', 'Escape', 'F5', 'F11', 'F12']);
 
 export class TitleScreen extends Screen {
   readonly title = '';
@@ -27,12 +28,11 @@ export class TitleScreen extends Screen {
       h(
         'div',
         { class: 'nvm-title__block' },
-        h('div', { class: 'nvm-title__kicker', text: 'ORIGINAL OPEN-WHEEL RACING' }),
         h('h1', { class: 'nvm-title__logo' }, h('span', { text: 'FORMULA' }), h('span', { class: 'nvm-title__nova', text: 'NOVA' }), h('span', { class: 'nvm-title__year', text: '25' })),
         h('div', { class: 'nvm-title__zh', text: GAME_TITLE_ZH }),
         press,
-        h('p', { class: 'nvm-title__note', text: '原創同人作品・與任何真實賽事、車隊或發行商無關' }),
       ),
+      h('p', { class: 'nvm-title__note', text: '原創同人作品・與任何真實賽事、車隊或發行商無關' }),
     );
     this.el.addEventListener('pointerdown', (e) => {
       if (e.button === 0 && e.target === this.el) this.advance();

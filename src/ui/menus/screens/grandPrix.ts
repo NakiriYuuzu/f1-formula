@@ -115,9 +115,9 @@ export class GrandPrixOptionsScreen extends Screen {
             { id: 'rules', label: '規則', el: rules },
             { id: 'assists', label: '駕駛輔助', el: assists },
           ]),
-          summary,
+          // the primary action stays beside the summary, in view however long the option list runs
+          h('div', { class: 'nvm-stack' }, summary, h('div', { class: 'nvm-actions nvm-actions--column' }, this.startBtn, button({ label: '返回', back: true, onClick: () => this.host.pop() }))),
         ),
-        h('div', { class: 'nvm-actions nvm-actions--bar' }, button({ label: '返回', back: true, onClick: () => this.host.pop() }), this.startBtn),
       ),
     );
   }

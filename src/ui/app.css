@@ -14,8 +14,8 @@ body {
   background: var(--nv-bg);
   color: var(--nv-text);
   font-family: var(--nv-font);
-  font-size: 15px;
-  line-height: 1.45;
+  font-size: var(--nv-ui-scale);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -76,7 +76,7 @@ noscript {
   padding: 24px;
   color: var(--nv-text);
   background: var(--nv-bg);
-  font-size: 18px;
+  font-size: 1.2em;
 }
 
 /* ───────────── error overlay ───────────── */
@@ -94,10 +94,9 @@ noscript {
   padding: 14px 16px;
   color: var(--nv-text);
   font-family: var(--nv-font);
-  background: rgba(20, 8, 12, 0.96);
-  border: 1px solid var(--nv-danger);
+  background: var(--nv-panel);
   border-radius: var(--nv-radius-lg);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* floats: taste-skill-ignore */
   pointer-events: auto;
   user-select: text;
   -webkit-user-select: text;
@@ -117,8 +116,8 @@ noscript {
   justify-content: center;
   align-items: center;
   text-align: center;
-  border: none;
   border-radius: 0;
+  box-shadow: none; /* floats: taste-skill-ignore */
   background: var(--nv-bg);
 }
 
@@ -135,15 +134,13 @@ noscript {
 
 .nv-error__title {
   margin: 0;
-  font-family: var(--nv-font-display);
-  font-size: 20px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 1.4em;
+  font-weight: 600;
   color: var(--nv-danger);
 }
 
 .nv-error--fatal .nv-error__title {
-  font-size: 30px;
+  font-size: 2em;
 }
 
 .nv-error__actions {
@@ -155,29 +152,31 @@ noscript {
   appearance: none;
   padding: 6px 14px;
   font: inherit;
-  font-size: 14px;
+  font-size: 1em;
+  font-weight: 500;
   color: var(--nv-text);
   background: var(--nv-panel-hi);
-  border: 1px solid var(--nv-line-strong);
+  border: 0;
   border-radius: var(--nv-radius);
   cursor: pointer;
 }
 
 .nv-error__btn:hover,
 .nv-error__btn:focus-visible {
-  border-color: var(--nv-accent);
+  background: var(--nv-focus-bg);
+  color: var(--nv-focus-ink);
   outline: none;
 }
 
 .nv-error__hint {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.857em;
   color: var(--nv-text-2);
 }
 
 .nv-error--fatal .nv-error__hint {
   max-width: 560px;
-  font-size: 16px;
+  font-size: 1.143em;
 }
 
 .nv-error__list {
@@ -194,28 +193,26 @@ noscript {
 
 .nv-error__item {
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border-left: 3px solid var(--nv-danger);
-  border-radius: 4px;
+  background: var(--nv-panel-hi);
+  border-radius: var(--nv-radius);
 }
 
 .nv-error__msg {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.857em;
   word-break: break-word;
 }
 
 .nv-error__count {
   color: var(--nv-warning);
-  font-family: var(--nv-font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .nv-error__stack {
   margin: 6px 0 0;
   max-height: 180px;
   overflow: auto;
-  font-family: var(--nv-font-mono);
-  font-size: 11px;
+  font-size: 0.857em;
   line-height: 1.4;
   color: var(--nv-text-2);
   white-space: pre-wrap;

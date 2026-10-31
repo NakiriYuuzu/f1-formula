@@ -26,13 +26,13 @@ import { cancelMinimapQueue } from './minimap';
 import { findNext, focusables, focusElement, getAdjuster, isTextField, scrollStep, type NavDirection } from './nav';
 import type { Host, Screen, SoundKind, StageRequest } from './screen';
 import { showroomCar, showroomCarFor } from './showroom';
-import { setWidgetSound } from './widgets';
+import { getTabSwitcher, keyCap, setWidgetSound } from './widgets';
 import { hubScreens } from './hubs';
 import { MainMenuScreen } from './screens/mainMenu';
 import { TitleScreen } from './screens/title';
 import { ResultsScreen } from './screens/results';
 import { SettingsScreen } from './screens/settings';
-import { markPadEvent } from './keyCapture';
+import { isPadEvent, markPadEvent } from './keyCapture';
 import { ConfirmScreen } from './screens/confirm';
 import type { MenuCallbacks, ShowroomCar } from './types';
 
@@ -50,7 +50,37 @@ const PAD_KEYS: Record<PadMenuInput, { key: string; code: string }> = {
   right: { key: 'ArrowRight', code: 'ArrowRight' },
   confirm: { key: 'Enter', code: 'Enter' },
   back: { key: 'Escape', code: 'Escape' },
+  tabPrev: { key: 'PageUp', code: 'PageUp' },
+  tabNext: { key: 'PageDown', code: 'PageDown' },
 };
+
+const DEFAULT_HINTS = ['↑↓←→ 選擇', 'Enter 確認', 'Esc 返回'];
+
+/** Gamepad spelling of a hint's key part ('' = the hint has no pad equivalent and is hidden on a pad). */
+function padKeys(keys: string): string {
+  if (/^[↑↓←→]+$/.test(keys)) return '十字鍵';
+  switch (keys) {
+    case 'Enter':
+      return 'A';
+    case 'Esc':
+      return 'B';
+    case 'Q/E':
+      return 'LB/RB';
+    case '任意鍵':
+      return '任意鍵';
+    default:
+      return '';
+  }
+}
+
+/** One footer hint "KEYS label" as a key cap and its label. */
+function hintEl(text: string): HTMLElement {
+  const cut = text.indexOf(' ');
+  const keys = cut > 0 ? text.slice(0, cut) : text;
+  const label = cut > 0 ? text.slice(cut + 1) : '';
+  const pad = padKeys(keys);
+  return h('span', { class: 'nvm-hint', attrs: pad ? {} : { 'data-input': 'kb' } }, keyCap(keys, pad || undefined), label ? h('span', { text: label }) : null);
+}
 
 function safe(fn: () => void): void {
   try {
@@ -66,6 +96,7 @@ export class MenuSystem implements Host {
   private readonly container: HTMLElement;
   private readonly stageEl: HTMLElement;
   private readonly crumbEl: HTMLElement;
+  private readonly backEl: HTMLButtonElement;
   private readonly hintsEl: HTMLElement;
   private readonly toastsEl: HTMLElement;
   private readonly loadingEl: HTMLElement;
@@ -86,6 +117,13 @@ export class MenuSystem implements Host {
     this.cb = cb;
     setWidgetSound((kind) => this.sound(kind));
     this.crumbEl = h('span', { class: 'nvm-top__crumb' });
+    // mouse users' way back (keyboard / pad use Esc / B); not in the arrow-key focus order
+    this.backEl = h(
+      'button',
+      { class: 'nvm-top__back', attrs: { type: 'button', tabindex: -1, hidden: true }, on: { click: () => this.back() } },
+      keyCap('Esc', 'B'),
+      h('span', { text: '返回' }),
+    );
     this.hintsEl = h('div', { class: 'nvm-hints' });
     this.toastsEl = h('div', { class: 'nvm-toasts', attrs: { 'aria-live': 'polite' } });
     this.stageEl = h('main', { class: 'nvm-stage' });
@@ -104,6 +142,7 @@ export class MenuSystem implements Host {
         'header',
         { class: 'nvm-top' },
         h('span', { class: 'nvm-brand' }, h('b', { class: 'nvm-brand__mark', text: 'N' }), h('span', { class: 'nvm-brand__name', text: GAME_TITLE }), h('span', { class: 'nvm-brand__zh', text: GAME_TITLE_ZH })),
+        this.backEl,
         this.crumbEl,
       ),
       this.stageEl,
@@ -207,6 +246,7 @@ export class MenuSystem implements Host {
    */
   navigate(input: PadMenuInput): boolean {
     if (!this.visible || !this.loadingEl.hidden) return false;
+    this.container.classList.add('is-pad');
     const key = PAD_KEYS[input];
     const e = new KeyboardEvent('keydown', { key: key.key, code: key.code, cancelable: true });
     markPadEvent(e);
@@ -473,8 +513,10 @@ export class MenuSystem implements Host {
     }
     this.container.dataset.layout = base.layout;
     setText(this.crumbEl, base.title);
-    const hints = screen.hints() ?? ['↑↓←→ 選擇', 'Enter 確認', 'Esc 返回'];
-    this.hintsEl.replaceChildren(...hints.map((t) => h('span', { class: 'nvm-hint', text: t })));
+    this.backEl.hidden = !this.canGoBack(screen);
+    const hints = [...(screen.hints() ?? DEFAULT_HINTS)];
+    if (screen.el.querySelector('[role="tablist"]')) hints.push('Q/E 切換分頁');
+    this.hintsEl.replaceChildren(...hints.map(hintEl));
     this.refreshStage();
     safe(() => screen.onEnter());
     const target =
@@ -489,6 +531,23 @@ export class MenuSystem implements Host {
   private focusedIn(screen: Screen): HTMLElement | null {
     const a = document.activeElement;
     return a instanceof HTMLElement && screen.el.contains(a) ? a : null;
+  }
+
+  /** Whether Esc / B leads somewhere from this screen (the header's back button shows then). */
+  private canGoBack(screen: Screen): boolean {
+    if (this.stack.length > 1 || this.overlayClose) return true;
+    const hints = screen.hints();
+    return hints !== null && hints.some((t) => t.startsWith('Esc '));
+  }
+
+  /** Q / E, PageUp / PageDown and LB / RB: the neighbouring tab of the screen's visible tab bar. */
+  private switchTab(screen: Screen, dir: -1 | 1): boolean {
+    const bars = Array.from(screen.el.querySelectorAll<HTMLElement>('[role="tablist"]'));
+    const bar = bars.find((b) => b.offsetParent !== null || b.getClientRects().length > 0) ?? bars[0];
+    const switcher = bar ? getTabSwitcher(bar) : undefined;
+    if (!switcher) return false;
+    switcher(dir);
+    return true;
   }
 
   private move(dir: NavDirection): void {
@@ -531,6 +590,7 @@ export class MenuSystem implements Host {
     };
     // loading card: no navigation (keys pass through untouched to whoever needs them next)
     if (!this.loadingEl.hidden) return;
+    if (!isPadEvent(e)) this.container.classList.remove('is-pad');
     const screen = this.top();
     if (!screen) return;
     let handled = false;
@@ -591,7 +651,16 @@ export class MenuSystem implements Host {
         consume();
         if (!e.repeat) this.back();
         return;
+      case 'PageUp':
+      case 'PageDown':
+        // only taken when a tab set switched: on other screens the browser still scrolls a page
+        if (!typing && this.switchTab(screen, e.key === 'PageUp' ? -1 : 1)) consume();
+        return;
       default:
+        if ((e.code === 'KeyQ' || e.code === 'KeyE') && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          if (this.switchTab(screen, e.code === 'KeyQ' ? -1 : 1)) consume();
+          return;
+        }
         if (e.code === 'KeyF' && !typing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
           consume();
           this.toggleFullscreen();
@@ -612,6 +681,7 @@ export class MenuSystem implements Host {
 
   private readonly onPointerMove = (e: PointerEvent): void => {
     if (e.pointerType !== 'mouse') return;
+    this.container.classList.remove('is-pad');
     const screen = this.top();
     if (!screen || isTextField(document.activeElement)) return;
     const target = e.target instanceof Element ? e.target.closest<HTMLElement>('button:not([disabled]), [tabindex="0"]') : null;
