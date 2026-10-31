@@ -611,8 +611,8 @@ const FRONT_WINGLETS = [
 
 /**
  * One front endplate built for the left (+X) side at x: plate, footplate and, per style, the outboard curl ('diveplane'
- * / 'winglet') or a squared plate with a ridged footplate and twin vanes ('squared'); LOD0 adds the planes on the
- * outside and a low fence on the inside.
+ * / 'winglet' / 'plain') or a squared plate with a ridged footplate and twin vanes ('squared'); LOD0 adds the planes on
+ * the outside ('plain': none) and a low fence on the inside.
  */
 function frontEndplateParts(d: CarDims, fs: number, style: FrontEndplate, fine: boolean): [() => THREE.BufferGeometry, UVMap][] {
   const z1 = d.frontWingZ1;
@@ -635,7 +635,7 @@ function frontEndplateParts(d: CarDims, fs: number, style: FrontEndplate, fine: 
   } else {
     // upper edge curls outboard
     parts.push([() => tiltedPlate([[z1 - 0.16, 0], [z1 - 0.3, 0.06], [z0 + 0.12, 0.06], [z0 + 0.04, 0]], fs + 0.005, 0.292, 0.7, 0.008), FRONT_WING]);
-    const planes = style === 'winglet' ? FRONT_WINGLETS : [FRONT_DIVE_PLANE];
+    const planes = style === 'winglet' ? FRONT_WINGLETS : style === 'plain' ? [] : [FRONT_DIVE_PLANE];
     for (const dp of planes) {
       parts.push([() => new THREE.BoxGeometry(dp.span, 0.006, dp.chord).rotateX(dp.pitch).translate(fs + 0.02 + dp.span / 2, dp.y, z1 - 0.06 - dp.chord / 2), CARBON]);
     }

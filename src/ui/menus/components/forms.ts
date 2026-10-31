@@ -119,6 +119,8 @@ export const PATTERN_LABEL: Record<LiveryPattern, string> = {
   shard: '2026 幾何碎片',
   duo: '2026 上下雙色',
   flank: '2026 側身寬帶',
+  solid: '2026 單色車身',
+  blend: '2026 前後漸層',
 };
 
 /** Livery colours + pattern. */

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import type { Livery } from '../src/core/types';
 import { cloneLivery } from '../src/meta/roster';
 import { parseRosterPack, ROSTER_PACK_FORMAT } from '../src/meta/rosterPack';
+import { REAL_GRID } from '../src/data/realGrid';
 import { TEAMS } from '../src/data/teams';
 import { LIVERY_PATTERNS, sanitizeLivery } from '../src/meta/guards';
 import { BODY_V0, carbonZones, FIN_U0, paintLiveryCanvas, swatchColors } from '../src/render/car/atlas';
@@ -218,13 +219,13 @@ describe('2026 layouts', () => {
     return hit;
   };
 
-  test('every team runs a 2026 layout with bare carbon, and at least 55 % of the bodywork stays painted', () => {
-    for (const team of TEAMS) {
+  test('every team of both rosters runs a 2026 layout with bare carbon, and at least 55 % of the bodywork stays painted', () => {
+    for (const team of [...TEAMS, ...REAL_GRID.teams]) {
       const pattern = team.livery.pattern ?? 'classic';
       const zones = carbonZones(carDims(), pattern);
       expect(zones.length).toBeGreaterThan(0);
       // area-weighted over the wrapped bodywork of the team's own car
-      const g = buildCarGeometry(designForTeam(team.shortName)).body;
+      const g = buildCarGeometry(designForTeam(team.id)).body;
       const pos = g.getAttribute('position');
       const uv = g.getAttribute('uv');
       const P = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()];

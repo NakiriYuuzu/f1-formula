@@ -24,6 +24,8 @@ interface ShowCar {
   livery: Livery;
   number: number;
   teamShort: string;
+  /** team (TeamDef.id): picks the body design */
+  teamId?: string;
   helmet: Livery;
 }
 
@@ -224,7 +226,7 @@ export class ShowroomScene {
 
     const t0 = TEAMS[0];
     const d0 = DRIVERS.find((d) => d.teamId === t0.id);
-    this.carSpec = { livery: t0.livery, number: d0?.number ?? 1, teamShort: t0.shortName, helmet: d0?.helmet ?? t0.livery };
+    this.carSpec = { livery: t0.livery, number: d0?.number ?? 1, teamShort: t0.shortName, teamId: t0.id, helmet: d0?.helmet ?? t0.livery };
     this.rebuildCar();
     this.syncSettings();
   }
@@ -235,6 +237,7 @@ export class ShowroomScene {
       livery: spec.livery,
       number: spec.number,
       teamShort: spec.teamShort,
+      teamId: spec.teamId,
       helmet: spec.helmet,
       regulation,
       textureSize: Math.max(1024, q.liveryTexSize),
@@ -252,11 +255,12 @@ export class ShowroomScene {
   }
 
   /** Show a car on the turntable (repaints in place when the regulation and the team's body design are unchanged). */
-  setCar(livery: Livery, number: number, teamShort: string, helmet: Livery, regulation?: Regulation): void {
+  setCar(car: ShowCar, regulation?: Regulation): void {
     if (this.disposed) return;
-    this.carSpec = { livery, number, teamShort, helmet };
+    const { livery, number, teamShort, teamId, helmet } = car;
+    this.carSpec = { livery, number, teamShort, teamId, helmet };
     const reg = regulation ?? this.regulation;
-    if (this.car && reg === this.regulation && this.car.design === designForTeam(teamShort)) this.car.setLivery(livery, number, teamShort, helmet);
+    if (this.car && reg === this.regulation && this.car.design === designForTeam(teamId)) this.car.setLivery(livery, number, teamShort, helmet);
     else {
       this.regulation = reg;
       this.rebuildCar();
@@ -267,7 +271,7 @@ export class ShowroomScene {
    * Podium scene: up to 3 cars on stepped plinths (P1 centre), each built for its `regulation` (the race's; default
    * the showroom's); null returns to the single-car turntable.
    */
-  setPodium(cars: { livery: Livery; number: number; teamShort: string; helmet: Livery; regulation?: Regulation }[] | null): void {
+  setPodium(cars: (ShowCar & { regulation?: Regulation })[] | null): void {
     if (this.disposed) return;
     for (const c of this.podiumCars) c.dispose();
     this.podiumCars = [];

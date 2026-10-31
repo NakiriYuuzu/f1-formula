@@ -54,6 +54,8 @@ export interface RaceSceneCar {
   number: number;
   /** 3-letter team code painted on the car */
   teamShort: string;
+  /** team (TeamDef.id): picks the body design */
+  teamId?: string;
   /** helmet colors of the driver */
   helmet: Livery;
   /** pit box index in garage order (race/world.ts boxSlot); absent = the crews serve any car standing in their box */
@@ -240,6 +242,7 @@ export class RaceScene {
         livery: c.livery,
         number: c.number,
         teamShort: c.teamShort,
+        teamId: c.teamId,
         helmet: c.helmet,
         regulation: opts.regulation,
         textureSize: this.quality.liveryTexSize,

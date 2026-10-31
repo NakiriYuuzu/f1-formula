@@ -13,6 +13,7 @@ export function showroomCar(team: TeamDef | undefined, driver: Pick<DriverDef, '
     livery: cloneLivery(team?.livery ?? FALLBACK_LIVERY),
     number: driver?.number ?? 1,
     teamShort: team?.shortName ?? 'NOV',
+    ...(team ? { teamId: team.id } : {}),
     helmet: cloneLivery(driver?.helmet ?? FALLBACK_LIVERY),
   };
 }

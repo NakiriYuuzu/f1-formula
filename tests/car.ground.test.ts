@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { CarRenderState } from '../src/core/types';
 import { buildCarGeometry } from '../src/render/car/carGeometry';
 import { createCarModel } from '../src/render/car/carModel';
-import { BASE_DESIGN, TEAM_DESIGNS } from '../src/render/car/designs';
+import { BASE_DESIGN, REAL_TEAM_DESIGNS, TEAM_DESIGNS } from '../src/render/car/designs';
 import { carDims } from '../src/render/car/dims';
 import { blade } from '../src/render/car/shapes';
 import { Disposer } from '../src/render/core/disposer';
@@ -19,7 +19,7 @@ import { installFakeDom } from './renderHarness';
 installFakeDom();
 
 const REGS = ['2025', '2026'] as const;
-const DESIGNS = [BASE_DESIGN, ...Object.values(TEAM_DESIGNS)];
+const DESIGNS = [BASE_DESIGN, ...Object.values(TEAM_DESIGNS), ...Object.values(REAL_TEAM_DESIGNS)];
 const LIVERY = { primary: '#d6222a', secondary: '#f2c200', accent: '#ffffff' } as never;
 
 function state(over: Partial<CarRenderState> & { groundPitch?: number }): CarRenderState {

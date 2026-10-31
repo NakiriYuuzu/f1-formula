@@ -612,7 +612,7 @@ export class App {
 
   private setShowroom(car: ShowroomCar | null): void {
     this.showroomCar = car;
-    if (car) this.ensureShowroom()?.setCar(car.livery, car.number, car.teamShort, car.helmet);
+    if (car) this.ensureShowroom()?.setCar(car);
   }
 
   private setPodium(cars: ShowroomCar[] | null): void {
@@ -632,7 +632,7 @@ export class App {
     }
     // the scene starts with a default car: show what the menus asked for
     const car = this.showroomCar;
-    if (car) this.showroom.setCar(car.livery, car.number, car.teamShort, car.helmet);
+    if (car) this.showroom.setCar(car);
     if (this.podiumCars) this.showroom.setPodium(this.podiumCars);
     return this.showroom;
   }

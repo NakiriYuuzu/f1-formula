@@ -8,6 +8,8 @@ export interface ShowroomCar {
   livery: Livery;
   number: number;
   teamShort: string;
+  /** team (TeamDef.id): picks the car's body design */
+  teamId?: string;
   helmet: Livery;
   /** car generation to build (podium after a race: that race's regulation); default = the showroom's current */
   regulation?: Regulation;

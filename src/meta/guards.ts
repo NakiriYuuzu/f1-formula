@@ -68,7 +68,7 @@ export function numberRecord(v: unknown, lo: number, hi: number): Record<string,
   return out;
 }
 
-export const LIVERY_PATTERNS: readonly LiveryPattern[] = ['classic', 'stripe', 'chevron', 'split', 'fade', 'arrow', 'sweep', 'tail', 'shard', 'duo', 'flank'];
+export const LIVERY_PATTERNS: readonly LiveryPattern[] = ['classic', 'stripe', 'chevron', 'split', 'fade', 'arrow', 'sweep', 'tail', 'shard', 'duo', 'flank', 'solid', 'blend'];
 
 export function sanitizeLivery(v: unknown, fallback: Livery): Livery {
   const r = asRecord(v);

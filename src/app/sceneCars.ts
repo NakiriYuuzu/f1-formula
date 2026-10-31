@@ -1,5 +1,5 @@
 /**
- * Maps the world's cars to the renderer's car list (pure): livery, number, team code, driver helmet and pit box,
+ * Maps the world's cars to the renderer's car list (pure): livery, number, team code and id, driver helmet and pit box,
  * resolved from the session's teams/drivers with the static data as fallback.
  */
 import type { Livery, WorldState } from '../core/types';
@@ -36,6 +36,7 @@ export function sceneCarsFor(world: WorldState): RaceSceneCar[] {
       livery: copyLivery(car.livery),
       number: car.number,
       teamShort: team?.shortName ?? car.abbr,
+      teamId: car.teamId,
       helmet: copyLivery(driver?.helmet ?? car.livery),
       ...(teamIndex >= 0 ? { pitBox: teamIndex % PIT_BOXES } : {}),
     };

@@ -156,6 +156,10 @@ export function carbonZones(d: CarDims, pattern: LiveryPattern): UVPoly[] {
       return [flank(0.8, -2.5, 1.2)];
     case 'flank':
       return [flank(0.86, -2.3, 1.0)];
+    case 'solid':
+      return [flank(0.8, -2.3, 0.85), [[U(0.85), 0.84], [U(2.2), 0.9], [U(2.2), 1], [U(0.85), 1]]];
+    case 'blend':
+      return [flank(0.82, -2.4, 0.9)];
     default:
       return [];
   }
@@ -163,6 +167,8 @@ export function carbonZones(d: CarDims, pattern: LiveryPattern): UVPoly[] {
 
 /** Layouts whose sidepod code sits on the secondary colour (the label outline / fill contrast against it). */
 const SECONDARY_SIDE: ReadonlySet<LiveryPattern> = new Set(['classic', 'arrow', 'shard', 'duo', 'flank']);
+/** 'blend' layout: z (m) where the tail colour starts blending and where it has become the front colour. */
+const BLEND_Z = [-1.4, 1.0] as const;
 
 const CARBON = '#1d1e21';
 /** Satin carbon (floor, diffuser, unpainted wing parts): a touch lighter and rougher than the weave above. */
@@ -323,6 +329,22 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
       fillUV(ctx, secondary, [[0, 0.645], [uOf(0), 0.625], [1, 0.575], [1, 1], [0, 1]], W, bh);
       break;
     }
+    case 'solid': {
+      // one colour (parts add the rest); an accent pinline along the edge of the bare carbon (painted over below it)
+      fillUV(ctx, accent, [[uOf(-2.3), 0.785], [uOf(0.85), 0.785], [uOf(2.2), 0.885], [uOf(2.2), 1], [uOf(-2.3), 1]], W, bh);
+      break;
+    }
+    case 'blend': {
+      // secondary at the tail blending into primary at the front, a low accent line above the bare carbon
+      const [b0, b1] = BLEND_Z;
+      const g = ctx.createLinearGradient(bx(uOf(b0)), 0, bx(uOf(b1)), 0);
+      g.addColorStop(0, secondary);
+      g.addColorStop(1, primary);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, bh);
+      fillUV(ctx, accent, [[uOf(-2.4), 0.8], [uOf(2.1), 0.8], [uOf(2.1), 1], [uOf(-2.4), 1]], W, bh);
+      break;
+    }
     case 'flank': {
       // wide secondary band along the side with a pointed front, accent pinline above it
       fillUV(ctx, accent, [[uOf(-1.6), 0.615], [uOf(1.8), 0.615], [uOf(2.42), 0.75], [uOf(1.8), 0.86], [uOf(-1.6), 0.86]], W, bh);
@@ -390,7 +412,9 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
     const cx = bx(uOf(d.sidepodTextZ));
     const glyphH = (0.16 / 0.6) * (by(0.7) - by(0.8));
     const run = (0.5 / (d.wrapZMax - d.wrapZMin)) * W;
-    const sideBg = sidepods ?? (SECONDARY_SIDE.has(pattern) ? secondary : primary);
+    const blendAt = (BLEND_Z[0] - d.sidepodTextZ) / (BLEND_Z[0] - BLEND_Z[1]);
+    const patternBg = pattern === 'blend' ? mixHex(secondary, primary, Math.min(1, Math.max(0, blendAt))) : SECONDARY_SIDE.has(pattern) ? secondary : primary;
+    const sideBg = sidepods ?? patternBg;
     ctx.save();
     ctx.translate(cx, by(0.75));
     ctx.rotate(Math.PI);

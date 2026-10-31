@@ -6,15 +6,17 @@
  */
 import { describe, expect, test } from 'bun:test';
 import * as THREE from 'three';
+import { REAL_GRID } from '../src/data/realGrid';
 import { TEAMS } from '../src/data/teams';
 import { BODY_V0, FIN_U0, SWATCH_V0, SWATCH_V1, SWATCHES, swatchUV, wrapUV } from '../src/render/car/atlas';
 import { buildCarGeometry } from '../src/render/car/carGeometry';
-import { BASE_DESIGN, designDims, designForTeam, TEAM_DESIGNS } from '../src/render/car/designs';
+import { BASE_DESIGN, designDims, designForTeam, REAL_TEAM_DESIGNS, TEAM_DESIGNS } from '../src/render/car/designs';
 import { carDims } from '../src/render/car/dims';
 import { bodyWrap, carBodyStations, podLoft } from '../src/render/car/sharedParts';
 import { loft } from '../src/render/car/shapes';
 
-const DESIGNS = [BASE_DESIGN, ...Object.values(TEAM_DESIGNS)];
+const DESIGNS = [BASE_DESIGN, ...Object.values(TEAM_DESIGNS), ...Object.values(REAL_TEAM_DESIGNS)];
+const REAL_TEAMS = REAL_GRID.teams;
 const tris = (g: THREE.BufferGeometry | null): number => (g ? (g.index ? g.index.count : g.getAttribute('position').count) / 3 : 0);
 const box = (g: THREE.BufferGeometry): THREE.Box3 => {
   g.computeBoundingBox();
@@ -46,13 +48,18 @@ describe('2026 dimensions', () => {
 });
 
 describe('team body designs', () => {
-  test('every team has its own design; unknown and custom codes get the base design', () => {
-    const ids = TEAMS.map((t) => designForTeam(t.shortName).id);
-    expect(new Set(ids).size).toBe(TEAMS.length);
-    expect(ids).not.toContain(BASE_DESIGN.id);
-    expect(designForTeam('ZZZ')).toBe(BASE_DESIGN);
+  test('every team of both rosters has its own design, looked up by team id; unknown teams get the base design', () => {
+    for (const roster of [TEAMS, REAL_TEAMS]) {
+      const ids = roster.map((t) => designForTeam(t.id).id);
+      expect(new Set(ids).size).toBe(roster.length);
+      expect(ids).not.toContain(BASE_DESIGN.id);
+    }
+    // team codes repeat across rosters (MER): the id decides
+    const shared = TEAMS.filter((t) => REAL_TEAMS.some((r) => r.shortName === t.shortName));
+    for (const t of shared) expect(designForTeam(t.id)).not.toBe(designForTeam(REAL_TEAMS.find((r) => r.shortName === t.shortName)!.id));
+    expect(designForTeam('my-team')).toBe(BASE_DESIGN);
+    expect(designForTeam('constructor')).toBe(BASE_DESIGN);
     expect(designForTeam(undefined)).toBe(BASE_DESIGN);
-    expect(designForTeam(TEAMS[0].shortName.toLowerCase()).id).toBe(TEAMS[0].shortName);
   });
   test('no two teams share a concept, and the spread covers every nose, inlet and endplate variant', () => {
     const key = (x: (typeof DESIGNS)[number]): string => JSON.stringify({ ...x, id: '' });

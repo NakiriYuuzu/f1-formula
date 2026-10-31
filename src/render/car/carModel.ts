@@ -53,7 +53,9 @@ export interface CarModelOptions {
   helmet: Livery;
   /** flap behaviour (2025: rear DRS only, 2026: front and rear active aero) */
   regulation: Regulation;
-  /** body design; default the team's (designForTeam(teamShort)) */
+  /** team (TeamDef.id) whose body design the car gets (designForTeam) */
+  teamId?: string;
+  /** body design; default the team's */
   design?: CarDesign;
   /** translucent time-trial ghost (no shadows) */
   ghost?: boolean;
@@ -337,7 +339,7 @@ function createLiveryMaterial(map: THREE.Texture, surface: THREE.Texture, ghost:
 }
 
 export function createCarModel(opts: CarModelOptions): CarModel {
-  const design = opts.design ?? designForTeam(opts.teamShort);
+  const design = opts.design ?? designForTeam(opts.teamId);
   const geo: CarGeometrySet = acquireCarGeometry(design);
   const ownShared = !opts.shared;
   const shared = opts.shared ?? new CarSharedResources();
