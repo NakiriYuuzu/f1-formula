@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import type { Biome, BuiltTrack, TimeOfDay } from '../../core/types';
 import type { Disposer } from '../core/disposer';
+import type { LampSite } from '../core/lampLights';
 import type { QualityProfile } from '../core/quality';
 import type { TrackFrame } from './trackFrame';
 
@@ -67,6 +68,8 @@ export interface SceneryContext {
   lampMaterials: THREE.MeshBasicMaterial[];
   /** base colour of every lamp material (scaled by the lamp level each frame) */
   lampBase: THREE.Color[];
+  /** lamp heads that can lend a real light (towers, lamp posts; filled by buildTrackside) */
+  lampSites: LampSite[];
   /** terrain reshaping from landmarks (filled by planLandmarks before buildTerrain) */
   terrainEdits: TerrainEdit[];
   /** named grandstands from track features (consumed by buildTrackside) */

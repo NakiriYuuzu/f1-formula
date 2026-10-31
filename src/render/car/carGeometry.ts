@@ -176,8 +176,8 @@ export function buildCarGeometry(design: CarDesign = BASE_DESIGN): CarGeometrySe
     const housing = new THREE.SphereGeometry(1, 10, 6);
     housing.scale(0.09, 0.034, 0.026).translate(0.52 * kx, 0.76, 0.6);
     body.add(housing, { kind: 'swatch', name: 'primary' }, true);
-    // mirror glass: the dark glossy visor swatch (reflects the sky) instead of flat grey metal
-    body.add(new THREE.BoxGeometry(0.13, 0.045, 0.006).translate(0.52 * kx, 0.76, 0.572), { kind: 'swatch', name: 'visor' }, true);
+    // mirror glass: the dark glossy glass swatch (reflects the sky) instead of flat grey metal
+    body.add(new THREE.BoxGeometry(0.13, 0.045, 0.006).translate(0.52 * kx, 0.76, 0.572), { kind: 'swatch', name: 'glass' }, true);
     body.add(rod(v3(0.32, 0.66, 0.64), v3(0.46 * kx, 0.75, 0.61), 0.01, 5), { kind: 'swatch', name: 'carbon' }, true);
     body.add(rod(v3(0.34, 0.64, 0.7), v3(0.5 * kx, 0.745, 0.62), 0.008, 5), { kind: 'swatch', name: 'carbon' }, true);
   }
@@ -229,7 +229,7 @@ export function buildCarGeometry(design: CarDesign = BASE_DESIGN): CarGeometrySe
     for (const x of [-0.118, 0.118]) {
       sw.add(new THREE.CapsuleGeometry(0.024, 0.07, 3, 8).translate(x, -0.005, -0.012), { kind: 'swatch', name: 'black' });
     }
-    sw.add(new THREE.BoxGeometry(0.085, 0.045, 0.006).translate(0, 0.012, -0.014), { kind: 'swatch', name: 'visor' });
+    sw.add(new THREE.BoxGeometry(0.085, 0.045, 0.006).translate(0, 0.012, -0.014), { kind: 'swatch', name: 'glass' });
     for (let i = 0; i < 9; i++) {
       const name = i < 3 ? 'secondary' : i < 6 ? 'accent' : 'white';
       sw.add(new THREE.BoxGeometry(0.007, 0.007, 0.004).translate(-0.04 + i * 0.01, 0.048, -0.013), { kind: 'swatch', name });

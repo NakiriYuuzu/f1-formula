@@ -19,6 +19,7 @@
  * Every patch sets a distinct customProgramCacheKey so programs are shared only between identical variants.
  */
 import * as THREE from 'three';
+import * as CM from './crowdMotion';
 
 /** Scene fog is capped at this factor on backdrop surfaces while the fog is thin (clear / dusk / night). */
 export const BACKDROP_FOG_CAP = 0.82;
@@ -283,6 +284,113 @@ export function patchTintMask(material: THREE.Material, skin = false): void {
   material.customProgramCacheKey = () => `nova-tint-mask-${skin ? 1 : 0}`;
 }
 
+/** Crowd hair tones and trousers (per-instance picks from gl_InstanceID; sRGB hex). */
+const CROWD_HAIR = ['#15110e', '#3b2a1c', '#8a6a3c', '#c9a96a', '#8d8d8d', '#7a3a1e'];
+const CROWD_TROUSERS = ['#2f3a52', '#1c1e24', '#6b6a62', '#3d4d6e', '#7a6a50', '#4a4f45'];
+/** Share of spectators in a cap (team colour) instead of bare hair. */
+export const CROWD_CAP_SHARE = 0.3;
+/** Cars the crowd reacts to (xy = world x, z; z = weight 0..1): written each frame by pitCrew.ts from the cars' render poses. */
+export const CROWD_CARS: THREE.IUniform<THREE.Vector4[]> = { value: Array.from({ length: CM.CHEER_CARS }, () => new THREE.Vector4()) };
+
+/**
+ * Crowd material: tint mask with skin, hair / cap and trousers variety per instance, plus vertex-shader motion from
+ * gl_InstanceID and the shared FOLIAGE_TIME. 'idle' = sway and head turns; 'cheer' also stands up, raises and waves
+ * the arms of spectators near a passing car (and of whole blocks now and then). Needs the crowdPart vertex attribute
+ * (crowdMotion.ts) and the instance matrix translation as the spectator's world position.
+ */
+export function patchCrowd(material: THREE.Material, motion: 'idle' | 'cheer'): void {
+  const f = glslFloat;
+  const cheer = motion === 'cheer';
+  const legs = CM.standingLegs();
+  const hair = CROWD_HAIR.map(glslColor);
+  const trousers = CROWD_TROUSERS.map(glslColor);
+  const colorExtra = `{
+    float capPick = fract( sin( float( gl_InstanceID ) * 91.7 + 3.3 ) * 43758.5453 );
+    float hairPick = fract( sin( float( gl_InstanceID ) * 47.3 + 1.1 ) * 43758.5453 );
+    float legPick = fract( sin( float( gl_InstanceID ) * 23.9 + 7.7 ) * 43758.5453 );
+    if ( tintMask > 2.5 ) vColor.rgb = capPick < ${f(CROWD_CAP_SHARE)} ? instanceColor.rgb * 0.9 : crowdHair[ int( hairPick * 5.99 ) ];
+    if ( tintMask > 0.2 && tintMask < 0.4 ) vColor.rgb = crowdTrousers[ int( legPick * 5.99 ) ];
+  }`;
+  const motionCode = `#ifdef USE_INSTANCING
+{
+  float cid = float( gl_InstanceID );
+  vec3 cr = fract( sin( vec3( cid * 12.9898 + 1.3, cid * 78.233 + 5.1, cid * 37.719 + 9.7 ) ) * 43758.5453 );
+  float part = crowdPart;
+  float upper = step( 0.5, part ) * step( part, 4.5 );
+  float lean = clamp( transformed.y, 0.0, 1.0 );
+  float t = foliageTime;
+  ${
+    cheer
+      ? `vec2 cpos = instanceMatrix[ 3 ].xz;
+  float ex = 0.0;
+  for ( int i = 0; i < ${CM.CHEER_CARS}; i ++ ) {
+    vec4 cc = crowdCars[ i ];
+    ex = max( ex, cc.z * ( 1.0 - smoothstep( ${f(CM.CHEER_NEAR)}, ${f(CM.CHEER_FAR)}, distance( cpos, cc.xy ) ) ) );
+  }
+  float cellH = fract( sin( dot( floor( cpos / ${f(CM.BLOCK_SIZE)} ), vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );
+  ex = max( ex, pow( max( 0.0, sin( t * ${f(CM.BLOCK_RATE)} + cellH * 40.0 ) ), 6.0 ) * ${f(CM.BLOCK_PEAK)} );
+  float thr = 0.3 + 0.55 * cr.y;
+  float st = smoothstep( thr, thr + 0.25, ex );
+  float thrA = 0.2 + 0.6 * cr.z;
+  float ar = smoothstep( thrA, thrA + 0.2, ex );
+  // arms swing up about the shoulders (left arm = part 3 rotates counter-clockwise, right clockwise)
+  if ( part > 2.5 && part < 4.5 ) {
+    float side = part < 3.5 ? 1.0 : -1.0;
+    float amt = ar * ( side > 0.0 ? step( 0.12, fract( cr.x * 7.3 ) ) : step( 0.12, fract( cr.y * 5.1 + 0.4 ) ) );
+    float a = ${f(CM.ARM_REST)} + amt * ( ${f(CM.ARM_RAISE - CM.ARM_REST)} + ${f(CM.ARM_WAVE)} * sin( t * ${f(CM.ARM_WAVE_RATE)} + cr.x * 30.0 + side ) );
+    vec3 sp = vec3( side * ${f(CM.SHOULDER_PIVOT[0])}, ${f(CM.SHOULDER_PIVOT[1])}, 0.0 );
+    vec3 rel = transformed - sp;
+    float ca = cos( a );
+    float sa = sin( a ) * side;
+    transformed.xy = sp.xy + vec2( ca * rel.x - sa * rel.y, sa * rel.x + ca * rel.y );
+  }`
+      : ''
+  }
+  // head turns now and then
+  if ( part > 1.5 && part < 2.5 ) {
+    float turn = ${f(CM.HEAD_TURN)} * sin( t * 0.31 + cr.z * 40.0 ) * smoothstep( -0.2, 0.5, sin( t * 0.13 + cr.x * 20.0 ) );
+    float c = cos( turn );
+    float s = sin( turn );
+    vec3 rel = transformed - vec3( 0.0, ${f(CM.HEAD_PIVOT_Y)}, 0.0 );
+    transformed.xz = vec2( c * rel.x + s * rel.z, - s * rel.x + c * rel.z );
+    // caps: the brim (mask 4) is only there for the capped share
+    if ( tintMask > 3.5 && fract( sin( cid * 91.7 + 3.3 ) * 43758.5453 ) >= ${f(CROWD_CAP_SHARE)} ) transformed = vec3( 0.0, ${f(CM.HEAD_PIVOT_Y)}, 0.0 );
+  }
+  ${
+    cheer
+      ? `// standing: hips rise and step forward, thighs pitch down, shins slide under the knees
+  if ( part > 4.5 && part < 5.5 ) {
+    float th = ${f(CM.STAND_THETA)} * st;
+    vec2 rel = transformed.yz - vec2( ${f(CM.HIP[0])}, ${f(CM.HIP[1])} );
+    transformed.yz = vec2( ${f(CM.HIP[0])}, ${f(CM.HIP[1])} ) + vec2( cos( th ) * rel.x - sin( th ) * rel.y, sin( th ) * rel.x + cos( th ) * rel.y );
+  }
+  if ( part > 5.5 ) transformed.z += ${f(+legs.shinDz.toFixed(4))} * st;
+  if ( upper > 0.5 || ( part > 4.5 && part < 5.5 ) ) transformed.yz += st * vec2( ${f(+legs.riseY.toFixed(4))}, ${f(legs.riseZ)} );`
+      : ''
+  }
+  transformed.x += upper * sin( t * ${f(CM.SWAY_RATE[0])} + cr.x * 6.2832 ) * ${f(CM.SWAY_SIDE)} * lean;
+  transformed.z += upper * sin( t * ${f(CM.SWAY_RATE[1])} + cr.y * 6.2832 ) * ${f(CM.SWAY_FORE)} * lean;
+}
+#endif`;
+  material.onBeforeCompile = (shader) => {
+    applyTintMask(shader, true, colorExtra);
+    shader.uniforms.foliageTime = FOLIAGE_TIME;
+    shader.uniforms.crowdCars = CROWD_CARS;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float foliageTime;
+uniform vec4 crowdCars[ ${CM.CHEER_CARS} ];
+attribute float crowdPart;
+const vec3 crowdHair[ 6 ] = vec3[ 6 ]( ${hair.join(', ')} );
+const vec3 crowdTrousers[ 6 ] = vec3[ 6 ]( ${trousers.join(', ')} );`,
+      )
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${motionCode}`);
+  };
+  material.customProgramCacheKey = () => `nova-crowd-${motion}`;
+}
+
 /** Wrapped-diffuse offset (light reaches FOLIAGE_WRAP past the terminator) and the canopy exponent (> 1 = darker sooner). */
 export const FOLIAGE_WRAP = 0.3;
 export const FOLIAGE_CANOPY_POWER = 1.3;
@@ -411,7 +519,7 @@ void RE_IndirectDiffuse_Lambert( const in vec3 irradiance, const in vec3 geometr
   material.customProgramCacheKey = () => 'nova-foliage';
 }
 
-function applyTintMask(shader: THREE.WebGLProgramParametersWithUniforms, skin: boolean): void {
+function applyTintMask(shader: THREE.WebGLProgramParametersWithUniforms, skin: boolean, extra = ''): void {
   const tones = SKIN_TONES.map(glslColor);
   {
     shader.vertexShader = shader.vertexShader
@@ -433,6 +541,7 @@ function applyTintMask(shader: THREE.WebGLProgramParametersWithUniforms, skin: b
   vColor.rgb = mix( vColor.rgb, skinTone, step( 1.5, tintMask ) );`
       : ''
   }
+  ${extra}
 #endif`,
       );
   }

@@ -30,9 +30,24 @@ import { createSafetyCar, type SafetyCarModel } from './car/safetyCar';
 import { createCarModel, type CarModel } from './car/carModel';
 import { CameraRig, type RigContext } from './cameras';
 import { Disposer } from './core/disposer';
-import { LAMP_HDR_GAIN, LENS_CHROMA, LENS_GRAIN, SHARPEN_BY_QUALITY, VIGNETTE_STRENGTH, aoAmount, bloomParams, createPostLook, gradeParams, hazeParams, speedBlurAmount, type HazeInput } from './core/post';
+import { lutAmount } from './core/lutGrade';
+import {
+  LAMP_HDR_GAIN,
+  SHARPEN_BY_QUALITY,
+  aoAmount,
+  bloomParams,
+  createPostLook,
+  gradeParams,
+  hazeParams,
+  speedBlurAmount,
+  wetReflectionStrength,
+  type HazeInput,
+} from './core/post';
 import { CAMERA_FAR, qualityProfile, shadowSizeFor, type QualityProfile } from './core/quality';
-import { Environment, buildEnvironmentMap, type SceneProbe } from './environment';
+import { STATIC_SHADOW_LAYER, farCascadeStale, type CascadeFocus } from './core/shadowCascades';
+import { Environment, IncrementalProbe, buildEnvironmentMap, type SceneProbe } from './environment';
+import { probeRefreshDue, type ProbeSignature } from './core/probeRefresh';
+import { LAMP_LIGHT, pickLampLights, type LampSlot } from './core/lampLights';
 import { CarEffects } from './fx/carEffects';
 import { ContactShadows } from './fx/contactShadows';
 import { DebrisFx } from './fx/debris';
@@ -42,7 +57,7 @@ import { inTunnel, type SceneryContext } from './track/context';
 import { PitCrew } from './track/pitCrew';
 import { FOLIAGE_TIME } from './track/sceneryMaterials';
 import { RacingLineOverlay } from './track/racingLine';
-import { WET_NORMAL_SCALE, type RoadParts } from './track/road';
+import { WET_NORMAL_SCALE, WET_REFLECTION, type RoadParts } from './track/road';
 import { TrackFrame } from './track/trackFrame';
 import { buildStaticScenery } from './track/scenery';
 import type { StartGantry } from './track/pitComplex';
@@ -122,6 +137,16 @@ export class RaceScene {
   private readonly frame: TrackFrame;
   private readonly env: Environment;
   private envTarget: THREE.WebGLRenderTarget | null = null;
+  /** weather / lamp state the current environment map shows, time (s) since its capture started, frame-spread recapture */
+  private probeSig: ProbeSignature | null = null;
+  private probeAge = 0;
+  private probeJob: IncrementalProbe | null = null;
+  /** spot lights lent to the lamps nearest each view (QualityProfile.lampLights at dusk / night; none by day) */
+  private readonly lampLights: THREE.SpotLight[] = [];
+  private readonly lampSlots: LampSlot[] = [];
+  private readonly lampScratch: number[] = [];
+  private readonly lampColors = { tower: new THREE.Color(LAMP_LIGHT.tower.color), post: new THREE.Color(LAMP_LIGHT.post.color) };
+  private probeAt: THREE.Vector3 | null = null;
   /** GameRenderer.contextVersion the environment map was rendered for */
   private envContext = 0;
   private readonly road: RoadParts;
@@ -153,6 +178,15 @@ export class RaceScene {
   private readonly staticRoot: THREE.Group;
   private settingsVersion: number;
   private shadowSize = 0;
+  /** far (static-only) sun cascade: map edge (0 = off) and the planar centre it was last rendered for */
+  private farShadowSize = 0;
+  private farCentre: CascadeFocus | null = null;
+  /**
+   * Draws nothing itself (a sliver of frustum far below the world) and sees only STATIC_SHADOW_LAYER: rendering the
+   * scene with it into a 1 × 1 target runs three's shadow pass for the far cascade without cars, crews or effects.
+   */
+  private readonly staticShadowCam = new THREE.OrthographicCamera(-1e-3, 1e-3, 1e-3, -1e-3, 1, 1.001);
+  private readonly staticShadowTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
   private wetness = 0;
   private lastTime = Number.NaN;
   private disposed = false;
@@ -175,7 +209,11 @@ export class RaceScene {
 
     this.frame = new TrackFrame(track);
     this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
-    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);
+    // the far cascade light must follow the sun in the scene (lights are numbered in scene order)
+    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.sunFar, this.env.sunFar.target, this.env.hemi);
+    this.staticShadowCam.layers.set(STATIC_SHADOW_LAYER);
+    this.staticShadowCam.position.set(0, -1e6, 0);
+    this.staticShadowCam.updateMatrixWorld();
     this.scene.fog = this.env.fog;
     let lowest = Number.POSITIVE_INFINITY;
     for (let i = 0; i < track.count; i++) if (Number.isFinite(track.py[i])) lowest = Math.min(lowest, track.py[i]);
@@ -211,6 +249,7 @@ export class RaceScene {
       exclusions: [],
       lampMaterials: [],
       lampBase: [],
+      lampSites: [],
       terrainEdits: [],
       featureStands: [],
       tunnels: [],
@@ -232,6 +271,8 @@ export class RaceScene {
     this.staticRoot.updateMatrixWorld(true);
     this.staticRoot.traverse((o) => {
       if (o !== this.staticRoot && o !== this.gantry.group) o.matrixAutoUpdate = false;
+      // static casters also go into the cached far shadow cascade
+      if ((o as THREE.Mesh).isMesh && o.castShadow) o.layers.enable(STATIC_SHADOW_LAYER);
     });
 
     // ── cars ──
@@ -297,9 +338,20 @@ export class RaceScene {
     this.scene.add(this.debris.mesh);
 
     this.rigCtx = { settings: this.settings, time: 0, dims: this.dims, track, frame: this.frame, tvSpots: this.tvSpots, tunnels: this.ctx.tunnels };
+    // real light from the nearest lamps: a fixed pool, so the light count (and every compiled program) never changes
+    const lampCount = this.ctx.timeOfDay !== 'day' && this.ctx.lampSites.length > 0 ? this.quality.lampLights : 0;
+    for (let i = 0; i < lampCount; i++) {
+      const light = new THREE.SpotLight(0xffffff, 0, 0, 1, 0.5, 2);
+      light.name = 'lampLight';
+      this.scene.add(light, light.target);
+      this.lampLights.push(light);
+      this.lampSlots.push({ site: -1, weight: 0 });
+    }
+    this.tagLights();
     this.applyShadows();
     this.precompile();
     if (this.quality.sceneProbe) this.captureReflections();
+    this.probeSig = this.probeSignature();
     // every race scene starts at the user's full resolution
     gr.resetAdaptiveResolution();
   }
@@ -369,19 +421,27 @@ export class RaceScene {
   private applyShadows(): void {
     const size = shadowSizeFor(this.settings);
     const sun = this.env.sun;
+    const far = this.env.sunFar;
     const enabled = size > 0;
     const changed = enabled !== sun.castShadow;
     sun.castShadow = enabled;
     sun.shadow.radius = this.quality.shadowRadius;
     this.gr.renderer.shadowMap.enabled = enabled;
-    if (enabled && size !== this.shadowSize) {
-      sun.shadow.mapSize.set(size, size);
-      if (sun.shadow.map) {
-        sun.shadow.map.dispose();
-        sun.shadow.map = null;
-      }
-    }
+    const resize = (light: THREE.DirectionalLight, edge: number): void => {
+      if (light.shadow.mapSize.x === edge) return;
+      light.shadow.mapSize.set(edge, edge);
+      light.shadow.map?.dispose();
+      light.shadow.map = null;
+    };
+    if (enabled && size !== this.shadowSize) resize(sun, size);
     this.shadowSize = enabled ? size : 0;
+    // far cascade: static casters only, rendered on demand (re-rendered for the new size / on the next frame)
+    const farSize = enabled ? this.quality.shadowFarMapSize : 0;
+    far.castShadow = farSize > 0;
+    far.shadow.radius = 1;
+    if (farSize > 0) resize(far, farSize);
+    this.farShadowSize = farSize;
+    this.farCentre = null;
     this.safetyCar.setCastShadow(enabled);
     if (changed) {
       this.scene.traverse((o) => {
@@ -395,10 +455,62 @@ export class RaceScene {
   /** The WebGL context was restored: the PMREM render target lost its contents, render it again. */
   private rebuildEnvironmentMap(): void {
     this.envContext = this.gr.contextVersion;
+    // shadow maps lost their contents too
+    this.farCentre = null;
+    this.probeJob?.cancel();
     this.envTarget?.dispose();
     this.envTarget = buildEnvironmentMap(this.gr.renderer, this.env);
     this.scene.environment = this.envTarget ? this.envTarget.texture : null;
     if (this.quality.sceneProbe) this.captureReflections();
+    this.probeSig = this.probeSignature();
+    this.probeAge = 0;
+  }
+
+  private probeSignature(): ProbeSignature {
+    return { cloud: this.env.cloud, rain: this.env.rainLevel, lamps: this.env.lampLevel };
+  }
+
+  /** Objects left out of reflection captures: cars, particles, overlays. */
+  private probeHidden(): THREE.Object3D[] {
+    const hide: THREE.Object3D[] = [this.contactShadows.group, this.effects.smoke.points, this.effects.sparks.points, this.debris.mesh, this.rain.lines, this.racingLine.group, this.safetyCar.root];
+    for (const m of this.cars.values()) hide.push(m.root);
+    return hide;
+  }
+
+  private swapEnvironment(rt: THREE.WebGLRenderTarget): void {
+    this.envTarget?.dispose();
+    this.envTarget = rt;
+    this.scene.environment = rt.texture;
+  }
+
+  /**
+   * Keep reflections in step with the weather: once the sky / lamps drift past what the map shows (probeRefreshDue,
+   * throttled) capture again — the scene probe one cube face per frame plus a PMREM frame, the sky-only map at once
+   * (it is cheap). Lamp heads are at their direct (non-HDR) level in the capture, as at start.
+   */
+  private refreshReflections(dt: number): void {
+    this.probeAge += dt;
+    const r = this.gr.renderer;
+    if (this.gr.isContextLost()) return;
+    if (this.probeJob?.running) {
+      this.applyLamps(1);
+      const probe: SceneProbe = { scene: this.scene, position: this.probeAt ?? this.probePosition(), hide: this.probeHidden(), shadowMapSize: this.shadowSize };
+      const rt = this.probeJob.step(r, this.env, probe);
+      if (rt) this.swapEnvironment(rt);
+      return;
+    }
+    const sig = this.probeSignature();
+    if (!probeRefreshDue(this.probeSig, sig, this.probeAge)) return;
+    this.probeSig = sig;
+    this.probeAge = 0;
+    if (this.quality.sceneProbe) {
+      this.probeJob ??= new IncrementalProbe(r);
+      this.probeAt ??= this.probePosition();
+      this.probeJob.start(this.probeAt);
+    } else {
+      const rt = buildEnvironmentMap(r, this.env);
+      if (rt) this.swapEnvironment(rt);
+    }
   }
 
   /**
@@ -408,14 +520,13 @@ export class RaceScene {
   private captureReflections(): void {
     if (this.gr.isContextLost()) return;
     this.applyLamps(1);
-    const hide: THREE.Object3D[] = [this.contactShadows.group, this.effects.smoke.points, this.effects.sparks.points, this.debris.mesh, this.rain.lines, this.racingLine.group, this.safetyCar.root];
-    for (const m of this.cars.values()) hide.push(m.root);
-    const probe: SceneProbe = { scene: this.scene, position: this.probePosition(), hide, shadowMapSize: this.shadowSize };
+    this.probeAt ??= this.probePosition();
+    const probe: SceneProbe = { scene: this.scene, position: this.probeAt, hide: this.probeHidden(), shadowMapSize: this.shadowSize };
+    // far shadows of the capture, then again at the race view on the next frame
+    this.renderFarCascade(probe.position, true);
     const rt = buildEnvironmentMap(this.gr.renderer, this.env, probe);
-    if (!rt) return;
-    this.envTarget?.dispose();
-    this.envTarget = rt;
-    this.scene.environment = rt.texture;
+    this.farCentre = null;
+    if (rt) this.swapEnvironment(rt);
   }
 
   /** The track sample nearest the circuit's centre that is open to the sky (no tunnel or bridge above), lifted PROBE_HEIGHT. */
@@ -479,6 +590,8 @@ export class RaceScene {
     // environment & weather
     const weather = frame.weather ?? { kind: 'clear', rain: 0, wetness: 0 };
     this.env.update(weather.kind, weather.rain, step, time);
+    // reflections follow the weather (before the view's haze override of the fog)
+    this.refreshReflections(step);
     this.scene.environmentIntensity = this.env.envIntensity;
     // with post, lamp heads go HDR so they clear the bloom threshold (direct rendering would only clip them)
     this.applyLamps(wantPost ? LAMP_HDR_GAIN : 1);
@@ -545,16 +658,19 @@ export class RaceScene {
     // OutputPass reads toneMappingExposure). Split-screen keeps direct scissor rendering of every view into its
     // own viewport: the chain is single-view only (one composer per view would double fill cost and target memory).
     const post = wantPost ? this.gr.postPipeline() : null;
+    this.look.ssr = 0;
     if (post) {
       const rain = Number.isFinite(weather.rain) ? weather.rain : 0;
       const view = list[0];
       bloomParams(this.ctx.timeOfDay, this.quality.level, this.env.cloud, rain, this.look.bloom);
       gradeParams(this.ctx.biome, this.ctx.timeOfDay, rain, this.look.grade);
-      this.look.vignette = this.quality.vignette ? VIGNETTE_STRENGTH : 0;
+      // one display LUT per time of day carries the look (split tone included) instead of stacked lens effects
+      this.look.grade.split = 0;
+      this.look.lut = this.ctx.timeOfDay;
+      this.look.lutAmount = lutAmount(rain);
+      this.look.vignette = 0;
+      this.look.grain = 0;
       this.look.ao = aoAmount(this.ctx.timeOfDay, this.quality.aoScale, this.env.cloud);
-      // lens artefacts belong to car-mounted / broadcast cameras, not to the cockpit view through the visor
-      this.look.chroma = view.camera === 'cockpit' ? 0 : LENS_CHROMA;
-      this.look.grain = LENS_GRAIN;
       this.look.sharpen = SHARPEN_BY_QUALITY[this.quality.level] ?? 0;
       // speed blur follows the viewed car; trackside TV cameras stand still, so they get none
       const target = this.stateById.get(view.carId) ?? this.fallbackTarget(frame);
@@ -574,12 +690,18 @@ export class RaceScene {
       hi.cloudOffset[0] = sky.cloudOffset.value.x;
       hi.cloudOffset[1] = sky.cloudOffset.value.y;
       hazeParams(hi, this.quality.aerialHaze, this.look.haze);
+      // wet track: screen-space reflections where the quality has them (the road writes its mask while they are on)
+      this.look.ssr = wetReflectionStrength(this.wetness, this.quality.wetReflections);
       post.setCloudMap(this.env.cloudTexture);
       if (this.look.haze.amount > 0) {
         this.env.fog.near = 1e8;
         this.env.fog.far = 1e9;
       }
     }
+    // far (static) shadow cascade around the first view, re-rendered only once that view has moved far enough
+    if (this.shadowSize > 0 && list.length > 0) this.renderFarCascade(this.viewFocus(list[0], 0, frame), false);
+    // the wet mask (alpha) is only written while this frame's post chain reads it
+    WET_REFLECTION.value = post ? this.look.ssr : 0;
     r.toneMappingExposure = this.env.exposure;
     r.setScissorTest(false);
     r.setViewport(0, 0, this.gr.width, this.gr.height);
@@ -594,8 +716,9 @@ export class RaceScene {
         r.setScissor(rect.x, rect.y, rect.w, rect.h);
         r.setScissorTest(true);
       }
-      // shadows follow each view's own target (the shadow box is only ±70 m)
+      // the near shadow cascade follows each view's own target
       if (this.shadowSize > 0) this.placeShadows(view, i, frame);
+      if (this.lampLights.length > 0) this.placeLampLights(this.viewFocus(view, i, frame));
       this.racingLine.setMode(this.viewLineModes[i] ?? this.lineMode);
       const cam = rig.camera;
       this.env.followCamera(cam);
@@ -613,13 +736,81 @@ export class RaceScene {
     r.setViewport(0, 0, this.gr.width, this.gr.height);
   }
 
-  /** Centre the sun's shadow map ahead of the view's target; re-render it unless the previous view's map covers it. */
-  private placeShadows(view: ViewSpec, index: number, frame: RenderFrame): void {
+  /** Shadow focus of a view: ahead of its target car (on the car for tv cameras), else its camera (written into this.focus). */
+  private viewFocus(view: ViewSpec, index: number, frame: RenderFrame): THREE.Vector3 {
     const t = this.stateById.get(view.carId) ?? this.fallbackTarget(frame);
     if (t && Number.isFinite(t.x)) {
       const ahead = view.camera === 'tv' ? 0 : 22;
       this.focus.set(t.x + Math.sin(t.yaw || 0) * ahead, Number.isFinite(t.y) ? t.y : 0, t.z + Math.cos(t.yaw || 0) * ahead);
     } else this.focus.copy(this.rigs[index]?.camera.position ?? this.focus);
+    return this.focus;
+  }
+
+  /**
+   * Render the far (static-only) sun cascade around `focus` when it is stale (or `force`). three's shadow pass draws the
+   * casters its view camera's layers allow, so a render with staticShadowCam (STATIC_SHADOW_LAYER only, empty frustum,
+   * 1 × 1 target) fills the far light's map with static scenery alone; the near map is held back meanwhile. Every light
+   * is on that layer too (tagLights), so the light set and therefore the compiled programs stay the same.
+   */
+  private renderFarCascade(focus: THREE.Vector3, force: boolean): void {
+    const far = this.env.sunFar;
+    const near = this.env.sun.shadow;
+    const r = this.gr.renderer;
+    if (!far.castShadow || this.farShadowSize <= 0 || !r.shadowMap.enabled || this.gr.isContextLost()) return;
+    if (!force && !farCascadeStale(this.farCentre, { x: focus.x, z: focus.z })) return;
+    this.env.placeFarShadow(focus, this.farShadowSize);
+    far.shadow.needsUpdate = true;
+    const pending = r.shadowMap.needsUpdate;
+    const nearAuto = near.autoUpdate;
+    const prevTarget = r.getRenderTarget();
+    near.autoUpdate = false;
+    near.needsUpdate = false;
+    r.shadowMap.needsUpdate = true;
+    try {
+      r.setRenderTarget(this.staticShadowTarget);
+      r.render(this.scene, this.staticShadowCam);
+    } finally {
+      r.setRenderTarget(prevTarget);
+      near.autoUpdate = nearAuto;
+      r.shadowMap.needsUpdate = pending;
+    }
+    this.farCentre = { x: focus.x, z: focus.z };
+  }
+
+  /** Hand the pooled lamp lights to the lamps nearest `focus` (pickLampLights), at the environment's lamp level. */
+  private placeLampLights(focus: THREE.Vector3): void {
+    const sites = this.ctx.lampSites;
+    pickLampLights(sites, focus.x, focus.z, this.lampSlots, this.lampScratch);
+    const level = this.env.lampLevel;
+    for (let i = 0; i < this.lampLights.length; i++) {
+      const light = this.lampLights[i];
+      const slot = this.lampSlots[i];
+      const site = slot.site >= 0 ? sites[slot.site] : undefined;
+      if (!site || slot.weight <= 0 || !(level > 0)) {
+        light.intensity = 0;
+        continue;
+      }
+      const k = site.tower ? LAMP_LIGHT.tower : LAMP_LIGHT.post;
+      light.color.copy(site.tower ? this.lampColors.tower : this.lampColors.post);
+      light.intensity = k.intensity * slot.weight * level;
+      light.angle = k.angle;
+      light.penumbra = k.penumbra;
+      light.position.set(site.x, site.y, site.z);
+      light.target.position.set(site.ax, site.ay, site.az);
+      light.target.updateMatrixWorld();
+    }
+  }
+
+  /** Put every light of the scene on STATIC_SHADOW_LAYER as well (see renderFarCascade). */
+  private tagLights(): void {
+    this.scene.traverse((o) => {
+      if ((o as THREE.Light).isLight) o.layers.enable(STATIC_SHADOW_LAYER);
+    });
+  }
+
+  /** Centre the near shadow cascade ahead of the view's target; re-render it unless the previous view's map covers it. */
+  private placeShadows(view: ViewSpec, index: number, frame: RenderFrame): void {
+    this.viewFocus(view, index, frame);
     if (index > 0 && this.focus.distanceToSquared(this.shadowFocus) < SHADOW_SHARE_DIST * SHADOW_SHARE_DIST) return;
     this.shadowFocus.copy(this.focus);
     this.env.placeSun(this.focus, this.shadowSize);
@@ -665,6 +856,10 @@ export class RaceScene {
     }
     this.scene.environment = null;
     this.scene.fog = null;
+    this.staticShadowTarget.dispose();
+    WET_REFLECTION.value = 0;
+    this.probeJob?.dispose();
+    this.probeJob = null;
     this.disposer.dispose();
     this.scene.clear();
     this.rigs.length = 0;

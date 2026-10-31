@@ -13,8 +13,10 @@ export const CAMERA_FAR = 6500;
 
 export interface QualityProfile {
   level: QualityLevel;
-  /** 0 = shadows off */
+  /** 0 = shadows off; edge of the near sun cascade (core/shadowCascades.ts) */
   shadowMapSize: number;
+  /** edge of the far, static-only sun cascade (0 = one cascade only; rendered on demand, not every frame) */
+  shadowFarMapSize: number;
   /** PCF filter radius of the sun shadow in shadow-map texels (soft penumbra; 1 = three's default) */
   shadowRadius: number;
   /** fraction of the full prop / crowd density (0..1) */
@@ -52,11 +54,21 @@ export interface QualityProfile {
    * instead of the scene's linear fog; split-screen and direct rendering keep the fog
    */
   aerialHaze: boolean;
+  /** SMAA after tone mapping in the post chain (on top of MSAA: shading, alpha-tested foliage, thin wires) */
+  smaa: boolean;
+  /** screen-space reflections on wet track surfaces in the post chain (else the reflection probe alone) */
+  wetReflections: boolean;
+  /**
+   * real spot lights from the trackside lamps nearest each view (core/lampLights.ts; dusk / night only; a fixed count
+   * per scene, so no shader recompiles); 0 = the lamps only glow and paint their pools
+   */
+  lampLights: number;
 }
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
   low: {
     level: 'low',
+    shadowFarMapSize: 0,
     shadowMapSize: 0,
     shadowRadius: 1,
     propDensity: 0.25,
@@ -75,9 +87,13 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     vignette: false,
     aoScale: 0,
     aerialHaze: false,
+    smaa: false,
+    wetReflections: false,
+    lampLights: 0,
   },
   medium: {
     level: 'medium',
+    shadowFarMapSize: 1024,
     shadowMapSize: 1024,
     shadowRadius: 1.5,
     propDensity: 0.5,
@@ -96,9 +112,13 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     vignette: true,
     aoScale: 0,
     aerialHaze: true,
+    smaa: false,
+    wetReflections: false,
+    lampLights: 0,
   },
   high: {
     level: 'high',
+    shadowFarMapSize: 2048,
     shadowMapSize: 2048,
     shadowRadius: 2.5,
     propDensity: 0.8,
@@ -117,9 +137,13 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     vignette: true,
     aoScale: 0.5,
     aerialHaze: true,
+    smaa: true,
+    wetReflections: false,
+    lampLights: 4,
   },
   ultra: {
     level: 'ultra',
+    shadowFarMapSize: 2048,
     shadowMapSize: 4096,
     shadowRadius: 3,
     propDensity: 1,
@@ -138,6 +162,9 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     vignette: true,
     aoScale: 0.75,
     aerialHaze: true,
+    smaa: true,
+    wetReflections: true,
+    lampLights: 6,
   },
 };
 

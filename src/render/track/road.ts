@@ -36,6 +36,60 @@ export interface RoadParts {
 /** Normal-map strength left at full wetness (standing water smooths the surface relief). */
 export const WET_NORMAL_SCALE = 0.35;
 
+/**
+ * Screen-space wet reflections (post chain, quality wetReflections): RaceScene sets this to the track wetness while
+ * they are on, else 0. Wet materials then write their reflectivity into the alpha channel of the HDR scene target
+ * (alpha = 1 − reflectivity; every other material writes 1), which the reflection pass reads as its mask.
+ */
+export const WET_REFLECTION: THREE.IUniform<number> = { value: 0 };
+/** Reflectivity share per wet surface at full wetness: asphalt mirrors most, painted lines / kerbs less, grass none. */
+export const WET_REFLECT_SHARE = { asphalt: 1, runoffAsphalt: 0.85, kerb: 0.65, paint: 0.6, grass: 0 } as const;
+/** Standing water collects in patches: the mask varies by ±WET_PATCH_DEPTH over cells of WET_PATCH_SIZE metres. */
+export const WET_PATCH_SIZE = 7;
+export const WET_PATCH_DEPTH = 0.45;
+
+/** Writes the wet-reflection mask into the fragment alpha (chains behind an existing onBeforeCompile patch). */
+function applyWetReflectionMask(material: THREE.MeshStandardMaterial, share: number): void {
+  if (share <= 0) return;
+  const prev = material.onBeforeCompile;
+  const prevKey = material.customProgramCacheKey;
+  const f = (v: number): string => v.toFixed(4);
+  material.onBeforeCompile = (sh, renderer) => {
+    prev.call(material, sh, renderer);
+    sh.uniforms.wetReflection = WET_REFLECTION;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vWetXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vWetXZ = ( modelMatrix * vec4( transformed, 1.0 ) ).xz;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+uniform float wetReflection;
+varying vec2 vWetXZ;
+float wetHash( vec2 p ) {
+  vec3 p3 = fract( vec3( p.xyx ) * 0.1031 );
+  p3 += dot( p3, p3.yzx + 33.33 );
+  return fract( ( p3.x + p3.y ) * p3.z );
+}
+float wetPatches( vec2 p ) {
+  vec2 i = floor( p );
+  vec2 u = fract( p );
+  u = u * u * ( 3.0 - 2.0 * u );
+  return mix( mix( wetHash( i ), wetHash( i + vec2( 1.0, 0.0 ) ), u.x ), mix( wetHash( i + vec2( 0.0, 1.0 ) ), wetHash( i + vec2( 1.0 ) ), u.x ), u.y );
+}`,
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `#include <dithering_fragment>
+  if ( wetReflection > 0.0 ) {
+    float wetPatch = 1.0 - ${f(WET_PATCH_DEPTH)} + ${f(WET_PATCH_DEPTH)} * wetPatches( vWetXZ * ${f(1 / WET_PATCH_SIZE)} );
+    gl_FragColor.a = 1.0 - clamp( wetReflection * ${f(share)} * wetPatch, 0.0, 0.98 );
+  }`,
+      );
+  };
+  material.customProgramCacheKey = () => `${prevKey.call(material)}|wet-mask-${share}`;
+}
+
 /** Rubbered racing line: base laid-down rubber, extra in braking zones / corners (0..1 intensity, see rubberIntensity). */
 export const RUBBER_BASE = 0.45;
 /** Look-ahead (m) and speed drop (m/s) over it that count as a full braking zone. */
@@ -145,8 +199,9 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   const group = new THREE.Group();
   group.name = 'road';
   const wetMaterials: RoadParts['wetMaterials'] = [];
-  const addWet = (m: THREE.MeshStandardMaterial, dry: number, wet: number): void => {
+  const addWet = (m: THREE.MeshStandardMaterial, dry: number, wet: number, reflect: number): void => {
     wetMaterials.push({ material: m, dryRoughness: dry, wetRoughness: wet, dryColor: m.color.clone(), ...(m.normalMap ? { dryNormalScale: m.normalScale.x } : {}) });
+    applyWetReflectionMask(m, reflect);
   };
   const detail = ctx.quality.surfaceDetail;
   const pitSide = f.pitSign;
@@ -209,7 +264,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     roadMat.roughnessMap = disposer.add(detailRepeat(asphaltDetail.roughness, ASPHALT_DETAIL_REPEAT));
   }
   applyRubberShader(roadMat);
-  addWet(roadMat, 0.92, 0.22);
+  addWet(roadMat, 0.92, 0.22, WET_REFLECT_SHARE.asphalt);
   const roadGeo = road.build();
   if (roadGeo) {
     roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 3));
@@ -316,7 +371,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
       kerbMat.normalMap = disposer.add(kerbNormalTexture(ctx.anisotropy));
       kerbMat.normalScale.setScalar(0.8);
     }
-    addWet(kerbMat, 0.7, 0.2);
+    addWet(kerbMat, 0.7, 0.2, WET_REFLECT_SHARE.kerb);
     const m = new THREE.Mesh(kerbGeo, kerbMat);
     m.receiveShadow = true;
     m.name = 'kerbs';
@@ -396,7 +451,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     const mat = disposer.add(runoffMats[idx]);
     if (!g) return;
     disposer.add(g);
-    if (idx !== 1) addWet(mat, mat.roughness, idx === 0 ? 0.6 : 0.3);
+    if (idx !== 1) addWet(mat, mat.roughness, idx === 0 ? 0.6 : 0.3, idx === 0 ? WET_REFLECT_SHARE.grass : WET_REFLECT_SHARE.runoffAsphalt);
     const m = new THREE.Mesh(g, mat);
     m.receiveShadow = true;
     m.name = mat.name;
@@ -509,7 +564,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     const paintMat = disposer.add(
       new THREE.MeshStandardMaterial({ name: 'paint', vertexColors: true, roughness: 0.6, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
     );
-    addWet(paintMat, 0.6, 0.18);
+    addWet(paintMat, 0.6, 0.18, WET_REFLECT_SHARE.paint);
     const m = new THREE.Mesh(paintGeo, paintMat);
     m.receiveShadow = true;
     m.name = 'paint';

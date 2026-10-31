@@ -10,7 +10,10 @@
 import * as THREE from 'three';
 import type { Biome, TimeOfDay, WeatherKind } from '../core/types';
 import { clamp01, damp, lerp } from '../core/math';
+import { PROBE_FACES_PER_FRAME } from './core/probeRefresh';
 import { CAMERA_FAR } from './core/quality';
+import { FAR_CASCADE_HALF, FAR_SHADOW, NEAR_CASCADE_HALF, STATIC_SHADOW_LAYER } from './core/shadowCascades';
+import { installSunCascadeShader } from './core/sunCascadeShader';
 import { cloudNoiseTexture } from './core/surfaceTextures';
 
 interface TimePreset {
@@ -327,8 +330,9 @@ const FLOOD_SUN_COLOR = '#f4f1ea';
 const FLOOD_HEMI_SKY = '#b3bddc';
 
 /**
- * Sun shadow camera. The key light sits SUN_DISTANCE (400 m) from the focus along the sun direction, so everything that
- * can shade the ±70 m box (terrain relief, towers up to ~250 m) lies between 100 m and 650 m from the camera. An ortho
+ * Sun shadow camera (near cascade, see core/shadowCascades.ts). The key light sits SUN_DISTANCE (400 m) from the focus
+ * along the sun direction, so everything that can shade the ±NEAR_CASCADE_HALF box (terrain relief, towers up to
+ * ~250 m) lies between 100 m and 650 m from the camera. An ortho
  * depth bias is `bias × (far − near)` metres: 0.00015 × 550 m = 8 cm (it was 0.0004 × 899 m = 36 cm, which let the tyres
  * float above their shadow). normalBias covers the acne a smaller bias would bring back.
  */
@@ -346,6 +350,11 @@ export class Environment {
   readonly sky: THREE.Mesh;
   readonly skyMaterial: THREE.ShaderMaterial & { uniforms: SkyUniforms };
   readonly sun: THREE.DirectionalLight;
+  /**
+   * Far shadow cascade of the sun: a black (intensity 0) directional light whose shadow camera only sees
+   * STATIC_SHADOW_LAYER; sunCascadeShader.ts makes the sun use its map beyond the near box. Casts only when enabled.
+   */
+  readonly sunFar: THREE.DirectionalLight;
   readonly hemi: THREE.HemisphereLight;
   readonly fog: THREE.Fog;
   /** unit vector towards the key light */
@@ -376,6 +385,11 @@ export class Environment {
   /** tileable cloud noise sampled by the sky shader (also shared with the PMREM sky copy) */
   readonly cloudTexture: THREE.Texture | null;
   private rain = 0;
+
+  /** current smoothed rain 0..1 (reflection probe refresh) */
+  get rainLevel(): number {
+    return this.rain;
+  }
   /** biome extras: added clear-sky cloud cover and fog distance multiplier */
   private readonly biomeCloud: number;
   private readonly biomeFog: number;
@@ -422,12 +436,28 @@ export class Environment {
     this.sun.shadow.bias = SUN_SHADOW.bias;
     this.sun.shadow.normalBias = SUN_SHADOW.normalBias;
     const sc = this.sun.shadow.camera;
-    sc.left = -70;
-    sc.right = 70;
-    sc.top = 70;
-    sc.bottom = -70;
+    sc.left = -NEAR_CASCADE_HALF;
+    sc.right = NEAR_CASCADE_HALF;
+    sc.top = NEAR_CASCADE_HALF;
+    sc.bottom = -NEAR_CASCADE_HALF;
     sc.near = SUN_SHADOW.near;
     sc.far = SUN_SHADOW.far;
+    installSunCascadeShader();
+    this.sunFar = new THREE.DirectionalLight(0xffffff, 0);
+    this.sunFar.name = 'sunFarCascade';
+    this.sunFar.position.copy(this.sunDir).multiplyScalar(FAR_SHADOW.distance);
+    this.sunFar.shadow.bias = FAR_SHADOW.bias;
+    this.sunFar.shadow.normalBias = FAR_SHADOW.normalBias;
+    // rendered on demand only (RaceScene sets needsUpdate when the view has moved far enough)
+    this.sunFar.shadow.autoUpdate = false;
+    const fc = this.sunFar.shadow.camera;
+    fc.left = -FAR_CASCADE_HALF;
+    fc.right = FAR_CASCADE_HALF;
+    fc.top = FAR_CASCADE_HALF;
+    fc.bottom = -FAR_CASCADE_HALF;
+    fc.near = FAR_SHADOW.near;
+    fc.far = FAR_SHADOW.far;
+    fc.layers.set(STATIC_SHADOW_LAYER);
     this.hemi = new THREE.HemisphereLight(this.base.hemiSky.clone(), this.base.hemiGround.clone(), p.hemiIntensity);
     this.hemi.name = 'hemi';
     this.fog = new THREE.Fog(this.base.horizon.clone(), p.fogNear, p.fogFar);
@@ -486,6 +516,7 @@ export class Environment {
     const dimK = night ? 0.25 : 0.72;
     this.sun.intensity = p.sunIntensity * (1 + FLOOD_SUN_GAIN * this.flood) * (1 - dimK * c);
     this.sun.shadow.intensity = 1 - (night ? 0.3 : 0.65) * c;
+    this.sunFar.shadow.intensity = this.sun.shadow.intensity;
     this.hemi.intensity = p.hemiIntensity * (1 + FLOOD_HEMI_GAIN * this.flood) * (1 + 0.18 * c);
     this.hemi.color.copy(this.base.hemiSky).lerp(this.tmp.set('#c4c8cf'), night ? 0.1 * c : 0.6 * c);
     this.hemi.groundColor.copy(this.base.hemiGround);
@@ -505,13 +536,21 @@ export class Environment {
   }
 
   /**
-   * Position the key light so its ±70 m shadow box is centred on `focus`, snapped to shadow-map texels to
-   * avoid shimmering.
+   * Position the key light so its ±NEAR_CASCADE_HALF shadow box (near cascade) is centred on `focus`, snapped to
+   * shadow-map texels to avoid shimmering.
    */
   placeSun(focus: THREE.Vector3, shadowMapSize: number): void {
+    this.placeShadowLight(this.sun, NEAR_CASCADE_HALF, SUN_DISTANCE, focus, shadowMapSize);
+  }
+
+  /** Centre the far cascade's ±FAR_CASCADE_HALF box on `focus` (texel-snapped); the caller re-renders its map. */
+  placeFarShadow(focus: THREE.Vector3, shadowMapSize: number): void {
+    this.placeShadowLight(this.sunFar, FAR_CASCADE_HALF, FAR_SHADOW.distance, focus, shadowMapSize);
+  }
+
+  private placeShadowLight(light: THREE.DirectionalLight, half: number, distance: number, focus: THREE.Vector3, shadowMapSize: number): void {
     const size = Math.max(256, shadowMapSize || 2048);
-    const texel = 140 / size;
-    const light = this.sun;
+    const texel = (2 * half) / size;
     // snap in light space
     const up = Math.abs(this.sunDir.y) > 0.99 ? _x : _y;
     _right.crossVectors(up, this.sunDir).normalize();
@@ -521,7 +560,7 @@ export class Environment {
     const c = focus.dot(this.sunDir);
     _f.copy(_right).multiplyScalar(a).addScaledVector(_up, b).addScaledVector(this.sunDir, c);
     light.target.position.copy(_f);
-    light.position.copy(_f).addScaledVector(this.sunDir, SUN_DISTANCE);
+    light.position.copy(_f).addScaledVector(this.sunDir, distance);
     light.target.updateMatrixWorld();
     light.updateMatrixWorld();
   }
@@ -532,6 +571,8 @@ export class Environment {
     this.cloudTexture?.dispose();
     this.sun.shadow.map?.dispose();
     this.sun.dispose();
+    this.sunFar.shadow.map?.dispose();
+    this.sunFar.dispose();
     this.hemi.dispose();
   }
 }
@@ -629,6 +670,99 @@ function captureSceneProbe(renderer: THREE.WebGLRenderer, env: Environment, prob
     for (const m of mats) m.dispose();
   }
   return rt;
+}
+
+/**
+ * A scene-probe capture spread over frames (the one-shot capture costs ~20 ms): each step() renders
+ * PROBE_FACES_PER_FRAME cube faces of the race scene from the probe point (the probe's hidden objects hidden, the sky
+ * dome moved to the probe, floodlight panels at night, the shadow maps as they are), and the step after the sixth face
+ * turns the cube into a PMREM map and returns it (the caller swaps it in and disposes the old one).
+ */
+export class IncrementalProbe {
+  private readonly cubeTarget: THREE.WebGLCubeRenderTarget;
+  private readonly cube: THREE.CubeCamera;
+  private readonly pmrem: THREE.PMREMGenerator;
+  private readonly panelGeos: THREE.BufferGeometry[] = [];
+  private readonly panelMats: THREE.Material[] = [];
+  private panels: THREE.Group | null = null;
+  /** next face to render (0..5), 6 = PMREM pending, -1 = idle */
+  private face = -1;
+
+  constructor(renderer: THREE.WebGLRenderer) {
+    this.cubeTarget = new THREE.WebGLCubeRenderTarget(ENV_MAP_SIZE, { type: THREE.HalfFloatType, generateMipmaps: false });
+    this.cubeTarget.texture.name = 'probe.cube';
+    this.cube = new THREE.CubeCamera(0.5, CAMERA_FAR, this.cubeTarget);
+    this.cube.coordinateSystem = renderer.coordinateSystem;
+    this.cube.updateCoordinateSystem();
+    this.pmrem = new THREE.PMREMGenerator(renderer);
+    this.pmrem.compileCubemapShader();
+  }
+
+  get running(): boolean {
+    return this.face >= 0;
+  }
+
+  /** Begin a capture at `position` (restarts one in progress). */
+  start(position: THREE.Vector3): void {
+    this.cube.position.copy(position);
+    this.cube.updateMatrixWorld(true);
+    this.face = 0;
+  }
+
+  /** Abandon a capture in progress (e.g. the context was lost). */
+  cancel(): void {
+    this.face = -1;
+  }
+
+  /** Advance the capture; returns the finished PMREM map on its last step, else null. */
+  step(renderer: THREE.WebGLRenderer, env: Environment, probe: SceneProbe): THREE.WebGLRenderTarget | null {
+    if (this.face < 0) return null;
+    if (this.face >= 6) {
+      this.face = -1;
+      try {
+        return this.pmrem.fromCubemap(this.cubeTarget.texture);
+      } catch (err) {
+        console.warn('render: reflection probe refresh failed', err);
+        return null;
+      }
+    }
+    const visible = probe.hide.map((o) => o.visible);
+    for (const o of probe.hide) o.visible = false;
+    const skyPos = env.sky.position.clone();
+    env.sky.position.copy(this.cube.position);
+    env.sky.updateMatrixWorld();
+    if (env.preset.lamps > 0.5) {
+      this.panels ??= floodlightPanels(new THREE.Vector3(), 60, 6, this.panelGeos, this.panelMats);
+      this.panels.position.copy(this.cube.position);
+      this.panels.updateMatrixWorld(true);
+      probe.scene.add(this.panels);
+    }
+    const prevTarget = renderer.getRenderTarget();
+    const prevFace = renderer.getActiveCubeFace();
+    const prevLevel = renderer.getActiveMipmapLevel();
+    try {
+      for (let k = 0; k < PROBE_FACES_PER_FRAME && this.face < 6; k++, this.face++) {
+        renderer.setRenderTarget(this.cubeTarget, this.face);
+        renderer.clear(true, true, false);
+        renderer.render(probe.scene, this.cube.children[this.face] as THREE.Camera);
+      }
+    } finally {
+      renderer.setRenderTarget(prevTarget, prevFace, prevLevel);
+      if (this.panels) probe.scene.remove(this.panels);
+      probe.hide.forEach((o, i) => (o.visible = visible[i]));
+      env.sky.position.copy(skyPos);
+      env.sky.updateMatrixWorld();
+    }
+    return null;
+  }
+
+  dispose(): void {
+    this.face = -1;
+    this.cubeTarget.dispose();
+    this.pmrem.dispose();
+    for (const g of this.panelGeos) g.dispose();
+    for (const m of this.panelMats) m.dispose();
+  }
 }
 
 /**

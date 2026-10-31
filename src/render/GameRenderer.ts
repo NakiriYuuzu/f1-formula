@@ -32,7 +32,7 @@ export class GameRenderer {
   /** the GPU can render to half-float targets (required by the HDR post chain) */
   private readonly postSupported: boolean;
   private post: PostPipeline | null = null;
-  /** contextVersion | samples | bloom scale | AO scale | haze the current chain was built for */
+  /** contextVersion | samples | bloom scale | AO scale | haze | SMAA | wet reflections the current chain was built for */
   private postKey = '';
   /** sizeVersion the current chain was sized for */
   private postSizeVersion = -1;
@@ -175,10 +175,12 @@ export class GameRenderer {
     const bloomScale = this.quality.bloomScale;
     const aoScale = this.quality.aoScale;
     const haze = this.quality.aerialHaze;
-    const key = `${this.contextVersion}|${samples}|${bloomScale}|${aoScale}|${haze}`;
+    const smaa = this.quality.smaa;
+    const ssr = this.quality.wetReflections;
+    const key = `${this.contextVersion}|${samples}|${bloomScale}|${aoScale}|${haze}|${smaa}|${ssr}`;
     if (!this.post || key !== this.postKey) {
       this.releasePost();
-      this.post = new PostPipeline(this.renderer, { samples, bloomScale, aoScale, haze });
+      this.post = new PostPipeline(this.renderer, { samples, bloomScale, aoScale, haze, smaa, ssr });
       this.postKey = key;
     }
     if (this.postSizeVersion !== this.sizeVersion) {

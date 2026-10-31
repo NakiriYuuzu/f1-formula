@@ -1,6 +1,6 @@
 /**
  * Post-processing look + adaptive resolution: every tunable of the post chain (ambient occlusion, aerial perspective,
- * selective bloom, colour grade, vignette, speed blur, lens chromatic aberration, film grain) and of the frame-time controller as
+ * selective bloom, colour grade, vignette, speed blur, film grain, the display LUT of the time of day) and of the frame-time controller as
  * named constants, plus the pure helpers that turn time of day /
  * biome / weather / quality into a PostLook (no three.js, no DOM: unit-tested headless). postPipeline.ts applies a
  * PostLook to the GPU passes; GameRenderer drives AdaptiveResolution.
@@ -79,14 +79,17 @@ export interface PostLook {
   speedBlur: number;
   /** ambient-occlusion blend 0..1 (0 = off; only where the pipeline was built with AO) */
   ao: number;
-  /** lateral chromatic aberration at the corners (UV fraction, 0 = off) */
-  chroma: number;
   /** film grain amplitude (multiplicative ±, 0 = off) */
   grain: number;
   /** unsharp-mask amount (0 = off): crisper texture detail after the MSAA resolve */
   sharpen: number;
   /** aerial perspective (only where the pipeline resolves the scene depth) */
   haze: HazeParams;
+  /** screen-space wet-road reflections 0..1 (only where the pipeline was built with them; the mask comes from the scene) */
+  ssr: number;
+  /** display LUT grade of this time of day after tone mapping (lutGrade.ts; null = none) and its strength 0..1 */
+  lut: TimeOfDay | null;
+  lutAmount: number;
 }
 
 // ───────────────────────────── pipeline ─────────────────────────────
@@ -159,10 +162,29 @@ export interface HazeInput {
   cloudOffset: [number, number];
 }
 
+// ───────────────────────────── wet reflections ─────────────────────────────
+
+/** Ray-march steps of the screen-space wet reflections, growth of each step and the longest traced path (m). */
+export const SSR_STEPS = 28;
+export const SSR_STEP_GROWTH = 1.16;
+export const SSR_MAX_DIST = 90;
+/** Mirror-normal jitter (rad-ish) of the water film: soft, slightly streaked reflections. */
+export const SSR_ROUGH = 0.018;
+/** Reflections fade out within this UV distance of the screen edge (the ray left the screen there). */
+export const SSR_FADE_EDGE = 0.08;
+/** Blend strength at full wetness (× the surface's reflectivity mask × Fresnel × hit confidence). */
+export const SSR_STRENGTH = 1;
+/** Trace resolution relative to the drawing buffer. */
+export const SSR_SCALE = 0.5;
+
+/** Wet-reflection strength for the track wetness 0..1 (0 when the quality has none). */
+export function wetReflectionStrength(wetness: number, enabled: boolean): number {
+  if (!enabled || !Number.isFinite(wetness)) return 0;
+  return SSR_STRENGTH * smoothstep(0.08, 0.6, wetness);
+}
+
 // ───────────────────────────── lens ─────────────────────────────
 
-/** Lateral chromatic aberration at the screen corners (UV fraction toward the centre; red in, blue out). */
-export const LENS_CHROMA = 0.0022;
 /** Film grain amplitude (± fraction of the linear colour; also dithers sky gradients against banding). */
 export const LENS_GRAIN = 0.03;
 
@@ -226,8 +248,6 @@ export const GRADE_LIFT_RANGE = 0.3;
 
 // ───────────────────────────── vignette ─────────────────────────────
 
-/** Corner darkening of race views (multiplier 1 − strength at the corners). */
-export const VIGNETTE_STRENGTH = 0.22;
 /** Normalised radius where the vignette starts (1 = screen corner; 16:9 edge centres sit at ~0.49 / ~0.87). */
 export const VIGNETTE_START = 0.45;
 
@@ -293,9 +313,11 @@ export function createPostLook(): PostLook {
     vignette: 0,
     speedBlur: 0,
     ao: 0,
-    chroma: 0,
     grain: 0,
     sharpen: 0,
+    ssr: 0,
+    lut: null,
+    lutAmount: 0,
     haze: {
       amount: 0,
       density: 0,
@@ -416,10 +438,12 @@ export function showroomLook(quality: QualityLevel, vignette: boolean, out: Post
   out.vignette = vignette ? SHOWROOM_VIGNETTE : 0;
   out.speedBlur = 0;
   out.ao = ao ? SHOWROOM_AO : 0;
-  out.chroma = 0;
+  out.lut = null;
+  out.lutAmount = 0;
   out.grain = vignette ? LENS_GRAIN * 0.5 : 0;
   out.sharpen = SHARPEN_BY_QUALITY[quality] ?? 0;
   out.haze.amount = 0;
+  out.ssr = 0;
   return out;
 }
 
