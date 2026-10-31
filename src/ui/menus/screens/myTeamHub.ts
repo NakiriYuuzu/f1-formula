@@ -13,7 +13,7 @@ import {
 } from '../../../meta/myTeam';
 import { isSeasonComplete } from '../../../meta/career';
 import { findLayout, listLayouts } from '../../../meta/options';
-import { driverName, MY_TEAM_ID, PLAYER_DRIVER_ID } from '../../../meta/roster';
+import { driverName, identColor, MY_TEAM_ID, PLAYER_DRIVER_ID } from '../../../meta/roster';
 import { createCalendar, seasonWeekend, standingPosition, teamStandings } from '../../../meta/season';
 import { loadMyTeam, loadProfile, loadSetup, saveMyTeam, saveProfile } from '../../../meta/save';
 import { h, setChildren } from '../dom';
@@ -116,7 +116,7 @@ export class MyTeamHubScreen extends Screen {
       h(
         'div',
         { class: 'nvm-hub__id' },
-        teamChip(team.livery.primary),
+        teamChip(identColor(team.livery)),
         h('div', null, h('b', { text: `${driverName(save.driver)}・#${save.driver.number}` }), h('small', { text: `第 ${save.season} 季・動力單元 ${team.powerUnit}` })),
       ),
       h(

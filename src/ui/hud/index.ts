@@ -49,6 +49,7 @@ import { Minimap } from './minimap';
 import { NET_PANEL_KEY, NetPanel, netPanelRows, type NetDiagnostics } from './netPanel';
 import { estimatePitLoss } from '../../race/index';
 import { RETIRE_BY_CHOICE } from '../../race/index';
+import { identColor } from '../../meta/roster';
 import { PauseMenu } from './pauseMenu';
 import type { MenuDirection, PauseItem } from './pauseMenu';
 import { RaceControlStrip, sectorFlagLabel } from './raceControl';
@@ -688,7 +689,8 @@ export class HudLayer {
           for (const v of this.views) v.radio.push(ev.text, RADIO_FALLBACK_COLOR);
         } else {
           const v = this.viewByCar.get(ev.carId);
-          if (v) v.radio.push(ev.text, safeColor(world.cars[ev.carId]?.livery?.primary, RADIO_FALLBACK_COLOR));
+          const livery = world.cars[ev.carId]?.livery;
+          if (v) v.radio.push(ev.text, safeColor(livery && identColor(livery), RADIO_FALLBACK_COLOR));
         }
         break;
       }

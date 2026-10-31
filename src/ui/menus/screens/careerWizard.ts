@@ -5,7 +5,7 @@
 import type { Assists, TeamDef } from '../../../core/types';
 import { careerTakenNumbers, createCareer } from '../../../meta/career';
 import { listLayouts } from '../../../meta/options';
-import { driverName, rosterTeams, standardRoster, type PlayerIdentity } from '../../../meta/roster';
+import { driverName, identColor, rosterTeams, standardRoster, type PlayerIdentity } from '../../../meta/roster';
 import { loadProfile, saveCareer, saveProfile } from '../../../meta/save';
 import { DEFAULT_SEASON_SETTINGS, type SeasonSettings } from '../../../meta/season';
 import { identityForm } from '../components/forms';
@@ -122,7 +122,7 @@ export class CareerWizardScreen extends Screen {
       const r = team.rating;
       setChildren(
         info,
-        h('div', { class: 'nvm-float__head' }, teamChip(team.livery.primary), h('b', { text: team.name })),
+        h('div', { class: 'nvm-float__head' }, teamChip(identColor(team.livery)), h('b', { text: team.name })),
         statBar('空力', (r.aero - 0.8) / 0.2, String(Math.round(r.aero * 100))),
         statBar('動力', (r.power - 0.8) / 0.2, String(Math.round(r.power * 100))),
         statBar('底盤', (r.chassis - 0.8) / 0.2, String(Math.round(r.chassis * 100))),
@@ -136,7 +136,7 @@ export class CareerWizardScreen extends Screen {
         {
           class: `nvm-pick${team.id === this.teamId ? ' is-selected' : ''}`,
           attrs: { type: 'button', 'data-sound': 'confirm' },
-          style: { '--team': team.livery.primary, '--team-2': team.livery.secondary },
+          style: { '--team': identColor(team.livery), '--team-2': team.livery.secondary },
           on: {
             focus: () => {
               this.teamId = team.id;
@@ -154,7 +154,7 @@ export class CareerWizardScreen extends Screen {
             },
           },
         },
-        teamChip(team.livery.primary),
+        teamChip(identColor(team.livery)),
         h('span', { class: 'nvm-pick__name', text: team.name }),
         h('span', { class: 'nvm-pick__tag', text: `${Math.round(((team.rating.aero + team.rating.power + team.rating.chassis) / 3) * 100)}` }),
       ),

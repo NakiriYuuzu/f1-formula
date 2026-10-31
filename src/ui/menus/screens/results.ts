@@ -8,7 +8,7 @@ import { formatGap, formatLapTime } from '../../../core/math';
 import type { SessionContext } from '../../../meta/context';
 import type { ProgressOutcome } from '../../../meta/progression';
 import { findLayout } from '../../../meta/options';
-import { driverName } from '../../../meta/roster';
+import { driverName, identColor } from '../../../meta/roster';
 import { pointsForRow } from '../../../meta/season';
 import { requestForKind, requestFromConfig, type QualifyingEntry } from '../../../meta/sessionBuilder';
 import { STORY_CHAPTERS } from '../../../meta/story';
@@ -118,7 +118,8 @@ export class ResultsScreen extends Screen {
 
   private carColor(carId: number, teamId: string): string {
     const car = carId >= 0 ? this.d.world.cars[carId] : undefined;
-    return car ? car.livery.primary : (this.team(teamId)?.livery.primary ?? '#888888');
+    const team = this.team(teamId);
+    return car ? identColor(car.livery) : team ? identColor(team.livery) : '#888888';
   }
 
   private buildPodium(): ShowroomCar[] {

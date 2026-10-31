@@ -104,6 +104,9 @@ export interface Livery {
   /** roster packs: colours of individual parts */
   parts?: LiveryParts;
   finish?: LiveryFinish;
+  /** roster packs: the team's colour on the HUD and in the menus (timing tower, minimap, chips, radio), for teams whose
+   *  bodywork shares its primary with another team (white / silver cars); the car keeps its livery. Default primary. */
+  ident?: string;
 }
 
 export interface TeamDef {

@@ -650,6 +650,9 @@ AI 車固定使用：ABS 開、TC 中、自排、ERS 與 DRS 輔助開、進站�
   選填的部位顏色（`Livery.parts`，名單檔用）再蓋在圖樣上：鼻錐（座艙前方整段）、引擎蓋（座艙後方頂部，連同鯊魚鰭底色）、側箱（後軸前 0.3 m 到座艙前緣的兩側）、下緣（整台車兩側下緣，碳纖底部之上）。
 - 色票區：上排 9 個純色（主色、副色、點綴色、碳纖、金屬、面罩、黑、白、緞面碳纖）給碳纖件、金屬件等使用；下排 4 個部位色（Halo、前翼端板與上層翼片、尾翼端板、尾翼可動片），沒設定時分別沿用主色、主色、主色、副色，外觀與以前相同。
 - 質感（`Livery.finish`）：亮面（預設）、緞面（粗糙度 ×1.6、清漆 ×0.4）、霧面（粗糙度 ×2.3、無清漆），作用在該車整個塗裝材質。
+- 辨識色（`Livery.ident`，選填，名單檔用；`meta/roster.ts` 的 `identColor`，沒有時用主色）：車隊在介面上的顏色——排名塔色條、小地圖車點、
+  無線電、選單與線上大廳的車隊色塊、車隊卡片左緣。車身塗裝不受影響（維修格、觀眾等 3D 場景仍用主色）。內建 2026 陣容採 F1 轉播隊色，
+  但 Alpine（粉紅）、Haas（白）、Audi（鈦灰）改用車上另一色，避免與其他隊的紅／灰相撞；同一名單內各隊辨識色的 OKLab 距離至少 0.1。
 - 鯊魚鰭面板：側面投影，兩側文字都正向可讀。
 - 頭盔包覆區：頭盔三色、頭頂帽、側邊色塊。
 - 文字：鼻錐車號、兩側側箱的 3 字母車隊代碼。
@@ -932,7 +935,7 @@ for (const l of LAYOUTS) {
 |---|---|
 | `format` | 必須是 `"formula-nova-roster"` |
 | `name` | 名單名稱（最多 40 字） |
-| `teams` | 1–11 支（加上我的車隊共 12 個維修格）；`id` 小寫英數字或 `-`、`shortName` 3 個大寫字母且不重複、`livery` 三色 `#rrggbb`（`pattern` 選填；`parts` 選填：`nose`／`engineCover`／`sidepods`／`lower`／`halo`／`frontWing`／`rearWing`／`rearFlap` 各一色；`finish` 選填：`gloss`／`satin`／`matte`）、`powerUnit`、`rating` 四項（限制在 0.8–1）、`driverIds` 2 位不同車手 |
+| `teams` | 1–11 支（加上我的車隊共 12 個維修格）；`id` 小寫英數字或 `-`、`shortName` 3 個大寫字母且不重複、`livery` 三色 `#rrggbb`（`pattern` 選填；`parts` 選填：`nose`／`engineCover`／`sidepods`／`lower`／`halo`／`frontWing`／`rearWing`／`rearFlap` 各一色；`finish` 選填：`gloss`／`satin`／`matte`；`ident` 選填：介面辨識色 `#rrggbb`）、`powerUnit`、`rating` 四項（限制在 0.8–1）、`driverIds` 2 位不同車手 |
 | `drivers` | 正選 + 候補（`teamId` 留空，1–12 位，我的車隊要從候補簽隊友）；縮寫與國籍 3 個大寫字母、車號 1–99，縮寫與車號全名單不重複；`skill` 五項 0–1、`helmet` 三色 |
 | `powerUnits` | 選填：我的車隊可選的動力單元（1–8 個，`power`／`reliability` 限制在 0.85–0.97、`cost` 1–15 M）；省略時用內建的 4 家 |
 

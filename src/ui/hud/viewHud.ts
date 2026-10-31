@@ -13,6 +13,7 @@ import { Banner, RadioPanel, ToastStack } from './feed';
 import type { Tone } from './feed';
 import { HintStrip } from './hintStrip';
 import { DAMAGE_PART_LABEL, fin, safeColor } from './labels';
+import { identColor } from '../../meta/roster';
 import { MfdPanel } from './mfd';
 import { FlagStack } from './raceControl';
 import { TelemetryPanel, type FuelEstimator } from './telemetry';
@@ -242,6 +243,6 @@ class WatchCard {
     this.name.set(`${car.abbr}　${car.displayName}`);
     this.team.set(world.config.teams.find((t) => t.id === car.teamId)?.name ?? '');
     this.human.set(car.playerIndex >= 0);
-    this.color.set(safeColor(car.livery?.primary));
+    this.color.set(safeColor(car.livery && identColor(car.livery)));
   }
 }

@@ -9,7 +9,7 @@ import type { Assists, CarSetup, PlayerIndex, SessionConfig, SessionResult } fro
 import { DEFAULT_ASSISTS, DEFAULT_SETUP } from '../core/defaults';
 import { sanitizeAssists, sanitizeSetup } from '../meta/guards';
 import { ROSTER_ENTRY, sanitizeOnlineEntry, type OnlineEntry } from '../meta/onlineEntry';
-import { driverName, type Roster } from '../meta/roster';
+import { driverName, identColor, type Roster } from '../meta/roster';
 import {
   PROTOCOL_VERSION,
   decodeMessage,
@@ -28,7 +28,7 @@ const PING_MS = 2000;
 
 export function lobbyRoster(roster: Roster): LobbyRoster {
   return {
-    teams: roster.teams.map((t) => ({ id: t.id, name: t.shortName || t.name, color: t.livery?.primary ?? '#888888' })),
+    teams: roster.teams.map((t) => ({ id: t.id, name: t.shortName || t.name, color: t.livery ? identColor(t.livery) : '#888888' })),
     drivers: roster.drivers.filter((d) => d.teamId !== '').map((d) => ({ id: d.id, name: driverName(d), teamId: d.teamId })),
   };
 }
@@ -46,7 +46,7 @@ export function seatFree(players: readonly LobbyPlayer[], playerIndex: PlayerInd
 /** How the lobby lists an entry the host has checked (undefined: the roster driver). */
 export function lobbyEntry(entry: OnlineEntry): LobbyEntry | undefined {
   if (entry.kind === 'driver') return { kind: 'driver', source: entry.source, driver: driverName(entry.driver) };
-  if (entry.kind === 'team') return { kind: 'team', driver: driverName(entry.driver), team: entry.team.name, color: entry.team.livery.primary };
+  if (entry.kind === 'team') return { kind: 'team', driver: driverName(entry.driver), team: entry.team.name, color: identColor(entry.team.livery) };
   return undefined;
 }
 

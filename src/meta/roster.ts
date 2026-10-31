@@ -37,7 +37,13 @@ export function cloneLivery(l: Livery): Livery {
     pattern: l.pattern ?? 'classic',
     ...(l.parts ? { parts: { ...l.parts } } : {}),
     ...(l.finish ? { finish: l.finish } : {}),
+    ...(l.ident ? { ident: l.ident } : {}),
   };
+}
+
+/** The team's colour on the HUD and in the menus: `Livery.ident`, else the primary. */
+export function identColor(l: Livery): string {
+  return l.ident ?? l.primary;
 }
 
 export function cloneTeam(t: TeamDef): TeamDef {

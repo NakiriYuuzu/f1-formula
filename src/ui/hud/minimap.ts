@@ -6,6 +6,7 @@
 import type { BuiltTrack, CarEntry, GhostData, WorldState } from '../../core/types';
 import { el } from './dom';
 import { fin, safeColor } from './labels';
+import { identColor } from '../../meta/roster';
 import { controlOf, sectorFlagLevels } from './raceControl';
 
 const FRAME = 1 / 30;
@@ -257,7 +258,7 @@ export class Minimap {
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = safeColor(car.livery?.primary);
+      ctx.fillStyle = safeColor(car.livery && identColor(car.livery));
       ctx.fill();
       ctx.lineWidth = 1.1 * dpr;
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
@@ -275,7 +276,7 @@ export class Minimap {
       ctx.fill();
       ctx.beginPath();
       ctx.arc(x, y, pr, 0, Math.PI * 2);
-      ctx.fillStyle = safeColor(car.livery?.primary, '#ffffff');
+      ctx.fillStyle = safeColor(car.livery && identColor(car.livery), '#ffffff');
       ctx.fill();
       ctx.lineWidth = 1.4 * dpr;
       ctx.strokeStyle = '#ffffff';

@@ -45,13 +45,13 @@ afterAll(() => {
   g.document = saved;
 });
 
-function entry(id: number, patch: Partial<{ status: string; playerIndex: number }> = {}): CarEntry {
+function entry(id: number, patch: Partial<{ status: string; playerIndex: number; livery: Record<string, string> }> = {}): CarEntry {
   return {
     id,
     abbr: `C${id}`,
     status: patch.status ?? 'racing',
     playerIndex: patch.playerIndex ?? -1,
-    livery: { primary: '#ff0000' },
+    livery: patch.livery ?? { primary: '#ff0000' },
     phys: { tire: { compound: 'soft' } },
     timing: { bestLap: null, lapsDown: 0, gapToLeader: 0, interval: 0 },
     pit: { phase: 'none' },
@@ -111,5 +111,16 @@ describe('timing tower position numbers', () => {
     tower.update(worldOf([a, p]), [a, p], 1);
     expect(nums[1].attrs.get('data-player')).toBe('0');
     expect(nums[0].attrs.get('data-player')).toBeUndefined();
+  });
+});
+
+describe('timing tower team strip', () => {
+  test('shows the team identity colour, else the livery primary', () => {
+    const root = new FakeEl('div');
+    const tower = new TimingTower(root as unknown as Element);
+    const cars = [entry(0, { livery: { primary: '#f2f1eb', ident: '#444444' } }), entry(1, { livery: { primary: '#f2f1eb' } })];
+    tower.update(worldOf(cars), cars, 1);
+    const strips = (n: FakeEl): FakeEl[] => (n.className === 'nvh-tw-team' ? [n] : n.children.flatMap(strips));
+    expect(strips(root).map((s) => s.style.background)).toEqual(['#444444', '#f2f1eb']);
   });
 });

@@ -13,7 +13,7 @@ import {
 } from '../../../meta/career';
 import { createCalendar, seasonWeekend, driverStandings, standingPosition } from '../../../meta/season';
 import { findLayout, listLayouts } from '../../../meta/options';
-import { driverName, PLAYER_DRIVER_ID } from '../../../meta/roster';
+import { driverName, identColor, PLAYER_DRIVER_ID } from '../../../meta/roster';
 import { loadCareer, loadProfile, loadSetup, saveCareer, saveProfile } from '../../../meta/save';
 import { h, setChildren } from '../dom';
 import { focusElement } from '../nav';
@@ -85,7 +85,7 @@ export class CareerHubScreen extends Screen {
     const header = h(
       'div',
       { class: 'nvm-hub__id' },
-      team ? teamChip(team.livery.primary) : null,
+      team ? teamChip(identColor(team.livery)) : null,
       h('div', null, h('b', { text: `${driverName(save.driver)}・#${save.driver.number}` }), h('small', { text: `${team ? team.name : ''}・第 ${save.season} 季・評價 ${ratingOverall(save.rating)}` })),
     );
     const stats = h(

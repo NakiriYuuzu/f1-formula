@@ -4,6 +4,7 @@
  * development report and every team's development progress (keyboard-scrollable tables).
  */
 import type { CarPartId, TeamDef } from '../../../core/types';
+import { identColor } from '../../../meta/roster';
 import { MAX_PROJECTS, PART_MAX_LEVEL, type DevReportLine, type SeasonDevelopment } from '../../../meta/development';
 import { h } from '../dom';
 import { focusElement } from '../nav';
@@ -79,7 +80,7 @@ export function reportPanel(report: readonly DevReportLine[], teams: readonly Te
             return h(
               'tr',
               { class: l.teamId === playerTeamId ? 'is-me' : '' },
-              h('td', null, teamChip(team?.livery.primary ?? '#888888'), team ? team.name : l.teamId),
+              h('td', null, teamChip(team ? identColor(team.livery) : '#888888'), team ? team.name : l.teamId),
               h('td', { text: `${PART_LABEL[l.part]} Lv${l.level}` }),
               h('td', { text: reportResultLabel(l.success) }),
             );
@@ -109,7 +110,7 @@ export function rivalPanel(dev: SeasonDevelopment, teams: readonly TeamDef[], pl
               'tr',
               { class: r.teamId === playerTeamId ? 'is-me' : '' },
               h('td', { class: 'nvm-table__pos', text: String(r.rank) }),
-              h('td', null, teamChip(team?.livery.primary ?? '#888888'), team ? team.name : r.teamId),
+              h('td', null, teamChip(team ? identColor(team.livery) : '#888888'), team ? team.name : r.teamId),
               h('td', { class: 'nvm-table__pts', text: String(r.totalLevel) }),
               h('td', { text: String(r.totalGain) }),
               h('td', { text: r.projects.length > 0 ? r.projects.map((p) => PART_LABEL[p]).join('、') : '—' }),

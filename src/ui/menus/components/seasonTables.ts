@@ -2,7 +2,7 @@
  * Season tables shared by Driver Career and My Team: driver / constructor standings and the season calendar.
  */
 import { findLayout } from '../../../meta/options';
-import { driverName, rosterDrivers, type Roster } from '../../../meta/roster';
+import { driverName, identColor, rosterDrivers, type Roster } from '../../../meta/roster';
 import type { SeasonSummary } from '../../../meta/career';
 import { driverStandings, isSprintRound, teamStandings, type CalendarRound, type RoundRecord, type SeasonSettings } from '../../../meta/season';
 import { h } from '../dom';
@@ -11,7 +11,8 @@ import { minimapCanvas } from '../minimap';
 import { panel, teamChip } from '../widgets';
 
 function teamColor(roster: Roster, teamId: string): string {
-  return roster.teams.find((t) => t.id === teamId)?.livery.primary ?? '#888888';
+  const team = roster.teams.find((t) => t.id === teamId);
+  return team ? identColor(team.livery) : '#888888';
 }
 
 /** Team a driver raced for in the latest round they appear in ('' if none). */
@@ -69,7 +70,7 @@ export function teamStandingsTable(records: readonly RoundRecord[], roster: Rost
           'tr',
           { class: r.id === highlightTeam ? 'is-me' : '' },
           h('td', { class: 'nvm-table__pos', text: String(i + 1) }),
-          h('td', null, teamChip(team?.livery.primary ?? '#888888'), team ? team.name : r.id),
+          h('td', null, teamChip(team ? identColor(team.livery) : '#888888'), team ? team.name : r.id),
           h('td', { text: team?.powerUnit ?? '—' }),
           h('td', { text: String(r.wins) }),
           h('td', { text: String(r.podiums) }),

@@ -45,7 +45,7 @@ function liveryErrors(v: unknown, where: string): string[] {
   return bad.length > 0 ? [`${where}的顏色需為 #rrggbb 格式（${bad.join('、')}）`] : [];
 }
 
-/** Team-only livery extras: `parts` colours and `finish`. */
+/** Team-only livery extras: `parts` colours, `finish` and the `ident` colour. */
 function liveryExtraErrors(v: unknown, where: string): string[] {
   const r = asRecord(v);
   const errors: string[] = [];
@@ -58,6 +58,7 @@ function liveryExtraErrors(v: unknown, where: string): string[] {
     if (unknown.length > 0) errors.push(`${where}的 livery.parts 有不認得的部位：${unknown.join('、')}（可用 ${PART_KEYS.join('、')}）`);
   }
   if (r.finish !== undefined && !(FINISHES as readonly unknown[]).includes(r.finish)) errors.push(`${where}的 livery.finish 需為 gloss／satin／matte`);
+  if (r.ident !== undefined && !isHexColor(r.ident)) errors.push(`${where}的 livery.ident 需為 #rrggbb 格式`);
   return errors;
 }
 
@@ -108,6 +109,7 @@ function parseTeam(v: unknown, index: number, errors: string[]): TeamDef | null 
       pattern: oneOf(livery.pattern, LIVERY_PATTERNS, 'classic'),
       ...(parts ? { parts } : {}),
       ...(finish !== 'gloss' ? { finish } : {}),
+      ...(isHexColor(livery.ident) ? { ident: String(livery.ident).toLowerCase() } : {}),
     },
     base: str(v.base, '', 32, true),
     powerUnit,

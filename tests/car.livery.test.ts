@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import * as THREE from 'three';
 import type { Livery } from '../src/core/types';
-import { cloneLivery } from '../src/meta/roster';
+import { cloneLivery, identColor } from '../src/meta/roster';
 import { parseRosterPack, ROSTER_PACK_FORMAT } from '../src/meta/rosterPack';
 import { REAL_GRID } from '../src/data/realGrid';
 import { TEAMS } from '../src/data/teams';
@@ -186,6 +186,16 @@ describe('roster pack liveries', () => {
     expect(copy.parts).not.toBe(livery.parts);
   });
 
+  test('the ident colour is kept (lower-cased), survives cloneLivery and colours the HUD; without it the primary does', () => {
+    const r = pack({ ...colours, ident: '#E10600' });
+    if (!r.ok) throw new Error(r.errors.join('; '));
+    const livery = r.pack.teams[0]!.livery;
+    expect(livery.ident).toBe('#e10600');
+    expect(cloneLivery(livery)).toEqual(livery);
+    expect(identColor(livery)).toBe('#e10600');
+    expect(identColor({ ...colours })).toBe(colours.primary);
+  });
+
   test('gloss and empty parts are omitted', () => {
     const r = pack({ ...colours, parts: {}, finish: 'gloss' });
     expect(r.ok && r.pack.teams[0]!.livery).toEqual({ ...colours, pattern: 'classic' });
@@ -196,6 +206,7 @@ describe('roster pack liveries', () => {
       { ...colours, parts: { nose: 'red' } },
       { ...colours, parts: { spoiler: '#000000' } },
       { ...colours, finish: 'chrome' },
+      { ...colours, ident: 'white' },
     ]) {
       const r = pack(livery);
       expect(r.ok).toBe(false);
@@ -269,5 +280,33 @@ describe('2026 layouts', () => {
       expect(sanitizeLivery({ ...BASE, pattern: p }, BASE).pattern).toBe(p);
     }
     expect(LIVERY_PATTERNS).toContain('arrow');
+  });
+});
+
+describe('team identity colours', () => {
+  /** OKLab of a #rrggbb colour (perceptual: a distance of 0.1 is a clearly different colour) */
+  const oklab = (hex: string): number[] => {
+    const n = parseInt(hex.slice(1), 16);
+    const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((x) => (x / 255 <= 0.04045 ? x / 255 / 12.92 : ((x / 255 + 0.055) / 1.055) ** 2.4));
+    const l = Math.cbrt(0.4122214708 * r! + 0.5363325363 * g! + 0.0514459929 * b!);
+    const m = Math.cbrt(0.2119034982 * r! + 0.6806995451 * g! + 0.1073969566 * b!);
+    const s = Math.cbrt(0.0883024619 * r! + 0.2817188376 * g! + 0.6299787005 * b!);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  };
+  const distance = (a: string, b: string): number => Math.hypot(...oklab(a).map((v, i) => v - oklab(b)[i]!));
+
+  test('the white / silver real teams share a primary, but every team of each roster has its own HUD colour', () => {
+    // why the real grid needs `ident`: Haas, Cadillac and Racing Bulls run the same white
+    const real = (id: string): Livery => REAL_GRID.teams.find((t) => t.id === id)!.livery;
+    expect(distance(real('haas').primary, real('cadillac').primary)).toBeLessThan(0.02);
+    for (const teams of [TEAMS, REAL_GRID.teams]) {
+      for (let i = 0; i < teams.length; i++) {
+        for (let j = i + 1; j < teams.length; j++) {
+          const a = teams[i]!;
+          const b = teams[j]!;
+          expect({ pair: `${a.id} / ${b.id}`, far: distance(identColor(a.livery), identColor(b.livery)) >= 0.1 }).toEqual({ pair: `${a.id} / ${b.id}`, far: true });
+        }
+      }
+    }
   });
 });

@@ -4,7 +4,7 @@
  */
 import type { SessionRequest } from '../../../meta/sessionBuilder';
 import { findLayout, listLayouts, resolveLaps, weekendSessions } from '../../../meta/options';
-import { standardRoster, driverName } from '../../../meta/roster';
+import { standardRoster, driverName, identColor } from '../../../meta/roster';
 import { loadProfile, loadSetup, saveProfile } from '../../../meta/save';
 import type { ProfileSave } from '../../../meta/prefs';
 import { assistsEditor, raceOptionsEditor, rulesEditor } from '../components/editors';
@@ -97,7 +97,7 @@ export class GrandPrixOptionsScreen extends Screen {
         'div',
         { class: 'nvm-summary__item' },
         h('small', { text: '車手' }),
-        team ? teamChip(team.livery.primary) : null,
+        team ? teamChip(identColor(team.livery)) : null,
         h('b', { text: driver ? `${driverName(driver)}・${team?.name ?? ''}` : '—' }),
       ),
       h('p', { class: 'nvm-note', text: '返回上一步可更換賽道或車手。' }),

@@ -3,7 +3,7 @@
  * with car ratings and line-up in a floating card.
  */
 import type { DriverDef, TeamDef } from '../../../core/types';
-import { driverName, type Roster } from '../../../meta/roster';
+import { driverName, identColor, type Roster } from '../../../meta/roster';
 import type { SeatChoice } from '../../../meta/prefs';
 import { h, setChildren } from '../dom';
 import { focusElement } from '../nav';
@@ -103,7 +103,7 @@ export class TeamSelectScreen extends Screen {
     const note = this.o.note ? this.o.note(team) : null;
     setChildren(
       this.infoEl,
-      h('div', { class: 'nvm-float__head' }, teamChip(team.livery.primary), h('b', { text: team.name }), h('small', { text: ` ${team.shortName}` })),
+      h('div', { class: 'nvm-float__head' }, teamChip(identColor(team.livery)), h('b', { text: team.name }), h('small', { text: ` ${team.shortName}` })),
       h('div', { class: 'nvm-float__sub', text: `總部：${team.base}・動力單元：${team.powerUnit}` }),
       statBar('空力', (r.aero - 0.8) / 0.2, String(Math.round(r.aero * 100))),
       statBar('動力', (r.power - 0.8) / 0.2, String(Math.round(r.power * 100))),
@@ -127,7 +127,7 @@ export class TeamSelectScreen extends Screen {
         {
           class: `nvm-pick${team.id === this.team?.id ? ' is-selected' : ''}`,
           attrs: { type: 'button', 'data-sound': 'confirm' },
-          style: { '--team': team.livery.primary, '--team-2': team.livery.secondary },
+          style: { '--team': identColor(team.livery), '--team-2': team.livery.secondary },
           on: {
             focus: () => {
               this.team = team;
@@ -137,7 +137,7 @@ export class TeamSelectScreen extends Screen {
             click: () => this.chooseTeam(team),
           },
         },
-        teamChip(team.livery.primary),
+        teamChip(identColor(team.livery)),
         h('span', { class: 'nvm-pick__name', text: team.name }),
         h('span', { class: 'nvm-pick__tag', text: team.shortName }),
       ),
@@ -162,7 +162,7 @@ export class TeamSelectScreen extends Screen {
         {
           class: `nvm-pick nvm-pick--driver${d.id === initial?.id ? ' is-selected' : ''}`,
           attrs: { type: 'button', disabled: taken, 'data-sound': 'confirm' },
-          style: { '--team': team.livery.primary, '--team-2': d.helmet.primary },
+          style: { '--team': identColor(team.livery), '--team-2': d.helmet.primary },
           on: {
             focus: () => this.setPreview(team, d),
             click: () => this.o.onChosen({ teamId: team.id, driverId: d.id }),

@@ -60,7 +60,7 @@
 - 橫向偏移、曲率、轉向一律「+ = 右」。
 - WorldState 必須是純資料（可 `structuredClone`）。固定步長 `SIM_DT = 1/120`。
 - 各模組的私有狀態放在自己擁有的型別：`physics/types.ts`（CarSpec、PhysicsInternal）、`ai/types.ts`（AIState）、
-  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；`CarRenderState.damage` 新增選填 `floor` / `suspension`（0..1，渲染車損用）與 `corner`（損傷顯示的那一角，來自 `CarPhysicsState.damageCorner`）；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
+  `race/types.ts`（CarRaceInternal、WorldRaceInternal）——擁有者可自由擴充欄位。`core/*` 與 `data/teams.ts` 原則上不可修改；經專案擁有者同意（2026-10），`core/*` 允許**只做增加**的修改（新增欄位、擴大列舉／範圍），不得刪除或改變既有欄位的意義（例：`Assists.pitAssist`；`Livery.ident`（選填的介面辨識色，見 FEATURES.md 塗裝）；`CarRenderState.damage` 新增選填 `floor` / `suspension`（0..1，渲染車損用）與 `corner`（損傷顯示的那一角，來自 `CarPhysicsState.damageCorner`）；線上多人把 `playerIndex` 由 0 | 1 擴大為 `PlayerIndex` = 0 | 1 | 2 | 3，本機分割畫面仍只用 0 / 1）。
 
 ## 3. F1 25 功能對照（本作要實作的範圍）
 

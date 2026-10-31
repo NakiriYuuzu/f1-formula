@@ -9,6 +9,7 @@ import { COMPOUND_INFO } from '../../core/defaults';
 import { formatGap, formatLapTime } from '../../core/math';
 import { AttrSlot, ShowSlot, TextSlot, clickable, el } from './dom';
 import { fin, safeColor } from './labels';
+import { identColor } from '../../meta/roster';
 import { modeChip, modeOf } from './raceControl';
 
 const REFRESH = 0.2;
@@ -230,7 +231,7 @@ export class TimingTower {
     if (car.playerIndex !== -1) node.dataset.player = String(car.playerIndex);
     el('span', 'nvh-tw-posgap', node);
     const team = el('span', 'nvh-tw-team', node);
-    team.style.background = safeColor(car.livery?.primary);
+    team.style.background = safeColor(car.livery && identColor(car.livery));
     const name = el('span', 'nvh-tw-abbr', node, car.abbr);
     el('span', 'nvh-tw-fl', name);
     const tyre = el('span', 'nvh-tw-tyre', node);
