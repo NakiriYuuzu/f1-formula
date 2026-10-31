@@ -400,9 +400,12 @@ function rearEndplate(d: CarDims, is26: boolean, fine: boolean): [number, number
   ];
 }
 
+/** Rear endplate louvres (LOD0): count, spacing (m), slat chord (m), drop towards the trailing edge (rad). */
+const REAR_LOUVRES = { count: 4, pitch: 0.034, chord: 0.15, drop: 0.12 } as const;
+
 /**
  * Rear wing: rounded endplates, mainplane, swan-neck pylon, and (2025 only) a two-element beam wing
- * (one element when not `fine`).
+ * (one element when not `fine`); LOD0 adds louvre slats at the top of the endplates and a trailing-edge strip.
  */
 export function addRearWing(list: PartList, d: CarDims, is26: boolean, foil: number, fine: boolean): void {
   const rs = d.rearWingHalfSpan;
@@ -422,6 +425,15 @@ export function addRearWing(list: PartList, d: CarDims, is26: boolean, foil: num
     ...[...spine].reverse().map(([z, y]) => [z - 0.025, y - 0.012] as [number, number]),
   ];
   list.add(plateZY(pylon, -0.01, 0.02), CARBON);
+  if (fine) {
+    const L = REAR_LOUVRES;
+    const x = rs + 0.02 + 0.003;
+    for (let i = 0; i < L.count; i++) {
+      const y = 0.975 - i * L.pitch;
+      list.add(new THREE.BoxGeometry(0.006, 0.008, L.chord).rotateX(-L.drop).translate(x, y, z1 - 0.05 - L.chord / 2), CARBON, true);
+    }
+    list.add(new THREE.BoxGeometry(0.008, 0.3, 0.012).translate(rs + 0.02 + 0.004, 0.8, d.rearWingZ0 + 0.012), CARBON, true);
+  }
 }
 
 /** Rear DRS / active flap: pivot-local, or (`closedInPlace`) rotated closed and moved to its pivot. */
@@ -455,7 +467,16 @@ function curvedElement(
   }
 }
 
-/** One front endplate built for the left (+X) side at x: plate, outboard curl, footplate. */
+/**
+ * Front endplate detail (LOD0): outboard dive plane (chord, span out of the plate — no wider than the footplate, so
+ * within the car width —, height, pitch) and an inboard fence.
+ */
+const FRONT_DIVE_PLANE = { chord: 0.16, span: 0.03, y: 0.205, pitch: 0.2 } as const;
+
+/**
+ * One front endplate built for the left (+X) side at x: plate, outboard curl, footplate; LOD0 adds a dive plane on the
+ * outside and a low fence on the inside.
+ */
 function frontEndplateParts(d: CarDims, fs: number, fine: boolean): [() => THREE.BufferGeometry, UVMap][] {
   const z1 = d.frontWingZ1;
   const z0 = d.frontWingZ0;
@@ -466,7 +487,13 @@ function frontEndplateParts(d: CarDims, fs: number, fine: boolean): [() => THREE
     [() => tiltedPlate([[z1 - 0.16, 0], [z1 - 0.3, 0.06], [z0 + 0.12, 0.06], [z0 + 0.04, 0]], fs + 0.005, 0.292, 0.7, 0.008), FRONT_WING],
     [() => new THREE.BoxGeometry(0.05, 0.012, z1 - z0 - 0.04).translate(fs + 0.025, 0.036, (z1 + z0) / 2), CARBON],
   ];
-  return fine ? parts : [parts[0], parts[2]];
+  if (!fine) return [parts[0], parts[2]];
+  const dp = FRONT_DIVE_PLANE;
+  parts.push(
+    [() => new THREE.BoxGeometry(dp.span, 0.006, dp.chord).rotateX(dp.pitch).translate(fs + 0.02 + dp.span / 2, dp.y, z1 - 0.06 - dp.chord / 2), CARBON],
+    [() => plateZY([[z0 + 0.28, 0.04], [z0 + 0.26, 0.15], [z0 + 0.06, 0.13], [z0 + 0.04, 0.04]], fs - 0.01, 0.01), CARBON],
+  );
+  return parts;
 }
 
 /**

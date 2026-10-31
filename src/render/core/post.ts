@@ -1,6 +1,6 @@
 /**
- * Post-processing look + adaptive resolution: every tunable of the post chain (ambient occlusion, selective bloom,
- * colour grade, vignette, speed blur, lens chromatic aberration, film grain) and of the frame-time controller as
+ * Post-processing look + adaptive resolution: every tunable of the post chain (ambient occlusion, aerial perspective,
+ * selective bloom, colour grade, vignette, speed blur, lens chromatic aberration, film grain) and of the frame-time controller as
  * named constants, plus the pure helpers that turn time of day /
  * biome / weather / quality into a PostLook (no three.js, no DOM: unit-tested headless). postPipeline.ts applies a
  * PostLook to the GPU passes; GameRenderer drives AdaptiveResolution.
@@ -33,6 +33,41 @@ export interface GradeParams {
   contrast: number;
   /** linear amount added to the darkest tones (fades out by GRADE_LIFT_RANGE) */
   lift: number;
+  /** photographic split tone 0..1: cool-green shadows, warm highlights (GRADE_SPLIT_SHADOW / GRADE_SPLIT_HIGHLIGHT) */
+  split: number;
+}
+
+/**
+ * Aerial perspective (applied from the scene depth in the grade pass): exponential height fog integrated along the view
+ * ray, the transmitted light losing blue with distance, and a veil that is bluer on steep paths and glows toward the sun.
+ */
+export interface HazeParams {
+  /** blend 0..1 (0 = off) */
+  amount: number;
+  /** extinction (1/m) at the base height */
+  density: number;
+  /** exponential scale height (m) of the haze above `base` */
+  height: number;
+  /** world height (m) where the extinction equals `density` */
+  base: number;
+  /** veil colour of level / grazing paths (linear HDR) */
+  color: Rgb;
+  /** veil colour of steep paths (looking down from a height: denser blue) */
+  steep: Rgb;
+  /** forward-scatter glow added toward the sun (linear HDR, × (cos angle)^HAZE_SUN_POWER) */
+  sun: Rgb;
+  /** unit vector toward the sun */
+  sunDir: Rgb;
+  /** blue loss of the transmitted light at full veil (0 = neutral) */
+  blueShift: number;
+  /** largest veil share: the farthest scenery keeps a readable silhouette */
+  cap: number;
+  /** darkening under cloud shadows 0..1 (0 = off): the sky's cloud noise projected along the sun onto the ground */
+  cloudShadow: number;
+  /** cloud layer coverage / edge softness (as the sky dome) and drift offset (texture units) */
+  cloudCover: number;
+  cloudSoft: number;
+  cloudOffset: [number, number];
 }
 
 export interface PostLook {
@@ -48,6 +83,10 @@ export interface PostLook {
   chroma: number;
   /** film grain amplitude (multiplicative ±, 0 = off) */
   grain: number;
+  /** unsharp-mask amount (0 = off): crisper texture detail after the MSAA resolve */
+  sharpen: number;
+  /** aerial perspective (only where the pipeline resolves the scene depth) */
+  haze: HazeParams;
 }
 
 // ───────────────────────────── pipeline ─────────────────────────────
@@ -69,6 +108,56 @@ export const AO_THICKNESS = 0.8;
 export const AO_SAMPLES = 12;
 /** Showroom AO blend (studio light is mostly ambient: AO grounds the car on the turntable). */
 export const SHOWROOM_AO = 0.9;
+
+// ───────────────────────────── aerial perspective ─────────────────────────────
+
+/**
+ * Haze extinction = HAZE_FOG_K / the environment's linear fog far distance (clear day 2800 m ⇒ 0.00025 / m: ≈ 7 % veil
+ * at 300 m, 31 % at 1.5 km, 50 % at 2.8 km at ground level), so weather and biome keep their tuned visibility while
+ * distant ranges keep their relief.
+ */
+export const HAZE_FOG_K = 0.7;
+/** Scale height (m) of the haze above the circuit's lowest point: hill and mountain tops stand out of it. */
+export const HAZE_HEIGHT = 900;
+/** Veil colours relative to the sky's horizon / zenith: a touch darker than the horizon sky, bluer on steep paths. */
+export const HAZE_VEIL_GAIN = 0.9;
+export const HAZE_STEEP_ZENITH = 0.4;
+/** Forward-scatter glow toward the sun (× sun colour × visible sun disc) and its angular tightness. */
+export const HAZE_SUN_GAIN = 0.32;
+export const HAZE_SUN_POWER = 8;
+/** Blue loss of the transmitted light per time of day (napali: (.55, .78, 1) × .35 at full veil). */
+export const HAZE_BLUE_SHIFT: Record<TimeOfDay, number> = { day: 1, dusk: 0.6, night: 0 };
+/** Largest veil share per time of day (night keeps lit skylines readable). */
+export const HAZE_CAP: Record<TimeOfDay, number> = { day: 0.93, dusk: 0.93, night: 0.85 };
+/**
+ * Cloud shadows on the land: darkening under a cloud by time of day (they fade out toward full overcast, where the
+ * light is already flat), the cloud deck height (m) the noise is projected from and the world size (m) of one noise tile.
+ */
+export const CLOUD_SHADOW: Record<TimeOfDay, number> = { day: 0.42, dusk: 0.28, night: 0 };
+export const CLOUD_SHADOW_HEIGHT = 1500;
+export const CLOUD_SHADOW_TILE = 2400;
+/** Shadow coverage is the sky's plus this: thin cloud edges that barely show against the sky still shade the land. */
+export const CLOUD_SHADOW_EXTRA_COVER = 0.07;
+
+/** What the environment provides for the haze (linear colours). */
+export interface HazeInput {
+  time: TimeOfDay;
+  /** linear fog far distance (m) of the current weather / biome */
+  fogFar: number;
+  /** lowest height of the circuit (m): haze base */
+  base: number;
+  horizon: Rgb;
+  zenith: Rgb;
+  sunColor: Rgb;
+  sunDir: Rgb;
+  /** visible sun disc 0..1 (0 at night / under full overcast) */
+  sunDisc: number;
+  /** smoothed cloudiness 0..1 and the sky's cloud layer (coverage, softness, drift offset) */
+  cloud: number;
+  cloudCover: number;
+  cloudSoft: number;
+  cloudOffset: [number, number];
+}
 
 // ───────────────────────────── lens ─────────────────────────────
 
@@ -107,10 +196,18 @@ export const LAMP_HDR_GAIN = 1.5;
 
 /** Base grade per time of day: dusk warmer, night cooler with a touch of lift for readability. */
 export const GRADE_BY_TIME: Record<TimeOfDay, GradeParams> = {
-  day: { tint: [1, 1, 1], saturation: 1.05, contrast: 1.04, lift: 0.003 },
-  dusk: { tint: [1.05, 1.0, 0.92], saturation: 1.08, contrast: 1.05, lift: 0.004 },
-  night: { tint: [0.95, 0.99, 1.05], saturation: 0.96, contrast: 1.06, lift: 0.008 },
+  day: { tint: [1, 1, 1], saturation: 0.98, contrast: 1.08, lift: 0.003, split: 1 },
+  dusk: { tint: [1.05, 1.0, 0.92], saturation: 1.04, contrast: 1.07, lift: 0.004, split: 0.8 },
+  night: { tint: [0.95, 0.99, 1.05], saturation: 0.96, contrast: 1.06, lift: 0.008, split: 0.3 },
 };
+/**
+ * Split tone at full strength (napali's photographic grade): per-channel gain offsets of the shadows and of the
+ * highlights, blended by luminance (shadows cool green-cyan, highlights warm). Rain halves it.
+ */
+export const GRADE_SPLIT_SHADOW: Rgb = [-0.035, 0.012, 0.01];
+export const GRADE_SPLIT_HIGHLIGHT: Rgb = [0.035, 0.01, -0.05];
+/** Unsharp mask of race views per quality (low has no post chain). */
+export const SHARPEN_BY_QUALITY: Record<QualityLevel, number> = { low: 0, medium: 0.1, high: 0.16, ultra: 0.18 };
 /** Biome flavour on top of the time-of-day grade: tint multiplier and saturation offset. */
 export const GRADE_BIOME: Record<Biome, { tint: Rgb; saturation: number }> = {
   temperate: { tint: [1, 1, 1], saturation: 0 },
@@ -154,7 +251,7 @@ export const SHOWROOM_BLOOM: BloomParams = { strength: 0.06, radius: 0.3, thresh
 /** Turntable rim colour gain while the post chain is on. */
 export const SHOWROOM_RIM_HDR_GAIN = 1.3;
 /** Showroom grade: neutral tint, a little extra saturation / contrast for the paint. */
-export const SHOWROOM_GRADE: GradeParams = { tint: [1, 1, 1], saturation: 1.04, contrast: 1.03, lift: 0 };
+export const SHOWROOM_GRADE: GradeParams = { tint: [1, 1, 1], saturation: 1.04, contrast: 1.03, lift: 0, split: 0.4 };
 /** Showroom corner darkening (when the quality profile enables the vignette). */
 export const SHOWROOM_VIGNETTE = 0.3;
 
@@ -192,14 +289,69 @@ const LUMA: Rgb = [0.2126, 0.7152, 0.0722];
 export function createPostLook(): PostLook {
   return {
     bloom: { strength: 0, radius: 0, threshold: 1 },
-    grade: { tint: [1, 1, 1], saturation: 1, contrast: 1, lift: 0 },
+    grade: { tint: [1, 1, 1], saturation: 1, contrast: 1, lift: 0, split: 0 },
     vignette: 0,
     speedBlur: 0,
     ao: 0,
     chroma: 0,
     grain: 0,
+    sharpen: 0,
+    haze: {
+      amount: 0,
+      density: 0,
+      height: HAZE_HEIGHT,
+      base: 0,
+      color: [0, 0, 0],
+      steep: [0, 0, 0],
+      sun: [0, 0, 0],
+      sunDir: [0, 1, 0],
+      blueShift: 0,
+      cap: 1,
+      cloudShadow: 0,
+      cloudCover: 0,
+      cloudSoft: 0.3,
+      cloudOffset: [0, 0],
+    },
   };
 }
+
+/** Aerial perspective for the environment (written into `out`); amount 0 when `enabled` is false. */
+export function hazeParams(input: HazeInput, enabled: boolean, out: HazeParams = createPostLook().haze): HazeParams {
+  const far = Number.isFinite(input.fogFar) && input.fogFar > 1 ? input.fogFar : 1e6;
+  out.amount = enabled ? 1 : 0;
+  out.density = HAZE_FOG_K / far;
+  out.height = HAZE_HEIGHT;
+  out.base = Number.isFinite(input.base) ? input.base : 0;
+  const disc = clamp01(Number.isFinite(input.sunDisc) ? input.sunDisc : 0);
+  for (let i = 0; i < 3; i++) {
+    const h = Math.max(0, fin0(input.horizon[i]));
+    const z = Math.max(0, fin0(input.zenith[i]));
+    out.color[i] = h * HAZE_VEIL_GAIN;
+    out.steep[i] = lerp(h, z, HAZE_STEEP_ZENITH) * HAZE_VEIL_GAIN;
+    out.sun[i] = Math.max(0, fin0(input.sunColor[i])) * HAZE_SUN_GAIN * disc;
+  }
+  const len = Math.hypot(fin0(input.sunDir[0]), fin0(input.sunDir[1]), fin0(input.sunDir[2]));
+  if (len > 1e-6) for (let i = 0; i < 3; i++) out.sunDir[i] = fin0(input.sunDir[i]) / len;
+  else out.sunDir.splice(0, 3, 0, 1, 0);
+  out.blueShift = HAZE_BLUE_SHIFT[input.time] ?? HAZE_BLUE_SHIFT.day;
+  out.cap = HAZE_CAP[input.time] ?? HAZE_CAP.day;
+  const cloud = clamp01(Number.isFinite(input.cloud) ? input.cloud : 0);
+  out.cloudShadow = enabled ? (CLOUD_SHADOW[input.time] ?? 0) * (1 - smoothstep(0.35, 0.9, cloud)) * disc : 0;
+  out.cloudCover = clamp01((Number.isFinite(input.cloudCover) ? input.cloudCover : 0) + CLOUD_SHADOW_EXTRA_COVER);
+  out.cloudSoft = Math.max(0.01, Number.isFinite(input.cloudSoft) ? input.cloudSoft : 0.3);
+  out.cloudOffset[0] = fin0(input.cloudOffset[0]);
+  out.cloudOffset[1] = fin0(input.cloudOffset[1]);
+  return out;
+}
+
+/** Veil share (before the cap) of a level path `distance` m long at the haze base height (density from fogFar). */
+export function hazeVeilAt(distance: number, fogFar: number): number {
+  const d = Math.max(0, Number.isFinite(distance) ? distance : 0);
+  const far = Number.isFinite(fogFar) && fogFar > 1 ? fogFar : 1e6;
+  return 1 - Math.exp(-(HAZE_FOG_K / far) * d);
+}
+
+const fin0 = (v: number): number => (Number.isFinite(v) ? v : 0);
 
 /** Race AO blend for a time of day, the quality's AO scale (0 = off) and smoothed cloud cover 0..1. */
 export function aoAmount(time: TimeOfDay, aoScale: number, cloud: number): number {
@@ -239,6 +391,7 @@ export function gradeParams(biome: Biome, time: TimeOfDay, rain: number, out: Gr
   out.saturation = Math.max(0, (base.saturation + b.saturation) * lerp(1, GRADE_RAIN.saturation, r));
   out.contrast = Math.max(0.5, base.contrast * lerp(1, GRADE_RAIN.contrast, r));
   out.lift = Math.max(0, base.lift);
+  out.split = clamp01(base.split * lerp(1, 0.5, r));
   return out;
 }
 
@@ -259,11 +412,14 @@ export function showroomLook(quality: QualityLevel, vignette: boolean, out: Post
   out.grade.saturation = SHOWROOM_GRADE.saturation;
   out.grade.contrast = SHOWROOM_GRADE.contrast;
   out.grade.lift = SHOWROOM_GRADE.lift;
+  out.grade.split = SHOWROOM_GRADE.split;
   out.vignette = vignette ? SHOWROOM_VIGNETTE : 0;
   out.speedBlur = 0;
   out.ao = ao ? SHOWROOM_AO : 0;
   out.chroma = 0;
   out.grain = vignette ? LENS_GRAIN * 0.5 : 0;
+  out.sharpen = SHARPEN_BY_QUALITY[quality] ?? 0;
+  out.haze.amount = 0;
   return out;
 }
 

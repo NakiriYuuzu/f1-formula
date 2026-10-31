@@ -5,6 +5,7 @@
  * of the racing surfaces and walls (aggregate, kerb ribs, pebbles, grass blades, concrete pores).
  */
 import type * as THREE from 'three';
+import { DataTexture, LinearFilter, LinearMipmapLinearFilter, RGBAFormat, SRGBColorSpace, UnsignedByteType } from 'three';
 import type { Biome } from '../../core/types';
 import { hash3, tileableFbm } from '../track/sceneryMath';
 import { addBlotches, addGrain, canvasTexture, clampByte, createCanvas, drawWrapped, Rng, shadePixels } from './canvas';
@@ -37,8 +38,11 @@ export function asphaltTexture(anisotropy: number, seed = 11, size = 512): THREE
   return canvasTexture(c, { repeat: true, anisotropy });
 }
 
-/** Grass with mowing stripes along v (texture tiles every 2 stripes), clumps, blades and soft tonal variation. */
-export function grassTexture(anisotropy: number, base = '#4f7d33', seed = 21): THREE.CanvasTexture {
+/**
+ * Grass with mowing stripes along v (texture tiles every 2 stripes), clumps, blades and soft tonal variation;
+ * `saturation` < 1 mutes the painted greens toward real turf, `value` < 1 darkens them.
+ */
+export function grassTexture(anisotropy: number, base = '#4f7d33', seed = 21, saturation = 1, value = 1): THREE.CanvasTexture {
   const c = createCanvas(256, 256);
   const rng = new Rng(seed);
   c.ctx.fillStyle = base;
@@ -56,11 +60,13 @@ export function grassTexture(anisotropy: number, base = '#4f7d33', seed = 21): T
     c.ctx.fillRect(x, y, 1, rng.range(1.5, 4.5));
   }
   const tone = tileableFbm(c.w, 4, 4, seed + 5, 0.55);
+  const sat = Math.max(0, Math.min(1, saturation));
   shadePixels(c, (x, y, d, i) => {
-    const k = 0.9 + 0.2 * tone[y * c.w + x];
-    d[i] = clampByte(d[i] * k);
-    d[i + 1] = clampByte(d[i + 1] * k);
-    d[i + 2] = clampByte(d[i + 2] * k);
+    const k = (0.9 + 0.2 * tone[y * c.w + x]) * value;
+    const l = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) * (1 - sat);
+    d[i] = clampByte((d[i] * sat + l) * k);
+    d[i + 1] = clampByte((d[i + 1] * sat + l) * k);
+    d[i + 2] = clampByte((d[i + 2] * sat + l) * k);
   });
   addGrain(c, rng, 18, false);
   return canvasTexture(c, { repeat: true, anisotropy });
@@ -579,4 +585,137 @@ export function noiseNormalTexture(anisotropy: number, seed: number, size = 256,
   const height = new Float32Array(n * n);
   for (let i = 0; i < height.length; i++) height[i] = (1 - grit) * field[i] + grit * rng.next();
   return normalMapFromHeight(height, n, n, strength, anisotropy);
+}
+
+/**
+ * Foliage atlas UV rectangles [u0, v0, u1, v1] (texture space, v up) and the opaque white block (trunks, branch
+ * tiers: also what the shadow pass samples there). Atlas 1024 × 512: broadleaf cluster on the left half; on the right a
+ * pinnate palm frond (top), a conifer needle spray (middle) and the solid block (bottom-right corner).
+ */
+export const FOLIAGE_UV = {
+  leaf: [0, 0, 0.5, 1] as const,
+  frond: [0.5, 0.5, 1, 1] as const,
+  needle: [0.5, 0.125, 0.9375, 0.5] as const,
+  solid: [0.97, 0.06] as const,
+};
+
+/**
+ * Procedural foliage atlas (RGBA, sRGB): near-neutral leaf colours (the per-instance crown colour gives the hue) with
+ * value / warmth variation per leaf, transparent between leaves. Leaves fall off toward the cluster edge, so a card
+ * never shows its square outline.
+ */
+export function foliageAtlasTexture(anisotropy: number, seed = 141): THREE.DataTexture {
+  const c = createCanvas(1024, 512);
+  const rng = new Rng(seed);
+  const g = c.ctx;
+  g.clearRect(0, 0, c.w, c.h);
+  const leafShape = (x: number, y: number, len: number, wid: number, a: number): void => {
+    g.save();
+    g.translate(x, y);
+    g.rotate(a);
+    g.beginPath();
+    g.moveTo(-len / 2, 0);
+    g.quadraticCurveTo(0, -wid, len / 2, 0);
+    g.quadraticCurveTo(0, wid, -len / 2, 0);
+    g.fill();
+    g.restore();
+  };
+  const tone = (lo: number, hi: number): string => {
+    const v = rng.range(lo, hi);
+    return `rgb(${Math.round(v * rng.range(0.9, 1.02))},${Math.round(v)},${Math.round(v * rng.range(0.72, 0.9))})`;
+  };
+  // broadleaf cluster (512 × 512): twigs, then ~420 leaves densest at the centre
+  g.lineCap = 'round';
+  for (let i = 0; i < 26; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const r = rng.range(60, 200);
+    g.strokeStyle = `rgb(${Math.round(rng.range(70, 95))},${Math.round(rng.range(60, 80))},${Math.round(rng.range(45, 60))})`;
+    g.lineWidth = rng.range(1.5, 3.5);
+    g.beginPath();
+    g.moveTo(256, 256);
+    g.quadraticCurveTo(256 + Math.cos(a + 0.4) * r * 0.5, 256 + Math.sin(a + 0.4) * r * 0.5, 256 + Math.cos(a) * r, 256 + Math.sin(a) * r);
+    g.stroke();
+  }
+  for (let i = 0; i < 640; i++) {
+    const rr = Math.min(1, Math.abs(rng.range(-1, 1) * rng.range(0.35, 1)) + 0.04) * 218;
+    const a = rng.range(0, Math.PI * 2);
+    const x = 256 + Math.cos(a) * rr;
+    const y = 256 + Math.sin(a) * rr;
+    const len = rng.range(20, 38) * (1 - 0.3 * (rr / 218));
+    g.fillStyle = tone(rr < 120 ? 120 : 150, 250);
+    leafShape(x, y, len, len * rng.range(0.36, 0.5), a + rng.range(-0.9, 0.9));
+  }
+  // pinnate palm frond (512 × 256, canvas top half of the right side): rachis along x, leaflets both sides
+  const fy = 128;
+  for (let t = 0.02; t < 0.99; t += 0.017) {
+    const x = 520 + t * 496;
+    const span = (108 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.06)), 0.7) + 10) * rng.range(0.88, 1.06);
+    for (const side of [-1, 1]) {
+      const ang = side * rng.range(0.55, 0.85);
+      g.fillStyle = tone(160, 245);
+      g.save();
+      g.translate(x, fy);
+      g.rotate(ang);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.quadraticCurveTo(span * 0.5, side * -4.5, span, 0);
+      g.quadraticCurveTo(span * 0.5, side * 4.5, 0, 0);
+      g.fill();
+      g.restore();
+    }
+  }
+  g.strokeStyle = 'rgb(176,168,112)';
+  g.lineWidth = 4;
+  g.beginPath();
+  g.moveTo(516, fy);
+  g.lineTo(1018, fy);
+  g.stroke();
+  // conifer needle spray (448 × 192, below the frond): branchlets densely set with short needles
+  const ny = 352;
+  for (let k = 0; k < 7; k++) {
+    const x0 = 520 + k * 60 + rng.range(-6, 6);
+    const dir = rng.range(-0.5, 0.5);
+    for (let i = 0; i < 46; i++) {
+      const t = i / 46;
+      const bx = x0 + t * 70;
+      const by = ny + dir * t * 70 + rng.range(-3, 3);
+      for (const side of [-1, 1]) {
+        const a = side * rng.range(0.6, 1.2) + dir;
+        const l = rng.range(9, 16) * (1 - 0.4 * t);
+        g.strokeStyle = tone(140, 230);
+        g.lineWidth = rng.range(1.2, 2.2);
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + Math.cos(a) * l * 0.6, by + Math.sin(a) * l);
+        g.stroke();
+      }
+    }
+  }
+  // opaque block (bottom-right corner, 64 × 64)
+  g.fillStyle = '#ffffff';
+  g.fillRect(960, 448, 64, 64);
+  // DataTexture (rows flipped to v-up): transparent texels keep a neutral leaf colour, so mip levels do not darken the
+  // leaf edges (a canvas upload would turn every transparent texel black)
+  const img = g.getImageData(0, 0, c.w, c.h).data;
+  const data = new Uint8Array(c.w * c.h * 4);
+  for (let y = 0; y < c.h; y++) {
+    const src = (c.h - 1 - y) * c.w * 4;
+    const dst = y * c.w * 4;
+    for (let x = 0; x < c.w * 4; x += 4) {
+      const a = img[src + x + 3];
+      data[dst + x] = a > 0 ? img[src + x] : 176;
+      data[dst + x + 1] = a > 0 ? img[src + x + 1] : 184;
+      data[dst + x + 2] = a > 0 ? img[src + x + 2] : 148;
+      data[dst + x + 3] = a;
+    }
+  }
+  const tex = new DataTexture(data, c.w, c.h, RGBAFormat, UnsignedByteType);
+  tex.colorSpace = SRGBColorSpace;
+  tex.generateMipmaps = true;
+  tex.minFilter = LinearMipmapLinearFilter;
+  tex.magFilter = LinearFilter;
+  tex.anisotropy = Math.max(1, anisotropy);
+  tex.name = 'foliage-atlas';
+  tex.needsUpdate = true;
+  return tex;
 }

@@ -30,7 +30,7 @@ import { createSafetyCar, type SafetyCarModel } from './car/safetyCar';
 import { createCarModel, type CarModel } from './car/carModel';
 import { CameraRig, type RigContext } from './cameras';
 import { Disposer } from './core/disposer';
-import { LAMP_HDR_GAIN, LENS_CHROMA, LENS_GRAIN, VIGNETTE_STRENGTH, aoAmount, bloomParams, createPostLook, gradeParams, speedBlurAmount } from './core/post';
+import { LAMP_HDR_GAIN, LENS_CHROMA, LENS_GRAIN, SHARPEN_BY_QUALITY, VIGNETTE_STRENGTH, aoAmount, bloomParams, createPostLook, gradeParams, hazeParams, speedBlurAmount, type HazeInput } from './core/post';
 import { CAMERA_FAR, qualityProfile, shadowSizeFor, type QualityProfile } from './core/quality';
 import { Environment, buildEnvironmentMap, type SceneProbe } from './environment';
 import { CarEffects } from './fx/carEffects';
@@ -40,6 +40,7 @@ import { RainFx } from './fx/rain';
 import type { MarshalPanels } from './track/marshalPanels';
 import { inTunnel, type SceneryContext } from './track/context';
 import { PitCrew } from './track/pitCrew';
+import { FOLIAGE_TIME } from './track/sceneryMaterials';
 import { RacingLineOverlay } from './track/racingLine';
 import { WET_NORMAL_SCALE, type RoadParts } from './track/road';
 import { TrackFrame } from './track/trackFrame';
@@ -155,6 +156,8 @@ export class RaceScene {
   private disposed = false;
   /** post-chain look, refreshed every post frame from time of day, biome, cloud and rain */
   private readonly look = createPostLook();
+  /** environment values handed to the aerial perspective each frame (base = the circuit's lowest point) */
+  private readonly hazeInput: HazeInput;
 
   constructor(gr: GameRenderer, track: BuiltTrack, opts: RaceSceneOptions) {
     this.gr = gr;
@@ -172,6 +175,22 @@ export class RaceScene {
     this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
     this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);
     this.scene.fog = this.env.fog;
+    let lowest = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < track.count; i++) if (Number.isFinite(track.py[i])) lowest = Math.min(lowest, track.py[i]);
+    this.hazeInput = {
+      time: opts.timeOfDay,
+      fogFar: this.env.fog.far,
+      base: Number.isFinite(lowest) ? lowest : 0,
+      horizon: [0, 0, 0],
+      zenith: [0, 0, 0],
+      sunColor: [0, 0, 0],
+      sunDir: [0, 1, 0],
+      sunDisc: 0,
+      cloud: 0,
+      cloudCover: 0,
+      cloudSoft: 0.3,
+      cloudOffset: [0, 0],
+    };
     this.envContext = gr.contextVersion;
     this.envTarget = buildEnvironmentMap(gr.renderer, this.env);
     if (this.envTarget) this.scene.environment = this.envTarget.texture;
@@ -214,7 +233,7 @@ export class RaceScene {
     });
 
     // ── cars ──
-    this.shared = new CarSharedResources();
+    this.shared = new CarSharedResources(this.quality.level);
     for (const c of opts.cars) {
       if (this.cars.has(c.carId)) continue;
       const model = createCarModel({
@@ -447,6 +466,7 @@ export class RaceScene {
       for (const rig of this.rigs) rig.reset();
     }
     this.lastTime = time;
+    FOLIAGE_TIME.value = time % 3600;
 
     // views: one full-screen view uses the post chain; split-screen stays direct (see the draw section)
     const list = views.slice(0, MAX_VIEWS);
@@ -532,9 +552,30 @@ export class RaceScene {
       // lens artefacts belong to car-mounted / broadcast cameras, not to the cockpit view through the visor
       this.look.chroma = view.camera === 'cockpit' ? 0 : LENS_CHROMA;
       this.look.grain = LENS_GRAIN;
+      this.look.sharpen = SHARPEN_BY_QUALITY[this.quality.level] ?? 0;
       // speed blur follows the viewed car; trackside TV cameras stand still, so they get none
       const target = this.stateById.get(view.carId) ?? this.fallbackTarget(frame);
       this.look.speedBlur = view.camera === 'tv' ? 0 : speedBlurAmount(target?.speed ?? 0, this.settings.speedBlur);
+      // aerial perspective replaces the linear fog of this view (the fog stays for split-screen / direct rendering)
+      const sky = this.env.skyMaterial.uniforms;
+      const hi = this.hazeInput;
+      hi.fogFar = this.env.fog.far;
+      sky.horizon.value.toArray(hi.horizon);
+      sky.zenith.value.toArray(hi.zenith);
+      sky.sunColor.value.toArray(hi.sunColor);
+      this.env.sunDir.toArray(hi.sunDir);
+      hi.sunDisc = sky.sunDisc.value;
+      hi.cloud = this.env.cloud;
+      hi.cloudCover = sky.cloudCover.value;
+      hi.cloudSoft = sky.cloudSoft.value;
+      hi.cloudOffset[0] = sky.cloudOffset.value.x;
+      hi.cloudOffset[1] = sky.cloudOffset.value.y;
+      hazeParams(hi, this.quality.aerialHaze, this.look.haze);
+      post.setCloudMap(this.env.cloudTexture);
+      if (this.look.haze.amount > 0) {
+        this.env.fog.near = 1e8;
+        this.env.fog.far = 1e9;
+      }
     }
     r.toneMappingExposure = this.env.exposure;
     r.setScissorTest(false);

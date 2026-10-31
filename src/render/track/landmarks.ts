@@ -40,8 +40,8 @@ import {
   type ArchEnv,
   type Channels,
 } from './landmarkArch';
-import { patchTintMask, patchWindowFade } from './sceneryMaterials';
-import { jitterColor, oilPalm, pickWeighted, speciesFor, TintBuilder } from './props';
+import { patchWindowFade } from './sceneryMaterials';
+import { foliageAtlas, foliageMaterial, jitterColor, oilPalm, pickWeighted, speciesFor, TintBuilder } from './props';
 import { frustum } from './shapes';
 import { cap, strip } from './strips';
 import { terrainRect } from './terrain';
@@ -1102,11 +1102,11 @@ function buildForest(ctx: SceneryContext, ft: LayoutFeature, group: THREE.Group,
   }
   species.forEach((sp, si) => {
     if (buckets[si].size === 0) return;
-    const tb = new TintBuilder();
+    // dense stand: neighbours hide most of each crown, so the lighter build below ultra
+    const tb = new TintBuilder(ctx.quality.level !== 'ultra');
     sp.build(tb);
     const geo = ctx.disposer.add(tb.build());
-    const mat = ctx.disposer.add(new THREE.MeshLambertMaterial({ name: `forest-${sp.name}`, vertexColors: true, side: sp.doubleSided ? THREE.DoubleSide : THREE.FrontSide }));
-    patchTintMask(mat);
+    const mat = ctx.disposer.add(foliageMaterial(`forest-${sp.name}`, foliageAtlas(ctx)));
     for (const bucket of buckets[si].values()) {
       const mesh = ctx.disposer.add(new THREE.InstancedMesh(geo, mat, bucket.m.length));
       mesh.name = `forest:${sp.name}`;
@@ -1169,11 +1169,11 @@ function buildPlantation(ctx: SceneryContext, ft: LayoutFeature, group: THREE.Gr
     }
   }
   if (buckets.size === 0) return;
-  const tb = new TintBuilder();
+  // dense rows: neighbours hide most of each crown, so the lighter build below ultra
+  const tb = new TintBuilder(ctx.quality.level !== 'ultra');
   sp.build(tb);
   const geo = ctx.disposer.add(tb.build());
-  const mat = ctx.disposer.add(new THREE.MeshLambertMaterial({ name: 'palm-plantation', vertexColors: true, side: THREE.DoubleSide }));
-  patchTintMask(mat);
+  const mat = ctx.disposer.add(foliageMaterial('palm-plantation', foliageAtlas(ctx)));
   for (const bucket of buckets.values()) {
     const mesh = ctx.disposer.add(new THREE.InstancedMesh(geo, mat, bucket.m.length));
     mesh.name = 'palm-plantation:oilPalm';

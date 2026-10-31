@@ -118,3 +118,37 @@ export const TYRE_SURFACE: Record<'rubber' | 'band' | 'rim' | 'nut', readonly [n
   rim: [0.38, 0.7],
   nut: [0.3, 0.9],
 };
+
+// ───────────────────────────── surface detail ─────────────────────────────
+
+/**
+ * Surface detail shader on the livery / tyre materials per quality: 'full' (high / ultra: carbon weave with rounded
+ * tows, metallic paint flakes and colour flop, tyre rubber sheen and graining), 'lite' (medium: the weave's shades
+ * only), 'off' (low: unchanged).
+ */
+export type CarSurfaceDetail = 'full' | 'lite' | 'off';
+
+export function carSurfaceDetail(quality: QualityLevel): CarSurfaceDetail {
+  if (quality === 'high' || quality === 'ultra') return 'full';
+  return quality === 'medium' ? 'lite' : 'off';
+}
+
+/**
+ * 2 × 2 twill weave on the carbon and satin-carbon regions (tri-planar in car space): tow width (m, a little coarser
+ * than real 12K tow so it reads in close-ups), ± shade of the two tow directions, brightness of the gaps between
+ * tows, and the normal tilt across a rounded tow ('full').
+ */
+export const CARBON_WEAVE = { tow: 0.012, contrast: 0.22, gap: 0.45, bump: 0.35 } as const;
+
+/** Metallic flakes in the painted regions ('full'): flake size (m) and normal tilt under the clear coat. */
+export const PAINT_FLAKE = { size: 0.0016, tilt: 0.24 } as const;
+/** Paint flop ('full'): brightness of the painted regions at grazing / face-on view (deeper colour along the edges). */
+export const PAINT_FLOP: readonly [number, number] = [0.8, 1.05];
+/** Weave and flakes fade to their average once a cell spans fewer pixels than this. */
+export const SURFACE_DETAIL_MIN_PX = 2;
+
+/**
+ * Tyre rubber ('full'): physical sheen (soft grazing-angle lustre of rubber), albedo lift of the rubber columns (worn
+ * tyres look dark grey, not black), graining contrast and grain size (m) on tread and sidewalls.
+ */
+export const TYRE_RUBBER = { sheen: 0.7, sheenRoughness: 0.55, sheenColor: 0.22, albedo: 1.35, grain: 0.2, grainSize: 0.0035 } as const;

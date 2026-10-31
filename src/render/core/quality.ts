@@ -1,7 +1,7 @@
 /**
  * Render quality presets: maps Settings.quality to concrete budgets (shadow map + softness, prop density,
  * particle pools, terrain resolution, texture sizes, surface detail maps, scenery reflection probe,
- * post-processing chain incl. ambient occlusion).
+ * post-processing chain incl. ambient occlusion and aerial perspective).
  */
 import type { QualityLevel, Settings } from '../../core/types';
 
@@ -47,6 +47,11 @@ export interface QualityProfile {
   vignette: boolean;
   /** ambient-occlusion (GTAO) resolution relative to the drawing buffer; 0 = off */
   aoScale: number;
+  /**
+   * aerial perspective in the post chain (height-falloff haze from the scene depth, blue far veil, sun forward scatter)
+   * instead of the scene's linear fog; split-screen and direct rendering keep the fog
+   */
+  aerialHaze: boolean;
 }
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
@@ -69,6 +74,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     bloomScale: 0,
     vignette: false,
     aoScale: 0,
+    aerialHaze: false,
   },
   medium: {
     level: 'medium',
@@ -89,6 +95,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     bloomScale: 0.5,
     vignette: true,
     aoScale: 0,
+    aerialHaze: true,
   },
   high: {
     level: 'high',
@@ -109,6 +116,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     bloomScale: 1,
     vignette: true,
     aoScale: 0.5,
+    aerialHaze: true,
   },
   ultra: {
     level: 'ultra',
@@ -129,6 +137,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     bloomScale: 1,
     vignette: true,
     aoScale: 0.75,
+    aerialHaze: true,
   },
 };
 

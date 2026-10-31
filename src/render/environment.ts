@@ -3,7 +3,7 @@
  * cloud layer sampled from a tileable canvas noise texture on a high virtual plane: soft scattered clouds by
  * day, thinner at dusk, dense grey under overcast / rain), sun (or night floodlight key) with shadow, hemisphere
  * fill, fog, exposure and a PMREM environment map for reflections (the real circuit captured from a probe point, or the
- * sky alone). Clouds are shaded by their density toward the sun / moon (lit edges, shadowed far sides) and the sky
+ * sky alone). The sky gradient follows napali's photographic shape (light blue low, deep blue overhead, milky horizon). Clouds are shaded by their density toward the sun / moon (lit edges, shadowed far sides) and the sky
  * brightens toward the sun near the horizon (forward scattering). Weather blends smoothly at runtime.
  * Night is floodlit: bright cool key light + strong hemisphere so the track always stays readable.
  */
@@ -199,7 +199,12 @@ float hash13(vec3 p) {
 void main() {
   vec3 dir = normalize(vDir);
   float h = dir.y;
-  vec3 col = mix(horizon, zenith, pow(clamp(h, 0.0, 1.0), 0.5));
+  // napali's photographic gradient: a lighter blue band low, deep blue overhead, a milky horizon and a thin bright
+  // band right at the horizon line
+  float y = clamp(h, 0.0, 1.0);
+  vec3 col = mix(mix(zenith, horizon, 0.42), zenith * 0.86, smoothstep(0.0, 1.0, pow(y, 0.65)));
+  col = mix(col, horizon, exp(-y * 5.5) * 0.84);
+  col = mix(col, horizon * vec3(1.03, 1.02, 1.0), exp(-y * 30.0) * 0.5);
   col = mix(col, ground, 1.0 - smoothstep(-0.12, 0.0, h));
   float sd = max(dot(dir, sunDir), 0.0);
   col += sunColor * (pow(sd, 6.0) * 0.18 + pow(sd, 120.0) * 0.5) * sunDisc;

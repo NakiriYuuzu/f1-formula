@@ -175,6 +175,11 @@ export function backdropMaxRadius(reach: number, viewFar: number, minRadius = 0)
   return Math.max(minRadius, viewFar - Math.max(0, reach));
 }
 
+/** Ground albedo saturation per biome (terrain and verge turf: painted greens muted toward real grass seen from a distance). */
+export const GROUND_SATURATION: Record<Biome, number> = { temperate: 0.76, autumn: 0.88, desert: 1, coastal: 0.84, city: 0.95, tropical: 0.74 };
+/** Ground albedo brightness per biome (same surfaces): real turf is darker than the painted greens. */
+export const GROUND_VALUE: Record<Biome, number> = { temperate: 0.82, autumn: 0.9, desert: 1, coastal: 0.88, city: 1, tropical: 0.85 };
+
 /**
  * Low-frequency terrain colour multiplier per biome from two noise values in [0, 1] (n1 broad patches, n2 finer
  * mottling). Returned linear RGB factors stay within 0.7..1.2 so the ground texture keeps its character.

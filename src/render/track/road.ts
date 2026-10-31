@@ -23,7 +23,7 @@ import {
   pebbleNormalTexture,
   runoffAsphaltTexture,
 } from '../core/surfaceTextures';
-import { hash3 } from './sceneryMath';
+import { GROUND_SATURATION, GROUND_VALUE, hash3 } from './sceneryMath';
 import { GRID_LAYOUT, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
 import { PIT_BOX_COUNT, PIT_BOX_LATERAL, PIT_BOX_SPACING, PIT_LANE_HALF } from './trackFrame';
 
@@ -372,9 +372,10 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
       else b.quad(skirt, skirt + 1, skirt + 2, skirt + 3);
     }
   }
-  const grassBase = ctx.biome === 'desert' ? '#a39256' : ctx.biome === 'autumn' ? '#6a7a36' : ctx.biome === 'tropical' ? '#3f8a2c' : '#4f7d33';
+  // mown verge turf: muted, real-world greens (a picked swatch reads neon under full sun)
+  const grassBase = ctx.biome === 'desert' ? '#a39256' : ctx.biome === 'autumn' ? '#6a7a3c' : ctx.biome === 'tropical' ? '#4b7a36' : '#557a3c';
   const runoffMats = [
-    new THREE.MeshStandardMaterial({ name: 'runoff-grass', map: disposer.add(grassTexture(ctx.anisotropy, grassBase)), roughness: 0.95 }),
+    new THREE.MeshStandardMaterial({ name: 'runoff-grass', map: disposer.add(grassTexture(ctx.anisotropy, grassBase, 21, GROUND_SATURATION[ctx.biome], GROUND_VALUE[ctx.biome])), roughness: 0.95 }),
     new THREE.MeshStandardMaterial({ name: 'runoff-gravel', map: disposer.add(gravelTexture(ctx.anisotropy)), roughness: 1 }),
     new THREE.MeshStandardMaterial({ name: 'runoff-asphalt', map: disposer.add(runoffAsphaltTexture(ctx.anisotropy, RUNOFF_BAND[ctx.biome])), roughness: 0.85 }),
   ];

@@ -8,7 +8,8 @@
  * still steer / spin, LOD2 = one low-poly silhouette. Switch distances follow the quality (CAR_LOD_DISTANCES)
  * and are scaled by the camera FOV, so zoomed tv shots keep full detail. The rain light hangs off the root and
  * shows at every level. The ghost car is LOD0 only. Paint: clear-coated MeshPhysicalMaterial on high / ultra,
- * MeshStandardMaterial below (CAR_PAINT / CAR_SURFACE).
+ * MeshStandardMaterial below (CAR_PAINT / CAR_SURFACE); carbon weave, metallic flakes and paint flop on top
+ * (applySurfaceDetail, carSurfaceDetail per quality).
  *
  * Damage (carDamage.ts): the front wing bends then breaks off, the rear flap droops and twists, bent / broken
  * suspension splays the wheel at the corner that was hit and sags the body onto it, and scuffs (shared scuff map, per-car amount)
@@ -25,7 +26,22 @@ import { liveryTexture, paintLiveryCanvas, type LiveryPaint } from './atlas';
 import { acquireCarGeometry, releaseCarGeometry, type CarGeometrySet } from './carGeometry';
 import { createDamageLook, damageLook, scuffAfterImpact } from './carDamage';
 import { CarSharedResources } from './carMaterials';
-import { carLodDistances, inferCarQuality, lodFovScale, selectLodLevel, usesClearcoatPaint, CAR_FINISH, CAR_LOD_HYSTERESIS, CAR_PAINT } from './carQuality';
+import {
+  carLodDistances,
+  carSurfaceDetail,
+  inferCarQuality,
+  lodFovScale,
+  selectLodLevel,
+  usesClearcoatPaint,
+  CARBON_WEAVE,
+  CAR_FINISH,
+  CAR_LOD_HYSTERESIS,
+  CAR_PAINT,
+  CAR_SURFACE,
+  PAINT_FLAKE,
+  PAINT_FLOP,
+  SURFACE_DETAIL_MIN_PX,
+} from './carQuality';
 
 export interface CarModelOptions {
   livery: Livery;
@@ -198,6 +214,97 @@ function applyScuffShader(mat: THREE.MeshStandardMaterial, scuffMap: THREE.Textu
   mat.customProgramCacheKey = () => 'car-scuff';
 }
 
+const glslNum = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${+v.toFixed(6)}`);
+/** Surface-map texel (R clear coat, G roughness, B metalness) of an atlas region, as a GLSL vec3. */
+const surfaceKey = (k: keyof typeof CAR_SURFACE): string => {
+  const [r, m, cc] = CAR_SURFACE[k];
+  return `vec3( ${glslNum(Math.round(cc * 255) / 255)}, ${glslNum(Math.round(r * 255) / 255)}, ${glslNum(Math.round(m * 255) / 255)} )`;
+};
+
+/**
+ * Surface detail on the livery material (chains behind the scuff shader). Regions are told apart by their texel in
+ * the shared surface map. Carbon and satin carbon get a 2 × 2 twill weave, tri-planar in car space: the two tow
+ * directions in different shades with dark gaps between the tows, normalised so the far average is the plain colour.
+ * With `full` (high / ultra) every tow is also rounded in the normal, so the weave catches the light under the smooth
+ * clear coat; the painted regions get metallic flakes (a random normal tilt per cell, visible up close) and a colour
+ * flop (deeper towards grazing angles). Detail finer than SURFACE_DETAIL_MIN_PX pixels fades to its average.
+ */
+function applySurfaceDetail(mat: THREE.MeshStandardMaterial, full: boolean): void {
+  const prev = mat.onBeforeCompile;
+  const w = CARBON_WEAVE;
+  // mean of the weave shade (tow directions average out; the gaps darken ~1/7 of each tow)
+  const gapShare = 0.14;
+  const mean = 1 - gapShare * (1 - w.gap);
+  const fadeA = glslNum(0.5 / SURFACE_DETAIL_MIN_PX);
+  const fadeB = glslNum(1 / SURFACE_DETAIL_MIN_PX);
+  mat.onBeforeCompile = (sh, renderer) => {
+    prev.call(mat, sh, renderer);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCarPos;\nvarying vec3 vCarNrm;\nvarying vec3 vCarAxX;\nvarying vec3 vCarAxY;\nvarying vec3 vCarAxZ;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vCarPos = transformed;
+vCarNrm = objectNormal;
+vCarAxX = normalize( ( modelViewMatrix * vec4( 1.0, 0.0, 0.0, 0.0 ) ).xyz );
+vCarAxY = normalize( ( modelViewMatrix * vec4( 0.0, 1.0, 0.0, 0.0 ) ).xyz );
+vCarAxZ = normalize( ( modelViewMatrix * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );`,
+      );
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCarPos;\nvarying vec3 vCarNrm;\nvarying vec3 vCarAxX;\nvarying vec3 vCarAxY;\nvarying vec3 vCarAxZ;')
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+#ifdef USE_ROUGHNESSMAP
+{
+  vec3 cSurf = texture2D( roughnessMap, vRoughnessMapUv ).rgb;
+  float cCarbon = max( 1.0 - smoothstep( 0.03, 0.08, distance( cSurf, ${surfaceKey('carbon')} ) ), 1.0 - smoothstep( 0.03, 0.08, distance( cSurf, ${surfaceKey('satin')} ) ) );
+  // weave plane: the car-space plane facing the surface (u, v and their view-space directions)
+  vec3 cAbs = abs( vCarNrm );
+  vec2 cP = vCarPos.xy;
+  vec3 cU = vCarAxX;
+  vec3 cV = vCarAxY;
+  if ( cAbs.y >= cAbs.x && cAbs.y >= cAbs.z ) {
+    cP = vCarPos.xz;
+    cV = vCarAxZ;
+  } else if ( cAbs.x >= cAbs.z ) {
+    cP = vCarPos.zy;
+    cU = vCarAxZ;
+  }
+  cP *= ${glslNum(1 / w.tow)};
+  float cFade = 1.0 - smoothstep( ${fadeA}, ${fadeB}, length( fwidth( cP ) ) );
+  vec2 cC = floor( cP );
+  vec2 cF = fract( cP );
+  // twill: the tow direction alternates along diagonal steps of two cells
+  float cDir = step( 2.0, mod( cC.x + cC.y, 4.0 ) );
+  float cA = mix( cF.y, cF.x, cDir );
+  float cGap = smoothstep( 0.0, ${glslNum(gapShare)}, cA ) * ( 1.0 - smoothstep( ${glslNum(1 - gapShare)}, 1.0, cA ) );
+  float cShade = mix( ${glslNum(1 - w.contrast)}, ${glslNum(1 + w.contrast)}, cDir ) * mix( ${glslNum(w.gap)}, 1.0, cGap ) * ${glslNum(1 / mean)};
+  diffuseColor.rgb *= mix( 1.0, cShade, cCarbon * cFade );
+${
+  full
+    ? `  // rounded tows: the normal tilts across each tow
+  normal = normalize( normal - mix( cV, cU, cDir ) * ( cos( cA * PI ) * ${glslNum(w.bump)} * cCarbon * cFade ) );
+  float cPaint = 1.0 - smoothstep( 0.03, 0.08, distance( cSurf, ${surfaceKey('paint')} ) );
+  // paint flop: deeper colour towards grazing angles
+  float cNv = clamp( dot( normal, normalize( vViewPosition ) ), 0.0, 1.0 );
+  diffuseColor.rgb *= mix( 1.0, mix( ${glslNum(PAINT_FLOP[0])}, ${glslNum(PAINT_FLOP[1])}, pow( cNv, 0.7 ) ), cPaint );
+  // metallic flakes: a random tilt per cell under the clear coat (which keeps the smooth normal)
+  vec3 cQ = vCarPos * ${glslNum(1 / PAINT_FLAKE.size)};
+  vec3 cCell = floor( cQ );
+  vec2 cR = fract( sin( vec2( dot( cCell, vec3( 127.1, 311.7, 74.7 ) ), dot( cCell, vec3( 269.5, 183.3, 246.1 ) ) ) ) * 43758.5453 ) - 0.5;
+  float cFl = 1.0 - smoothstep( ${fadeA}, ${fadeB}, length( fwidth( cQ ) ) );
+  normal = normalize( normal + ( cU * cR.x + cV * cR.y ) * ( ${glslNum(PAINT_FLAKE.tilt * 2)} * cPaint * cFl ) );`
+    : ''
+}
+}
+#endif`,
+      );
+  };
+  const prevKey = mat.customProgramCacheKey;
+  mat.customProgramCacheKey = () => `${prevKey.call(mat)}|car-detail-${full ? 1 : 0}`;
+}
+
 /** Livery material: clear-coated physical paint, or standard (low / medium quality and the translucent ghost). */
 function createLiveryMaterial(map: THREE.Texture, shared: CarSharedResources, ghost: boolean, clearcoat: boolean): THREE.MeshStandardMaterial {
   const params: THREE.MeshStandardMaterialParameters = {
@@ -239,6 +346,8 @@ export function createCarModel(opts: CarModelOptions): CarModel {
   applyFinish(bodyMat, opts.livery.finish, ghost);
   const scuffAmount: THREE.IUniform<number> = { value: 0 };
   if (!ghost) applyScuffShader(bodyMat, shared.scuffMap, scuffAmount);
+  const surfaceDetail = carSurfaceDetail(quality);
+  if (!ghost && surfaceDetail !== 'off') applySurfaceDetail(bodyMat, surfaceDetail === 'full');
   if (ghost) {
     bodyMat.color.setRGB(0.75, 0.95, 1.25);
     bodyMat.emissive.setRGB(0.05, 0.12, 0.18);

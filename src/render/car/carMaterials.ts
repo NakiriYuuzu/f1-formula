@@ -1,15 +1,16 @@
 /**
  * Materials shared by every car of a scene: per-compound wheel materials (tyre sidewall colour band from
- * COMPOUND_INFO), the livery-atlas surface map (clear coat / roughness / metalness), the damage scuff map over the
- * livery UVs, ghost wheel material and the rain-light lamp.
+ * COMPOUND_INFO; on high / ultra physical rubber with sheen and graining, see TYRE_RUBBER), the livery-atlas surface
+ * map (clear coat / roughness / metalness), the damage scuff map over the livery UVs, ghost wheel material and the
+ * rain-light lamp.
  * Per-car materials (livery body, brake glow) are created by carModel.ts.
  */
 import * as THREE from 'three';
-import type { TireCompound } from '../../core/types';
+import type { QualityLevel, TireCompound } from '../../core/types';
 import { COMPOUNDS, COMPOUND_INFO } from '../../core/defaults';
 import { canvasTexture, createCanvas, Rng } from '../core/canvas';
 import { surfaceMapTexture } from './atlas';
-import { TYRE_SURFACE } from './carQuality';
+import { carSurfaceDetail, TYRE_RUBBER, TYRE_SURFACE } from './carQuality';
 
 export class CarSharedResources {
   readonly surfaceMap: THREE.CanvasTexture;
@@ -21,7 +22,9 @@ export class CarSharedResources {
   readonly rainLightMaterial: THREE.MeshBasicMaterial;
   private readonly wheelMaps: THREE.CanvasTexture[] = [];
 
-  constructor() {
+  /** `quality` picks the tyre material (physical rubber on high / ultra); default high */
+  constructor(quality: QualityLevel = 'high') {
+    const rubber = carSurfaceDetail(quality) === 'full';
     this.surfaceMap = surfaceMapTexture();
     this.scuffMap = scuffTexture();
     this.wheelSurface = wheelSurfaceTexture();
@@ -29,14 +32,15 @@ export class CarSharedResources {
     for (const c of COMPOUNDS) {
       const map = wheelTexture(COMPOUND_INFO[c].color);
       this.wheelMaps.push(map);
-      mats[c] = new THREE.MeshStandardMaterial({
+      const params: THREE.MeshStandardMaterialParameters = {
         name: `wheel-${c}`,
         map,
         roughnessMap: this.wheelSurface,
         metalnessMap: this.wheelSurface,
         roughness: 1,
         metalness: 1,
-      });
+      };
+      mats[c] = rubber ? rubberMaterial(params) : new THREE.MeshStandardMaterial(params);
     }
     this.wheelMaterials = mats;
     const ghostMap = wheelTexture('#9fdcff');
@@ -62,6 +66,63 @@ export class CarSharedResources {
     this.scuffMap.dispose();
     this.wheelSurface.dispose();
   }
+}
+
+/**
+ * Physical tyre material: sheen for the soft lustre of rubber at grazing angles, and on the rubber column of the
+ * wheel atlas (u < 0.25) a lighter worn-grey albedo with fine graining (value noise in wheel space, faded once the
+ * grains are sub-pixel) that also varies the roughness.
+ */
+function rubberMaterial(params: THREE.MeshStandardMaterialParameters): THREE.MeshPhysicalMaterial {
+  const mat = new THREE.MeshPhysicalMaterial({
+    ...params,
+    sheen: TYRE_RUBBER.sheen,
+    sheenRoughness: TYRE_RUBBER.sheenRoughness,
+    sheenColor: new THREE.Color().setScalar(TYRE_RUBBER.sheenColor),
+  });
+  const f = (v: number): string => (Number.isInteger(v) ? `${v}.0` : `${v}`);
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vTyrePos;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvTyrePos = transformed * ${f(+(1 / TYRE_RUBBER.grainSize).toFixed(3))};`);
+    sh.fragmentShader = sh.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vTyrePos;
+float tyreHash( vec3 p ) {
+  p = fract( p * 0.3183099 + 0.1 );
+  p *= 17.0;
+  return fract( p.x * p.y * p.z * ( p.x + p.y + p.z ) );
+}
+float tyreNoise( vec3 x ) {
+  vec3 i = floor( x );
+  vec3 u = fract( x );
+  u = u * u * ( 3.0 - 2.0 * u );
+  return mix(
+    mix( mix( tyreHash( i ), tyreHash( i + vec3( 1.0, 0.0, 0.0 ) ), u.x ), mix( tyreHash( i + vec3( 0.0, 1.0, 0.0 ) ), tyreHash( i + vec3( 1.0, 1.0, 0.0 ) ), u.x ), u.y ),
+    mix( mix( tyreHash( i + vec3( 0.0, 0.0, 1.0 ) ), tyreHash( i + vec3( 1.0, 0.0, 1.0 ) ), u.x ), mix( tyreHash( i + vec3( 0.0, 1.0, 1.0 ) ), tyreHash( i + vec3( 1.0 ) ), u.x ), u.y ),
+    u.z );
+}`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+float tyreRub = 0.0;
+float tyreGrain = 0.5;
+#ifdef USE_MAP
+  tyreRub = 1.0 - step( 0.25, vMapUv.x );
+  tyreGrain = mix( 0.5, tyreNoise( vTyrePos ) * 0.65 + tyreNoise( vTyrePos * 2.7 + 3.1 ) * 0.35, 1.0 - smoothstep( 0.25, 0.6, length( fwidth( vTyrePos ) ) ) );
+  diffuseColor.rgb *= mix( 1.0, ${f(TYRE_RUBBER.albedo)} * ( 1.0 + ${f(TYRE_RUBBER.grain * 2)} * ( tyreGrain - 0.5 ) ), tyreRub );
+#endif`,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        '#include <roughnessmap_fragment>\n  roughnessFactor *= mix( 1.0, 0.86 + 0.28 * tyreGrain, tyreRub );',
+      );
+  };
+  mat.customProgramCacheKey = () => 'car-tyre-rubber';
+  return mat;
 }
 
 /** 4-column wheel atlas: rubber / compound band / rim / nut. */

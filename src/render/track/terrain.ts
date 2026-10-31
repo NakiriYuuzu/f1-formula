@@ -4,8 +4,9 @@
  * sloping into a far ground plane (or the sea for coastal / harbour biomes; their inland edge stays just above
  * the water and continues into the backdrop's land shelf) at the edges. Split into a grid of chunks so views
  * cull what is behind them. Ground shading: macro colour variation (vertex colours), two-scale detail noise,
- * mowing stripes along the track and a shoreline tint (sceneryMaterials.patchGroundMaterial). The sea gets a
- * drifting wave normal map (sun glint) and the distant backdrop ring is attached here (backdrop.ts).
+ * mowing stripes along the track and a shoreline tint (sceneryMaterials.patchGroundMaterial; surf on the waterline from
+ * medium up). The sea gets a drifting wave normal map (sun glint; layered swell / ripple and turquoise wave flanks from
+ * medium up, patchSeaMaterial) and the distant backdrop ring is attached here (backdrop.ts).
  */
 import * as THREE from 'three';
 import type { Biome, BuiltTrack, QualityLevel } from '../../core/types';
@@ -14,8 +15,8 @@ import { smoothstep } from '../../core/math';
 import { groundDetailTexture, groundTexture, GROUND_STYLES, seaNormalTexture } from '../core/surfaceTextures';
 import { buildBackdrop } from './backdrop';
 import type { SceneryContext, TerrainEdit } from './context';
-import { patchGroundMaterial } from './sceneryMaterials';
-import { fbm2D, groundTint, landEdgeBlend, landWeight, valueNoise2D } from './sceneryMath';
+import { patchGroundMaterial, patchSeaMaterial } from './sceneryMaterials';
+import { fbm2D, GROUND_SATURATION, GROUND_VALUE, groundTint, landEdgeBlend, landWeight, valueNoise2D } from './sceneryMath';
 
 export interface TerrainParts {
   group: THREE.Group;
@@ -53,6 +54,9 @@ export const GROUND_MACRO_SCALE: readonly [number, number] = [230, 70];
 /** Shore tint (water biomes) fades out this high (m) above sea level. */
 export const SHORE_HEIGHT = 2.2;
 const SHORE_COLOR: Record<Biome, string> = { temperate: '#b9a77e', autumn: '#b9a77e', desert: '#d9c193', coastal: '#cdbd92', city: '#56575b', tropical: '#a5603f' };
+/** Sun-bleached dry patches (0..1) and the bare soil / rock of steep banks per biome (tropical: red laterite). */
+export const GROUND_DRY: Record<Biome, number> = { temperate: 0.35, autumn: 0.4, desert: 0.15, coastal: 0.6, city: 0.2, tropical: 0.12 };
+const ROCK_COLOR: Record<Biome, string> = { temperate: '#6b6156', autumn: '#6e5a48', desert: '#a5764d', coastal: '#8a7d68', city: '#5f5b55', tropical: '#7a4a32' };
 /** Water biomes: inland terrain edge (and the backdrop land shelf) sits this far (m) above sea level. */
 export const LAND_EDGE_ABOVE_SEA = 1.2;
 /** Sea: metres per wave normal-map repeat, drift (repeats / s), normal strength, roughness. */
@@ -252,7 +256,16 @@ export function buildTerrain(ctx: SceneryContext): TerrainParts {
   const tex = disposer.add(groundTexture(ctx.biome, ctx.anisotropy));
   const detail = disposer.add(groundDetailTexture(ctx.anisotropy));
   const mat = disposer.add(new THREE.MeshStandardMaterial({ name: 'terrain', map: tex, vertexColors: true, roughness: 0.96, metalness: 0 }));
-  patchGroundMaterial(mat, { detail, terrain: true, shoreColor: new THREE.Color(SHORE_COLOR[ctx.biome]) });
+  patchGroundMaterial(mat, {
+    detail,
+    terrain: true,
+    shoreColor: new THREE.Color(SHORE_COLOR[ctx.biome]),
+    dry: GROUND_DRY[ctx.biome],
+    rockColor: new THREE.Color(ROCK_COLOR[ctx.biome]),
+    saturation: GROUND_SATURATION[ctx.biome],
+    value: GROUND_VALUE[ctx.biome],
+    surf: seaLevel !== null && ctx.quality.level !== 'low' ? seaLevel : undefined,
+  });
   const group = new THREE.Group();
   group.name = 'terrain';
   const chunks = Math.max(1, Math.round(TERRAIN_CHUNKS[ctx.quality.level] ?? 1));
@@ -296,6 +309,7 @@ export function buildTerrain(ctx: SceneryContext): TerrainParts {
         normalScale: new THREE.Vector2(SEA_NORMAL_SCALE, SEA_NORMAL_SCALE),
       }),
     );
+    if (ctx.quality.level !== 'low') patchSeaMaterial(seaMat, new THREE.Color(ctx.biome === 'city' ? '#1d6068' : '#1a8a8c'));
     const sea = new THREE.Mesh(seaGeo, seaMat);
     sea.position.set(cx, seaLevel, cz);
     sea.name = 'sea';

@@ -8,6 +8,9 @@
  * lighthouse, moored ships and harbour / street / beacon lights, dark hills behind.
  * Everything is merged per material (≤ 3 draw calls), shadowless, inside the camera far plane, never inside the
  * terrain rectangle, and uses a capped scene fog (sceneryMaterials.patchBackdropFog) so it reads as distance.
+ * From medium up the land gets napali-style relief (sceneryMaterials.patchBackdropLand; per-vertex ruggedness in
+ * uv.x) and, with the post chain's aerial haze, its true surface colours (`natural` palettes) instead of the baked
+ * distance blue.
  */
 import * as THREE from 'three';
 import type { Biome, QualityLevel, TimeOfDay } from '../../core/types';
@@ -17,7 +20,7 @@ import { CAMERA_FAR } from '../core/quality';
 import { GeoBuilder, addBox } from '../core/geometry';
 import { SKYLINE_WINDOW_GRID, skylineTexture } from '../core/surfaceTextures';
 import type { SceneryContext } from './context';
-import { BACKDROP_FOG_CAP, patchBackdropFog, patchWindowFade } from './sceneryMaterials';
+import { BACKDROP_FOG_CAP, patchBackdropFog, patchBackdropLand, patchWindowFade } from './sceneryMaterials';
 import { backdropMaxRadius, landEdgeBlend, landWeight, rectDistance, rectRayDistance, ridged, ringFbm } from './sceneryMath';
 
 export interface BackdropFrame {
@@ -39,6 +42,15 @@ export interface BackdropFrame {
   /** farthest distance (m) from the centre a camera can be */
   reach: number;
 }
+
+/** Ruggedness (gully relief, steep rock) of rolling hills, mesas and islands; mountains are 1 (see patchBackdropLand). */
+const BACKDROP_HILL_RUGGED = 0.5;
+const MESA_RUGGED = 0.85;
+const ISLAND_RUGGED = 0.6;
+/** Gully octaves of the backdrop land per quality (0 = no relief shader). */
+export const BACKDROP_RELIEF_OCTAVES: Record<QualityLevel, number> = { low: 0, medium: 2, high: 4, ultra: 5 };
+/** Bare rock of the backdrop land per biome (granite, sandstone, laterite …). */
+const BACKDROP_ROCK: Record<Biome, Rgb> = { temperate: '#6f6a63', autumn: '#6e625a', desert: '#a0694a', coastal: '#7d7466', city: '#5f5b55', tropical: '#7a4a32' };
 
 /** Angular resolution of the ring layers per quality. */
 export const BACKDROP_SEGMENTS: Record<QualityLevel, number> = { low: 128, medium: 288, high: 512, ultra: 640 };
@@ -84,7 +96,12 @@ interface RidgeLayer {
   faceted?: boolean;
   /** [radial fraction, height fraction] from the sunk foot (-1) to the back of the crest */
   rows: readonly (readonly [number, number])[];
-  palette: { foot: Rgb; low: Rgb; mid: Rgb; crest: Rgb };
+  palette: RidgePalette;
+  /**
+   * True surface colours (forest, scree, rock) for qualities with aerial haze in the post chain, which then adds the
+   * distance blue itself; `palette` has that blue baked in for the direct fogged render.
+   */
+  natural?: RidgePalette;
   /** patchwork colours over the lower slopes (forest band) and how strongly they replace the base */
   band?: readonly Rgb[];
   bandAmount?: number;
@@ -92,7 +109,16 @@ interface RidgeLayer {
   snow?: number;
   /** heights fade to nothing towards the sea (water biomes) */
   landOnly?: boolean;
+  /** gully relief and bare rock on steep faces, 0..1 (default: 1 for ridged ranges, BACKDROP_HILL_RUGGED for hills) */
+  rugged?: number;
   seed: number;
+}
+
+interface RidgePalette {
+  foot: Rgb;
+  low: Rgb;
+  mid: Rgb;
+  crest: Rgb;
 }
 
 const HILL_ROWS = [[0, -1], [0.16, 0.14], [0.38, 0.48], [0.62, 0.82], [0.8, 1], [1, 0.88]] as const;
@@ -103,30 +129,30 @@ const SNOW = '#e9eef4';
 const LAYERS: Record<Biome, RidgeLayer[]> = {
   temperate: [
     { r0: 0, r1: 560, h: [28, 88], period: 12, rows: HILL_ROWS, palette: { foot: '#5a7e39', low: '#4b7131', mid: '#557a3a', crest: '#6c8c4d' }, band: ['#2e5127', '#385d2b', '#436a32'], bandAmount: 0.6, seed: 1 },
-    { r0: 360, r1: 1000, h: [70, 165], period: 8, rows: HILL_ROWS, palette: { foot: '#4d6d47', low: '#496946', mid: '#557459', crest: '#6a846f' }, band: ['#33523a', '#3d5e42'], bandAmount: 0.45, seed: 2 },
-    { r0: 1000, r1: 1750, h: [150, 400], period: 7, ridged: true, faceted: false, rows: PEAK_ROWS, palette: { foot: '#5b6676', low: '#586373', mid: '#66717e', crest: '#7b8593' }, snow: 390, seed: 3 },
+    { r0: 360, r1: 1000, h: [70, 165], period: 8, rows: HILL_ROWS, palette: { foot: '#4d6d47', low: '#496946', mid: '#557459', crest: '#6a846f' }, band: ['#33523a', '#3d5e42'], bandAmount: 0.45, natural: { foot: '#45652f', low: '#3f5f2c', mid: '#4a6a35', crest: '#5b7843' }, seed: 2 },
+    { r0: 1000, r1: 1750, h: [150, 400], period: 7, ridged: true, faceted: false, rows: PEAK_ROWS, palette: { foot: '#5b6676', low: '#586373', mid: '#66717e', crest: '#7b8593' }, natural: { foot: '#34502a', low: '#3d592d', mid: '#566240', crest: '#74776a' }, snow: 390, seed: 3 },
   ],
   autumn: [
     { r0: 0, r1: 560, h: [30, 92], period: 12, rows: HILL_ROWS, palette: { foot: '#6a6834', low: '#6c5d2f', mid: '#785c2d', crest: '#887040' }, band: ['#b3442a', '#c7682c', '#d19834', '#8d3923', '#3e5932'], bandAmount: 0.78, seed: 4 },
-    { r0: 360, r1: 1000, h: [70, 170], period: 8, rows: HILL_ROWS, palette: { foot: '#685944', low: '#745f49', mid: '#7d6954', crest: '#8b7965' }, band: ['#9c4931', '#b1743b', '#49593f'], bandAmount: 0.55, seed: 5 },
-    { r0: 1000, r1: 1750, h: [140, 370], period: 7, ridged: true, faceted: false, rows: PEAK_ROWS, palette: { foot: '#5e5965', low: '#605b68', mid: '#6d6876', crest: '#817c89' }, snow: 450, seed: 6 },
+    { r0: 360, r1: 1000, h: [70, 170], period: 8, rows: HILL_ROWS, palette: { foot: '#685944', low: '#745f49', mid: '#7d6954', crest: '#8b7965' }, band: ['#9c4931', '#b1743b', '#49593f'], bandAmount: 0.55, natural: { foot: '#6b5233', low: '#775634', mid: '#7f623d', crest: '#8a7352' }, seed: 5 },
+    { r0: 1000, r1: 1750, h: [140, 370], period: 7, ridged: true, faceted: false, rows: PEAK_ROWS, palette: { foot: '#5e5965', low: '#605b68', mid: '#6d6876', crest: '#817c89' }, natural: { foot: '#57472c', low: '#5e4e33', mid: '#675f4c', crest: '#7c776d' }, snow: 450, seed: 6 },
   ],
   desert: [
-    { r0: 0, r1: 700, h: [12, 48], period: 18, rows: DUNE_ROWS, palette: { foot: '#c8a36a', low: '#cea76b', mid: '#d7b379', crest: '#e5c58f' }, seed: 11 },
-    { r0: 1150, r1: 1750, h: [90, 230], period: 7, ridged: true, faceted: true, rows: PEAK_ROWS, palette: { foot: '#9a6c54', low: '#91644e', mid: '#88685d', crest: '#9a7e72' }, seed: 12 },
+    { r0: 0, r1: 700, h: [12, 48], period: 18, rugged: 0, rows: DUNE_ROWS, palette: { foot: '#c8a36a', low: '#cea76b', mid: '#d7b379', crest: '#e5c58f' }, seed: 11 },
+    { r0: 1150, r1: 1750, h: [90, 230], period: 7, ridged: true, faceted: true, rows: PEAK_ROWS, palette: { foot: '#9a6c54', low: '#91644e', mid: '#88685d', crest: '#9a7e72' }, natural: { foot: '#a66e4c', low: '#9c6849', mid: '#93705c', crest: '#a8866d' }, seed: 12 },
   ],
   coastal: [
     { r0: 220, r1: 760, h: [40, 120], period: 11, landOnly: true, rows: HILL_ROWS, palette: { foot: '#6b8943', low: '#5e7c3b', mid: '#698445', crest: '#859459' }, band: ['#4a6932', '#557339', '#98985f'], bandAmount: 0.5, seed: 21 },
-    { r0: 600, r1: 1250, h: [100, 230], period: 8, landOnly: true, rows: HILL_ROWS, palette: { foot: '#5d7555', low: '#5a7256', mid: '#657a61', crest: '#798973' }, seed: 22 },
-    { r0: 1200, r1: 1800, h: [180, 400], period: 6, ridged: true, faceted: true, landOnly: true, rows: PEAK_ROWS, palette: { foot: '#65707c', low: '#626d7a', mid: '#6f7984', crest: '#838c97' }, seed: 23 },
+    { r0: 600, r1: 1250, h: [100, 230], period: 8, landOnly: true, rows: HILL_ROWS, palette: { foot: '#5d7555', low: '#5a7256', mid: '#657a61', crest: '#798973' }, natural: { foot: '#55703b', low: '#506b39', mid: '#5c733d', crest: '#70804c' }, seed: 22 },
+    { r0: 1200, r1: 1800, h: [180, 400], period: 6, ridged: true, faceted: true, landOnly: true, rows: PEAK_ROWS, palette: { foot: '#65707c', low: '#626d7a', mid: '#6f7984', crest: '#838c97' }, natural: { foot: '#4f6438', low: '#56633f', mid: '#666850', crest: '#7c7c70' }, seed: 23 },
   ],
   tropical: [
     { r0: 0, r1: 520, h: [14, 46], period: 14, rows: HILL_ROWS, palette: { foot: '#3f7a2e', low: '#357028', mid: '#3d7a2c', crest: '#52913a' }, band: ['#2a5e24', '#33702a', '#3d7f2e', '#58802a', '#8a6a3a'], bandAmount: 0.72, seed: 41 },
     { r0: 340, r1: 980, h: [34, 95], period: 9, rows: HILL_ROWS, palette: { foot: '#3b6f3a', low: '#376a38', mid: '#44784a', crest: '#5a8f5c' }, band: ['#2c5a30', '#356638', '#4a7a30'], bandAmount: 0.55, seed: 42 },
-    { r0: 900, r1: 1750, h: [60, 150], period: 7, rows: HILL_ROWS, palette: { foot: '#55806c', low: '#52796a', mid: '#628a7c', crest: '#7ca293' }, seed: 43 },
+    { r0: 900, r1: 1750, h: [60, 150], period: 7, rows: HILL_ROWS, palette: { foot: '#55806c', low: '#52796a', mid: '#628a7c', crest: '#7ca293' }, natural: { foot: '#2e5a26', low: '#2b5524', mid: '#35612e', crest: '#467038' }, seed: 43 },
   ],
   city: [
-    { r0: 1150, r1: 1800, h: [50, 140], period: 10, landOnly: true, rows: HILL_ROWS, palette: { foot: '#3c493d', low: '#39453a', mid: '#44503e', crest: '#535e4b' }, seed: 31 },
+    { r0: 1150, r1: 1800, h: [50, 140], period: 10, landOnly: true, rows: HILL_ROWS, palette: { foot: '#3c493d', low: '#39453a', mid: '#44503e', crest: '#535e4b' }, natural: { foot: '#3f5232', low: '#3c4f30', mid: '#485a38', crest: '#586548' }, seed: 31 },
   ],
 };
 
@@ -218,16 +244,20 @@ export function buildBackdrop(ctx: SceneryContext, frame: BackdropFrame): THREE.
 
   const shelf = SHELF[ctx.biome];
   if (shelf && frame.seaLevel !== null) addShelf(land, ring, shelf.depth, shelf.colors, albedo, ctx.seed);
-  for (const layer of LAYERS[ctx.biome] ?? []) addRidge(land, ring, layer, albedo, ctx.seed);
+  for (const layer of LAYERS[ctx.biome] ?? []) addRidge(land, ring, layer, albedo, ctx.seed, ctx.quality.aerialHaze);
   if (ctx.biome === 'desert') addMesas(land, ring, rng, albedo);
   if (ctx.biome === 'coastal') {
     addIslands(land, ring, rng, albedo);
+    const from = land.vertexCount;
     addVillage(land, lit ? lights : null, ring, rng, albedo);
+    smoothSurface(land, from);
   }
   if (ctx.biome === 'city') {
     addFarShore(land, ring, albedo);
     addSkyline(towers, lit ? lights : null, ring, rng, Math.round((SKYLINE_TOWERS[level] ?? 320) * (ctx.track.def.real ? SKYLINE_REAL_DENSITY : 1)), albedo);
+    const from = land.vertexCount;
     addHarbour(land, lit ? lights : null, ring, rng, albedo);
+    smoothSurface(land, from);
   }
 
   const group = new THREE.Group();
@@ -237,6 +267,11 @@ export function buildBackdrop(ctx: SceneryContext, frame: BackdropFrame): THREE.
     disposer.add(landGeo);
     const mat = disposer.add(new THREE.MeshLambertMaterial({ name: 'backdrop-land', vertexColors: true }));
     patchBackdropFog(mat, BACKDROP_FOG_CAP, false);
+    const octaves = BACKDROP_RELIEF_OCTAVES[level] ?? 0;
+    if (octaves > 0) {
+      const rock = new THREE.Color(BACKDROP_ROCK[ctx.biome] ?? BACKDROP_ROCK.temperate).multiplyScalar(albedo);
+      patchBackdropLand(mat, { rock, centre: [frame.cx, frame.cz], octaves });
+    }
     group.add(backdropMesh(landGeo, mat, 'backdrop-land'));
   }
   const towerGeo = towers.build();
@@ -272,13 +307,17 @@ function backdropMesh(geo: THREE.BufferGeometry, mat: THREE.Material, name: stri
   return mesh;
 }
 
+/** Man-made shapes (village, harbour) added from vertex `from` on: no gully relief (uv.x = 0, see patchBackdropLand). */
+function smoothSurface(b: GeoBuilder, from: number): void {
+  for (let v = from; v < b.vertexCount; v++) b.uvs[v * 2] = 0;
+}
+
 function setColor(b: GeoBuilder, hex: Rgb, albedo: number): void {
   b.setColor(_c.set(hex).multiplyScalar(albedo));
 }
 
 /** Colour of a ridge vertex from its height fraction, forest band patchwork and snow. */
-function ridgeColor(layer: RidgeLayer, theta: number, row: number, hf: number, yRel: number, out: THREE.Color): THREE.Color {
-  const p = layer.palette;
+function ridgeColor(layer: RidgeLayer, p: RidgePalette, theta: number, row: number, hf: number, yRel: number, out: THREE.Color): THREE.Color {
   if (hf < 0.25) out.set(p.foot).lerp(_c2.set(p.low), clamp01(hf / 0.25));
   else if (hf < 0.6) out.set(p.low).lerp(_c2.set(p.mid), (hf - 0.25) / 0.35);
   else out.set(p.mid).lerp(_c2.set(p.crest), clamp01((hf - 0.6) / 0.4));
@@ -292,11 +331,13 @@ function ridgeColor(layer: RidgeLayer, theta: number, row: number, hf: number, y
 }
 
 /** One ring layer: rows of vertices from the sunk foot over the crest, smooth (shared) or faceted. */
-function addRidge(b: GeoBuilder, ring: Ring, layer: RidgeLayer, albedo: number, seed: number): void {
+function addRidge(b: GeoBuilder, ring: Ring, layer: RidgeLayer, albedo: number, seed: number, natural: boolean): void {
   const n = ring.n;
   const rows = layer.rows;
   const R = rows.length;
   const s = (seed % 9973) + layer.seed * 1009;
+  const rugged = layer.rugged ?? (layer.ridged ? 1 : BACKDROP_HILL_RUGGED);
+  const palette = (natural && layer.natural) || layer.palette;
   // vertex grid (row-major) of positions + colours
   const px = new Float64Array(R * n);
   const py = new Float64Array(R * n);
@@ -319,7 +360,7 @@ function addRidge(b: GeoBuilder, ring: Ring, layer: RidgeLayer, albedo: number, 
       px[v] = ring.x(k, r);
       py[v] = y;
       pz[v] = ring.z(k, r);
-      ridgeColor(layer, theta, j, hf, y - base, _c).multiplyScalar(albedo);
+      ridgeColor(layer, palette, theta, j, hf, y - base, _c).multiplyScalar(albedo);
       col[v * 3] = _c.r;
       col[v * 3 + 1] = _c.g;
       col[v * 3 + 2] = _c.b;
@@ -327,7 +368,7 @@ function addRidge(b: GeoBuilder, ring: Ring, layer: RidgeLayer, albedo: number, 
   }
   const vert = (v: number): number => {
     b.setColor(_c.setRGB(col[v * 3], col[v * 3 + 1], col[v * 3 + 2]));
-    return b.vertex(px[v], py[v], pz[v], 0, 1, 0, 0, 0);
+    return b.vertex(px[v], py[v], pz[v], 0, 1, 0, rugged, 0);
   };
   if (layer.faceted) {
     for (let j = 0; j < R - 1; j++) {
@@ -390,6 +431,7 @@ function addRock(
   colors: readonly Rgb[],
   albedo: number,
   rng: Rng,
+  rugged: number,
 ): void {
   const wobble: number[] = [];
   const rot = rng.range(0, TAU);
@@ -408,8 +450,8 @@ function addRock(
       const p2 = ringAt(li + 1, i + 1);
       const p3 = ringAt(li + 1, i);
       // (p1 - p0) × (p3 - p0) points inwards, so wind p0, p3, p2 / p0, p2, p1 to face outwards
-      b.tri(b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, 0, 0), b.vertex(p3.x, p3.y, p3.z, 0, 1, 0, 0, 0), b.vertex(p2.x, p2.y, p2.z, 0, 1, 0, 0, 0));
-      b.tri(b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, 0, 0), b.vertex(p2.x, p2.y, p2.z, 0, 1, 0, 0, 0), b.vertex(p1.x, p1.y, p1.z, 0, 1, 0, 0, 0));
+      b.tri(b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, rugged, 0), b.vertex(p3.x, p3.y, p3.z, 0, 1, 0, rugged, 0), b.vertex(p2.x, p2.y, p2.z, 0, 1, 0, rugged, 0));
+      b.tri(b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, rugged, 0), b.vertex(p2.x, p2.y, p2.z, 0, 1, 0, rugged, 0), b.vertex(p1.x, p1.y, p1.z, 0, 1, 0, rugged, 0));
     }
   }
   // top cap (fan around the centre of the last ring)
@@ -419,7 +461,7 @@ function addRock(
   for (let i = 0; i < sides; i++) {
     const p0 = ringAt(top, i);
     const p1 = ringAt(top, i + 1);
-    b.tri(b.vertex(cx, cy, cz, 0, 1, 0, 0, 0), b.vertex(p1.x, p1.y, p1.z, 0, 1, 0, 0, 0), b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, 0, 0));
+    b.tri(b.vertex(cx, cy, cz, 0, 1, 0, rugged, 0), b.vertex(p1.x, p1.y, p1.z, 0, 1, 0, rugged, 0), b.vertex(p0.x, p0.y, p0.z, 0, 1, 0, rugged, 0));
   }
 }
 
@@ -454,7 +496,7 @@ function addMesas(b: GeoBuilder, ring: Ring, rng: Rng, albedo: number): void {
     placed.push({ x: spot.x, z: spot.z, r: radius });
     const h = rng.range(60, 190);
     const strata = [MESA_STRATA[rng.int(0, 3)], MESA_STRATA[rng.int(0, 3)], MESA_STRATA[rng.int(0, 3)], '#c4895a'];
-    addRock(b, spot.x, spot.z, ring.frame.farY, radius, rng.int(7, 10), [[1.12, -4], [1.04, h * 0.32], [0.97, h * 0.64], [0.9, h]], strata, albedo, rng);
+    addRock(b, spot.x, spot.z, ring.frame.farY, radius, rng.int(7, 10), [[1.12, -4], [1.04, h * 0.32], [0.97, h * 0.64], [0.9, h]], strata, albedo, rng, MESA_RUGGED);
   }
 }
 
@@ -470,7 +512,7 @@ function addIslands(b: GeoBuilder, ring: Ring, rng: Rng, albedo: number): void {
     if (!spot || overlaps(placed, spot.x, spot.z, radius, 1.25)) continue;
     placed.push({ x: spot.x, z: spot.z, r: radius });
     const h = rng.range(30, 150) * (0.6 + radius / 700);
-    addRock(b, spot.x, spot.z, sea, radius, rng.int(9, 12), [[1.05, -3], [0.82, h * 0.18], [0.55, h * 0.62], [0.2, h]], ['#bfae84', '#5f7f3d', '#4c6b33', '#56703a'], albedo, rng);
+    addRock(b, spot.x, spot.z, sea, radius, rng.int(9, 12), [[1.05, -3], [0.82, h * 0.18], [0.55, h * 0.62], [0.2, h]], ['#bfae84', '#5f7f3d', '#4c6b33', '#56703a'], albedo, rng, ISLAND_RUGGED);
   }
 }
 
