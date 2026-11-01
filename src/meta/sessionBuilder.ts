@@ -481,7 +481,8 @@ export interface QualifyingEntry {
 
 /**
  * Full qualifying classification: lap times from the session result (humans, plus AI if the runtime ran them)
- * merged with simulated AI times for the rest of the field. Drivers without a time go last by car strength.
+ * merged with simulated AI times for the rest of the field. A car that went out (wrecked, disqualified) keeps only
+ * the time it set before. Drivers without a time go last by car strength.
  */
 export function classifyQualifying(
   result: SessionResult,
@@ -494,7 +495,8 @@ export function classifyQualifying(
   for (const d of roster.drivers) {
     const row = result.rows.find((r) => r.driverId === d.id);
     const ranTime = row ? (valid(row.time) ?? valid(row.bestLap)) : null;
-    if (row && (ranTime !== null || row.playerIndex !== -1)) {
+    const out = row !== undefined && (row.status === 'retired' || row.disqualified === true);
+    if (row && (ranTime !== null || row.playerIndex !== -1 || out)) {
       entries.push({ driverId: d.id, teamId: d.teamId, time: ranTime, carId: row.carId, playerIndex: row.playerIndex, simulated: false });
     } else if (row) {
       entries.push({ driverId: d.id, teamId: d.teamId, time: valid(simulated[d.id]), carId: row.carId, playerIndex: -1, simulated: true });

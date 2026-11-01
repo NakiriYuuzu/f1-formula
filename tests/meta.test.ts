@@ -445,6 +445,29 @@ describe('qualifying classification', () => {
     expect([...times].sort((a, b) => a - b)).toEqual(times);
     expect(entries.find((e) => e.driverId === 'hsu')?.simulated).toBe(false);
   });
+
+  test('an AI car wrecked before setting a time gets no simulated time and goes last; one wrecked after keeps its time', () => {
+    const roster = standardRoster();
+    const [early, late] = roster.drivers.filter((d) => d.id !== 'hsu');
+    const base = singleRowResult('qualifying', 'career', { driverId: 'hsu', teamId: 'nordlys', time: 85.5, bestLap: 85.5 });
+    const wrecked = (carId: number, d: { id: string; teamId: string }, bestLap: number | null): ResultRow => ({
+      ...base.rows[0]!,
+      carId,
+      driverId: d.id,
+      teamId: d.teamId,
+      playerIndex: -1,
+      time: bestLap,
+      bestLap,
+      status: 'retired',
+    });
+    const result: SessionResult = { ...base, rows: [...base.rows, wrecked(1, early!, null), wrecked(2, late!, 86)] };
+    // every AI simulates faster than the player: without the fix the early wreck would take pole
+    const simulated = Object.fromEntries(roster.drivers.map((d, i) => [d.id, 84 + i * 0.01]));
+    const entries = classifyQualifying(result, simulated, roster);
+    expect(entries).toHaveLength(20);
+    expect(entries[entries.length - 1]).toMatchObject({ driverId: early!.id, time: null, simulated: false });
+    expect(entries.find((e) => e.driverId === late!.id)).toMatchObject({ time: 86, simulated: false });
+  });
 });
 
 // ───────────────────────────── career & My Team ─────────────────────────────
