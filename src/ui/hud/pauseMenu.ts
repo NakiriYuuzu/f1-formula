@@ -86,7 +86,7 @@ export class PauseMenu {
     const card = el('div', 'nvh-pause-card', this.el);
     card.setAttribute('role', 'dialog');
     card.setAttribute('aria-label', '暫停選單');
-    el('div', 'nvh-pause-title', card, '暫停');
+    el('div', 'nvh-pause-title', card, '已暫停');
     this.subtitle = new TextSlot(el('div', 'nvh-pause-sub', card));
     this.list = el('div', 'nvh-pause-list', card);
     this.hint = new TextSlot(el('div', 'nvh-pause-hint', card));

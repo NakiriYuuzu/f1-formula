@@ -1,21 +1,20 @@
 /*
  * Shared design tokens. Menus, HUD and App styles must use these variables.
  *
- * Style (2026-11 redesign, docs/plans/ui-redesign-2026-11.md): true-black flat on a cool near-black ground.
- * Elevation is lightness alone (ground → panel → nested panel), with no borders or shadows on anything at rest.
- * Focus is inversion (white fill, near-black text). The brand orange is only on each screen's one primary
- * action and on the brand mark. Every other colour is data: team identity, tyre compounds, timing
- * purple/green/yellow, flags, status.
+ * Style (2026-11 game UI, docs/plans/ui-festival-2026-11.md): festival racing look. Big saturated colour fields,
+ * dark glass over the 3D world, hot pink for whatever is selected, white rings on focused picture tiles, heavy type
+ * with condensed italic figures, a slant on small accent shapes. Data colours (team identity, tyre compounds,
+ * timing purple/green/yellow, flags, status) keep their own tokens; pink is never data.
  */
 @font-face {
   font-family: 'Inter';
   font-style: normal;
-  font-weight: 400 700;
+  font-weight: 100 900;
   font-display: swap;
   src: url('./fonts/inter-latin-var.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-/* the wordmark face: FORMULA NOVA 25 only */
+/* the display face: wordmark, figures (positions, laps, speed, gear, times) and English words in titles */
 @font-face {
   font-family: 'Barlow Condensed';
   font-style: italic;
@@ -26,32 +25,56 @@
 }
 
 :root {
-  /* surfaces: elevation by lightness */
-  --nv-bg: #0c0d0f; /* ground */
-  --nv-bg-2: #0c0d0f;
-  --nv-panel: #15171a; /* card / panel, opaque */
-  --nv-panel-solid: #15171a;
-  --nv-panel-hi: #23262b; /* nested panel, control track */
-  --nv-active: #2e3238; /* chosen-but-not-focused (the selected track, the active tab) */
-  --nv-scrim: rgba(12, 13, 15, 0.84); /* the one translucent surface: HUD blocks over the 3D view, no blur */
-  --nv-line: #1f2226; /* 1px rule where one is structural (table rows) */
-  --nv-line-strong: #3a3e45; /* control outline */
+  /* surfaces: deep indigo ground, dark glass panels that let the 3D world through */
+  --nv-bg: #090a14;
+  --nv-bg-2: #1a1040; /* the far corner of the panel-layout field */
+  --nv-panel: rgba(14, 16, 32, 0.8); /* glass card / panel */
+  --nv-panel-solid: #12142a; /* opaque, for sticky table headers and anything that must not show through */
+  --nv-panel-hi: rgba(255, 255, 255, 0.1); /* nested panel, control track, idle chip */
+  --nv-active: rgba(255, 255, 255, 0.18); /* chosen-but-not-focused */
+  --nv-scrim: rgba(8, 9, 20, 0.66); /* HUD glass over the race (no blur in the HUD) */
+  --nv-glass: blur(14px) saturate(1.3); /* menu glass backdrop-filter */
+  --nv-line: rgba(255, 255, 255, 0.09);
+  --nv-line-strong: rgba(255, 255, 255, 0.24);
 
-  /* text: three tiers, each ≥ 4.5:1 on every surface above */
+  /* text */
   --nv-text: #ffffff;
-  --nv-text-2: #b4b4b4;
-  --nv-text-3: #9a9a9a;
+  --nv-text-2: rgba(255, 255, 255, 0.78);
+  --nv-text-3: rgba(255, 255, 255, 0.6);
+  --nv-ink: #10111c; /* dark text on light / yellow / orange fields */
 
-  /* focus = inversion */
-  --nv-focus-bg: #ffffff;
-  --nv-focus-ink: #0c0d0f;
-  --nv-focus-sub: #3b3f45;
+  /* selection: pink fill + white text on rows, buttons, tabs, cyclers */
+  --nv-focus-bg: var(--nv-accent);
+  --nv-focus-ink: #ffffff;
+  --nv-focus-sub: rgba(255, 255, 255, 0.86);
+  /* picture tiles and cards: white ring, lifted */
+  --nv-ring: 0 0 0 0.2em #ffffff;
+  --nv-lift: scale(1.035);
+  --nv-float: 0 14px 36px rgba(0, 0, 0, 0.55);
 
-  /* brand: the one primary action per screen, and the mark */
-  --nv-accent: #ff5a1f;
-  --nv-accent-ink: #160803;
-  /* retired second accent: kept as a neutral so old rules stay legible until they are rewritten */
-  --nv-accent-2: #b4b4b4;
+  /* the selection colour and the primary action */
+  --nv-accent: #e6106a; /* white text holds 4.5:1 */
+  --nv-accent-hi: #ff3d8b;
+  --nv-accent-ink: #ffffff;
+  /* secondary highlight: NEW / recommended tags, the chosen-and-saved marker */
+  --nv-accent-2: #ffc21a;
+
+  /* festival fields (main-menu tiles, banners); white text unless noted */
+  --nv-c-pink: #e6106a;
+  --nv-c-orange: #e8590c; /* white 4.0:1, heavy text only */
+  --nv-c-yellow: #f5b50a; /* dark ink */
+  --nv-c-cyan: #0a86c2;
+  --nv-c-purple: #6a35e8;
+  --nv-c-green: #138a4a;
+  --nv-c-teal: #00877f;
+  --nv-c-red: #cf1f2a;
+  --nv-c-slate: #2a3150;
+
+  /* gamepad face-button glyphs */
+  --nv-pad-a: #2fb54a;
+  --nv-pad-b: #e0312f;
+  --nv-pad-x: #2f7fe8;
+  --nv-pad-y: #f2b705;
 
   /* timing conventions (data) */
   --nv-time-overall: #c27bff; /* overall best (purple) */
@@ -71,32 +94,34 @@
   --nv-tyre-inter: #3bb54a;
   --nv-tyre-wet: #2f7fe8;
 
-  /* type: one grotesk with tabular figures; the condensed italic is the wordmark only */
+  /* type: heavy grotesk for words, condensed italic for figures and English title words */
   --nv-font: 'Inter', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --nv-font-display: 'Barlow Condensed', 'Inter', 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
-  /* no monospace in the UI: figures use the text face with tabular-nums */
+  /* no monospace in the UI: figures use tabular-nums */
   --nv-font-mono: var(--nv-font);
 
   /* menu type scale, in em of the menu root (14px on a laptop, about 17px at 1080p, 20px cap) */
   --nv-ui-scale: clamp(14px, calc(0.62vw + 0.5vh), 20px);
   --nv-fs-small: 0.857em; /* 12px: meta, hints */
   --nv-fs-body: 1em; /* 14px: rows, cells, buttons */
-  --nv-fs-section: 1.143em; /* 16px: panel titles */
-  --nv-fs-figure: 1.714em; /* 24px: headline figures */
-  --nv-fs-title: 2em; /* 28px: the screen's h1 */
+  --nv-fs-section: 1.215em; /* 17px: panel titles */
+  --nv-fs-figure: 1.857em; /* 26px: headline figures */
+  --nv-fs-title: 2.43em; /* 34px: the screen's h1 */
+  --nv-fs-hero: 3.4em; /* hero tile titles */
 
-  /* shape & spacing: tight radius, one gap */
-  --nv-radius: 4px; /* controls, chips */
-  --nv-radius-lg: 8px; /* panels, cards */
-  --nv-skew: 0deg; /* retired: no skewed shapes */
+  /* shape & spacing */
+  --nv-radius: 3px; /* controls, chips */
+  --nv-radius-lg: 6px; /* panels, cards, tiles */
+  --nv-skew: -12deg; /* small accent shapes only: active tab, primary button, tags, HUD headers, banners */
   --nv-gap: 1em;
   --nv-pad: 1.5em;
   --nv-row-h: 3.43em; /* 48px focusable row */
 
-  /* motion: feedback only */
+  /* motion */
   --nv-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --nv-fast: 120ms;
-  --nv-med: 200ms;
+  --nv-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --nv-fast: 140ms;
+  --nv-med: 260ms;
 
   /* layering */
   --nv-z-hud: 10;

@@ -82,6 +82,10 @@ export function findNext(root: HTMLElement, current: HTMLElement | null, dir: Na
   const sign = dir === 'down' || dir === 'right' ? 1 : -1;
   let best: HTMLElement | null = null;
   let bestScore = Infinity;
+  // an element in line with the current one (overlapping on the cross axis) wins over a nearer one off the line:
+  // → from a big tile goes to the tile beside it, not to a tab bar whose centre happens to be closer
+  let inLine: HTMLElement | null = null;
+  let inLineScore = Infinity;
   for (const el of list) {
     if (el === current) continue;
     const r = el.getBoundingClientRect();
@@ -95,7 +99,12 @@ export function findNext(root: HTMLElement, current: HTMLElement | null, dir: Na
       bestScore = score;
       best = el;
     }
+    if (cross === 0 && score < inLineScore) {
+      inLineScore = score;
+      inLine = el;
+    }
   }
+  best = inLine ?? best;
   if (best || !vertical) return best;
   // wrap within the same column
   let wrap: HTMLElement | null = null;

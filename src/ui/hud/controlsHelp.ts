@@ -9,6 +9,8 @@ import type { MenuDirection } from './pauseMenu';
 
 /** Fraction of the visible body height scrolled per ↑/↓ press. */
 const SCROLL_STEP = 0.3;
+/** Gamepad labels drawn as round face-button glyphs (the other pad labels are dark pills). */
+const PAD_FACE: ReadonlySet<string> = new Set(['A', 'B', 'X', 'Y']);
 
 export class ControlsHelp {
   readonly el: HTMLElement;
@@ -114,7 +116,10 @@ export class ControlsHelp {
         el('span', 'nvh-help-label', line, row.label);
         const keys = el('span', 'nvh-help-keys', line);
         if (row.keys.length === 0) el('span', 'nvh-help-none', keys, '未設定');
-        for (const k of row.keys) el('kbd', 'nvh-key', keys, k);
+        for (const k of row.keys) {
+          const cap = el('kbd', 'nvh-key', keys, k);
+          if (page.id === 'pad') cap.setAttribute('data-pad', PAD_FACE.has(k) ? k.toLowerCase() : 'pill');
+        }
       }
     }
     this.body.scrollTop = 0;

@@ -1,6 +1,7 @@
 /*
- * FORMULA NOVA 25 — menu styles (2026-11 redesign, docs/plans/ui-redesign-2026-11.md §1-§2).
- * True-black flat: elevation is lightness, focus is inversion, orange only on the primary action and the brand mark.
+ * FORMULA NOVA 25 — menu styles (2026-11 game UI, docs/plans/ui-festival-2026-11.md §1-§2).
+ * Festival racing look: colour-field tiles, dark glass over the 3D world, pink for whatever is selected, white rings
+ * on focused picture tiles, heavy type with condensed italic figures, a slant on small accent shapes.
  * Everything is scoped under .nvm-root, sized in em of the root scale, and uses tokens.css.
  */
 
@@ -16,7 +17,7 @@
   inset: 0;
   z-index: var(--nv-z-menu);
   color: var(--nv-text);
-  font: var(--nv-fs-body) / 1.5 var(--nv-font);
+  font: 500 var(--nv-fs-body) / 1.5 var(--nv-font);
   font-size: var(--nv-ui-scale);
   user-select: none;
   -webkit-user-select: none;
@@ -41,10 +42,11 @@
   height: 8px;
 }
 .nvm-root ::-webkit-scrollbar-thumb {
+  border-radius: 4px;
   background: var(--nv-line-strong);
 }
 
-/* zero specificity, so every component rule (.nvm-btn--primary, .nvm-tile--primary …) wins over this reset */
+/* zero specificity, so every component rule (.nvm-btn--primary, .nvm-tile--hero …) wins over this reset */
 :where(.nvm-root button) {
   font: inherit;
   color: inherit;
@@ -99,17 +101,27 @@
   pointer-events: none;
 }
 
+/* no 3D behind: a deep indigo field, a pink glow in one corner, a violet one in the other, faint speed lines */
 .nvm-root[data-layout='panel'] .nvm-bg {
-  background: var(--nv-bg);
+  background:
+    radial-gradient(60em 42em at 100% 0%, rgba(230, 16, 106, 0.3), transparent 62%),
+    radial-gradient(56em 40em at 0% 100%, rgba(106, 53, 232, 0.26), transparent 62%),
+    repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 26px),
+    linear-gradient(160deg, var(--nv-bg-2) 0%, var(--nv-bg) 58%);
 }
 
-/* the 3D car shows through on the right; the left column sits on opaque panels */
+/* the 3D car shows through; a dark fade from the left, the top and the bottom keeps the tiles and prompts legible */
 .nvm-root[data-layout='showroom'] .nvm-bg {
-  background: transparent;
+  background:
+    linear-gradient(90deg, rgba(9, 10, 20, 0.8) 0%, rgba(9, 10, 20, 0.42) 42%, rgba(9, 10, 20, 0) 68%),
+    linear-gradient(0deg, rgba(9, 10, 20, 0.85) 0%, rgba(9, 10, 20, 0) 24%),
+    linear-gradient(180deg, rgba(9, 10, 20, 0.65) 0%, rgba(9, 10, 20, 0) 18%);
 }
 
+/* the paused race behind the settings overlay */
 .nvm-root.is-overlay .nvm-bg {
-  background: var(--nv-scrim);
+  background: rgba(6, 7, 16, 0.74);
+  backdrop-filter: blur(10px);
 }
 
 /* ───────────────────────── chrome: header / footer / toasts ───────────────────────── */
@@ -119,7 +131,7 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 3.43em;
+  height: 3.86em;
   display: flex;
   align-items: center;
   gap: 1em;
@@ -136,26 +148,33 @@
 .nvm-brand__mark {
   display: inline-grid;
   place-items: center;
-  width: 1.6em;
-  height: 1.6em;
-  border-radius: var(--nv-radius);
+  width: 2em;
+  height: 1.7em;
+  border-radius: 2px;
   background: var(--nv-accent);
   color: var(--nv-accent-ink);
-  font-weight: 600;
+  font-family: var(--nv-font-display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 1.05em;
   line-height: 1;
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-brand__name {
   font-family: var(--nv-font-display);
   font-weight: 800;
   font-style: italic;
-  font-size: 1.15em;
+  font-size: 1.4em;
   letter-spacing: 0.02em;
+  text-transform: uppercase;
   color: var(--nv-text);
 }
 
 .nvm-brand__zh {
   font-size: var(--nv-fs-small);
+  font-weight: 700;
+  letter-spacing: 0.12em;
   color: var(--nv-text-3);
 }
 
@@ -164,25 +183,27 @@
   align-items: center;
   gap: 0.6em;
   margin-left: auto;
-  min-height: 2.75em;
-  padding: 0 0.8em;
+  min-height: 2.6em;
+  padding: 0 1em 0 0.45em;
   border: 0;
-  border-radius: var(--nv-radius);
-  background: transparent;
-  color: var(--nv-text-2);
-  font-weight: 500;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--nv-text);
+  font-weight: 700;
   cursor: pointer;
-  transition: color var(--nv-fast) ease;
+  transition: background var(--nv-fast) ease;
 }
 
 .nvm-top__back:hover,
 .nvm-top__back:focus {
   outline: none;
-  color: var(--nv-text);
+  background: var(--nv-accent);
 }
 
 .nvm-top__crumb {
   margin-left: auto;
+  font-family: var(--nv-font);
+  font-weight: 800;
   color: var(--nv-text-2);
 }
 
@@ -196,29 +217,33 @@
 
 .nvm-stage {
   position: absolute;
-  top: 3.43em;
-  bottom: 3.2em;
+  top: 3.86em;
+  bottom: 3.6em;
   left: 0;
   right: 0;
   z-index: 1;
 }
 
+/* the button prompts sit bottom-right on a dark fade */
 .nvm-foot {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3.2em;
+  height: 3.6em;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   padding: 0 var(--nv-pad);
   z-index: 3;
+  background: linear-gradient(0deg, rgba(6, 7, 16, 0.7) 0%, rgba(6, 7, 16, 0) 100%);
 }
 
 .nvm-hints {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25em 1.5em;
+  justify-content: flex-end;
+  gap: 0.25em 1.6em;
 }
 
 .nvm-hint {
@@ -226,21 +251,23 @@
   align-items: center;
   gap: 0.5em;
   font-size: var(--nv-fs-small);
-  color: var(--nv-text-2);
+  font-weight: 700;
+  color: var(--nv-text);
 }
 
-/* key caps: footer hints, back button, tab ends */
-.nvm-root kbd,
-.nvm-tabs__key {
-  display: inline-block;
-  min-width: 1.6em;
-  padding: 0.1em 0.45em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
-  color: var(--nv-text);
-  font: inherit;
-  font-size: var(--nv-fs-small);
-  text-align: center;
+/* key caps (keyboard): light caps with a pressed edge */
+.nvm-root kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.85em;
+  height: 1.85em;
+  padding: 0 0.5em;
+  border-radius: 4px;
+  background: #f1f2f6;
+  color: var(--nv-ink);
+  font: 800 var(--nv-fs-small) / 1 var(--nv-font);
+  white-space: nowrap;
+  box-shadow: inset 0 -0.16em 0 rgba(0, 0, 0, 0.25);
 }
 
 /* a hint is already small text: its cap keeps that size, never smaller than 11px */
@@ -248,10 +275,47 @@
   font-size: 1em;
 }
 
+/* gamepad glyphs: round face buttons in their colours, shoulder buttons and the d-pad as dark pills */
+.nvm-root.is-pad kbd[data-pad] {
+  background: #1a1c2b;
+  color: var(--nv-text);
+  box-shadow: inset 0 0 0 0.12em rgba(255, 255, 255, 0.3);
+}
+
+.nvm-root.is-pad kbd[data-pad='a'],
+.nvm-root.is-pad kbd[data-pad='b'],
+.nvm-root.is-pad kbd[data-pad='x'],
+.nvm-root.is-pad kbd[data-pad='y'] {
+  width: 1.85em;
+  padding: 0;
+  border-radius: 50%;
+  font-family: var(--nv-font-display);
+  font-style: italic;
+  font-size: 1.05em;
+  box-shadow: inset 0 0 0 0.14em currentColor;
+}
+
+.nvm-root.is-pad kbd[data-pad='a'] {
+  color: var(--nv-pad-a);
+}
+.nvm-root.is-pad kbd[data-pad='b'] {
+  color: var(--nv-pad-b);
+}
+.nvm-root.is-pad kbd[data-pad='x'] {
+  color: var(--nv-pad-x);
+}
+.nvm-root.is-pad kbd[data-pad='y'] {
+  color: var(--nv-pad-y);
+}
+
+.nvm-root.is-pad kbd[data-pad='shoulder'] {
+  border-radius: 0.5em 0.5em 0.3em 0.3em;
+}
+
 .nvm-toasts {
   position: absolute;
   right: var(--nv-pad);
-  bottom: 4.2em;
+  bottom: 4.6em;
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -265,35 +329,27 @@
   align-items: center;
   gap: 0.75em;
   max-width: min(32em, 80vw);
-  padding: 0.7em 1.1em;
+  padding: 0.8em 1.2em;
+  border-left: 0.3em solid var(--nv-accent);
   border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* floats: taste-skill-ignore */
-  animation: nvm-toast-in var(--nv-med) var(--nv-ease) both;
+  background: var(--nv-panel-solid);
+  font-weight: 700;
+  box-shadow: var(--nv-float);
+  animation: nvm-toast-in var(--nv-med) var(--nv-spring) both;
 }
 
-/* the status dot (spec §2 toasts) */
-.nvm-toast::before {
-  content: '';
-  flex: none;
-  width: 0.5em;
-  height: 0.25em;
-  border-radius: 50%;
-  background: var(--nv-text-2);
+.nvm-toast--good {
+  border-left-color: var(--nv-ok);
 }
 
-.nvm-toast--good::before {
-  background: var(--nv-ok);
-}
-
-.nvm-toast--bad::before {
-  background: var(--nv-danger);
+.nvm-toast--bad {
+  border-left-color: var(--nv-danger);
 }
 
 @keyframes nvm-toast-in {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateX(2.5em);
   }
 }
 
@@ -305,34 +361,41 @@
   z-index: 8;
   display: grid;
   place-items: center;
-  background: var(--nv-bg);
+  background:
+    radial-gradient(60em 42em at 100% 0%, rgba(230, 16, 106, 0.3), transparent 62%),
+    repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.022) 0 2px, transparent 2px 26px),
+    linear-gradient(160deg, var(--nv-bg-2) 0%, var(--nv-bg) 58%);
 }
 
 .nvm-loading__card {
-  width: min(30em, 80vw);
+  width: min(34em, 84vw);
   display: flex;
   flex-direction: column;
   gap: 1em;
 }
 
 .nvm-loading__brand {
+  order: -1;
   font-family: var(--nv-font-display);
   font-weight: 800;
   font-style: italic;
-  font-size: 2.4em;
-  line-height: 1.1;
+  font-size: 3.6em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .nvm-loading__text {
   margin: 0;
-  color: var(--nv-text-2);
+  font-size: var(--nv-fs-section);
+  font-weight: 800;
 }
 
 .nvm-loading__bar {
   position: relative;
-  height: 0.25em;
+  height: 0.45em;
   background: var(--nv-panel-hi);
   overflow: hidden;
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-loading__bar i {
@@ -340,13 +403,13 @@
   top: 0;
   bottom: 0;
   width: 38%;
-  background: var(--nv-text);
+  background: var(--nv-accent);
   animation: nvm-load 1.1s var(--nv-ease) infinite;
 }
 
 .nvm-loading__tip {
   margin: 0;
-  color: var(--nv-text-3);
+  color: var(--nv-text-2);
   font-size: var(--nv-fs-small);
   line-height: 1.7;
 }
@@ -379,7 +442,7 @@
   display: grid;
   place-items: center;
   z-index: 4;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(4, 5, 12, 0.7);
 }
 
 .nvm-screen.is-enter-fwd {
@@ -408,25 +471,25 @@
 @keyframes nvm-in-fwd {
   from {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(40px);
   }
 }
 @keyframes nvm-in-back {
   from {
     opacity: 0;
-    transform: translateX(-12px);
+    transform: translateX(-40px);
   }
 }
 @keyframes nvm-out-fwd {
   to {
     opacity: 0;
-    transform: translateX(-12px);
+    transform: translateX(-40px);
   }
 }
 @keyframes nvm-out-back {
   to {
     opacity: 0;
-    transform: translateX(12px);
+    transform: translateX(40px);
   }
 }
 @keyframes nvm-fade-in {
@@ -450,7 +513,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.85em;
-  padding: 0.5em 0.7em 1em 0.25em;
+  /* room for the focused row's lift */
+  padding: 0.5em 0.9em 1em 0.4em;
 }
 
 .nvm-col--wide {
@@ -460,7 +524,7 @@
 .nvm-col__hint {
   margin: 0;
   font-size: var(--nv-fs-small);
-  color: var(--nv-text-3);
+  color: var(--nv-text-2);
 }
 
 .nvm-wide {
@@ -551,7 +615,7 @@
   margin: 0.15em 0;
   font-size: var(--nv-fs-small);
   line-height: 1.6;
-  color: var(--nv-text-3);
+  color: var(--nv-text-2);
 }
 
 .nvm-note.is-bad {
@@ -561,7 +625,7 @@
 .nvm-empty {
   margin: 0;
   padding: 0.85em 0;
-  color: var(--nv-text-3);
+  color: var(--nv-text-2);
 }
 
 /* ───────────────────────── headings & panels ───────────────────────── */
@@ -570,11 +634,13 @@
 .nvm-heading {
   display: flex;
   flex-direction: column-reverse;
-  gap: 0.25em;
+  gap: 0.2em;
 }
 
 .nvm-heading__kicker {
+  padding-left: 0.95em;
   font-size: var(--nv-fs-small);
+  font-weight: 700;
   color: var(--nv-text-2);
 }
 
@@ -582,12 +648,25 @@
   display: none;
 }
 
+/* the screen title leads with a slanted pink tag */
 .nvm-heading__title {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
   margin: 0;
   font-size: var(--nv-fs-title);
-  font-weight: 600;
-  line-height: 1.2;
+  font-weight: 800;
+  line-height: 1.15;
   letter-spacing: -0.01em;
+}
+
+.nvm-heading__title::before {
+  content: '';
+  flex: none;
+  width: 0.28em;
+  height: 0.9em;
+  background: var(--nv-accent);
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-panel {
@@ -600,11 +679,28 @@
   background: var(--nv-panel);
 }
 
+/* glass only where the 3D world moves behind it */
+.nvm-root[data-layout='showroom'] .nvm-panel {
+  backdrop-filter: var(--nv-glass);
+}
+
 .nvm-panel__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
   margin: 0;
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
   color: var(--nv-text);
+}
+
+.nvm-panel__title::before {
+  content: '';
+  flex: none;
+  width: 0.22em;
+  height: 0.95em;
+  background: var(--nv-accent);
+  transform: skewX(var(--nv-skew));
 }
 
 /* ───────────────────────── buttons ───────────────────────── */
@@ -615,26 +711,29 @@
   align-items: center;
   gap: 0.7em;
   min-height: var(--nv-row-h);
-  padding: 0 1.15em;
+  padding: 0 1.2em;
   border: 0;
   border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--nv-text);
   text-align: left;
   cursor: pointer;
   transition:
     background var(--nv-fast) ease,
-    color var(--nv-fast) ease;
+    color var(--nv-fast) ease,
+    transform var(--nv-med) var(--nv-spring);
 }
 
+/* pink always means "this one": the focused button, whatever its kind */
 .nvm-btn:focus {
   outline: none;
   background: var(--nv-focus-bg);
   color: var(--nv-focus-ink);
+  transform: scale(1.02);
 }
 
 .nvm-btn:disabled {
-  background: var(--nv-panel);
+  background: rgba(255, 255, 255, 0.05);
   color: var(--nv-text-3);
   cursor: not-allowed;
 }
@@ -642,12 +741,13 @@
 .nvm-btn__label {
   flex: 1;
   min-width: 0;
-  font-weight: 500;
+  font-weight: 800;
 }
 
 .nvm-btn__sub {
   order: -1;
   font-size: var(--nv-fs-small);
+  font-weight: 600;
   color: var(--nv-text-2);
 }
 
@@ -656,43 +756,39 @@
 }
 
 .nvm-btn__badge {
-  padding: 0 0.6em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel);
-  color: var(--nv-text-2);
+  padding: 0.05em 0.65em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: var(--nv-text);
   font-size: var(--nv-fs-small);
+  font-weight: 700;
 }
 
 .nvm-btn:focus .nvm-btn__badge {
-  background: #e4e6e8;
-  color: var(--nv-focus-sub);
+  background: rgba(255, 255, 255, 0.24);
 }
 
-.nvm-btn:focus kbd {
-  background: #e4e6e8;
-  color: var(--nv-focus-ink);
-}
-
+/* the screen's primary action rests in festival yellow; focused, it turns pink like every other focus */
 .nvm-btn--primary {
-  background: var(--nv-accent);
-  color: var(--nv-accent-ink);
-}
-
-.nvm-btn--primary .nvm-btn__label {
-  font-weight: 600;
+  background: var(--nv-accent-2);
+  color: var(--nv-ink);
 }
 
 .nvm-btn--primary .nvm-btn__sub {
-  color: var(--nv-accent-ink);
+  color: rgba(16, 17, 28, 0.75);
+}
+
+.nvm-btn--primary:focus .nvm-btn__sub {
+  color: var(--nv-focus-sub);
 }
 
 .nvm-btn--danger {
-  color: var(--nv-danger);
+  color: #ff8a95;
 }
 
 .nvm-btn--danger:focus {
-  background: var(--nv-focus-bg);
-  color: #c4242a;
+  background: var(--nv-c-red);
+  color: #fff;
 }
 
 .nvm-btn--ghost {
@@ -705,93 +801,221 @@
   color: var(--nv-focus-ink);
 }
 
-/* main-menu tiles */
-.nvm-tiles {
+/* ───────────────────────── main menu: tabs + tile mosaic ───────────────────────── */
+
+.nvm-mosaic {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: clamp(9em, 25vh, 15em);
+  gap: 0.75em;
+  width: min(62vw, 66em);
+  /* room for the focused tile's ring and lift */
+  padding: 0.6em;
+  margin: -0.6em;
+}
+
+/* a colour field with a big drawn picture of what it opens; the title sits bottom-left in heavy type */
+.nvm-tile {
+  --tile: var(--nv-c-slate);
+  --tile-ink: #fff;
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  gap: 0.375em;
-}
-
-.nvm-tiles__gap {
-  height: 0.25em;
-  flex: none;
-}
-
-.nvm-tile {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 1.5em;
-  align-items: center;
-  gap: 0.7em;
-  min-height: var(--nv-row-h);
-  padding: 0.4em 1.25em;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 0.15em;
+  min-width: 0;
+  padding: 1em 1.25em 1.1em;
   border: 0;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel);
-  color: var(--nv-text);
+  border-radius: var(--nv-radius-lg);
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--tile) 0%, color-mix(in srgb, var(--tile) 58%, #05060c) 100%);
+  color: var(--tile-ink);
   text-align: left;
   cursor: pointer;
   transition:
-    background var(--nv-fast) ease,
-    color var(--nv-fast) ease;
+    transform var(--nv-med) var(--nv-spring),
+    box-shadow var(--nv-fast) ease;
+  /* backwards only: a kept end state would override the focus lift */
+  animation: nvm-tile-in 460ms var(--nv-ease) backwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* a light sheen across the top-left */
+.nvm-tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(118deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 36%);
+  pointer-events: none;
+}
+
+.nvm-tile--hero {
+  grid-column: span 2;
+  grid-row: span 2;
+  padding: 1.4em 1.6em 1.5em;
+}
+
+.nvm-tile--wide {
+  grid-column: span 2;
 }
 
 .nvm-tile:focus {
   outline: none;
-  background: var(--nv-focus-bg);
-  color: var(--nv-focus-ink);
+  z-index: 2;
+  transform: var(--nv-lift);
+  box-shadow: var(--nv-ring), var(--nv-float);
 }
 
-.nvm-tile__body {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+.nvm-tile__art {
+  position: absolute;
+  z-index: -2;
+  right: -6%;
+  bottom: -14%;
+  height: 112%;
+  aspect-ratio: 1;
+  color: rgba(255, 255, 255, 0.2);
+  pointer-events: none;
+  transition: transform var(--nv-med) var(--nv-spring);
+}
+
+.nvm-tile:focus .nvm-tile__art {
+  transform: translate(-3%, -3%) scale(1.05);
+}
+
+.nvm-tile__art svg,
+.nvm-tile__art canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* the quick-race tile shows the real track it will start, drawn in full white */
+.nvm-tile__art--map {
+  right: 5%;
+  bottom: auto;
+  top: 9%;
+  height: 56%;
+  aspect-ratio: 4 / 3;
+  color: #fff;
+}
+
+.nvm-tile__tag {
+  position: absolute;
+  top: 1.1em;
+  left: 1.25em;
+  padding: 0.2em 0.7em;
+  background: rgba(5, 6, 12, 0.42);
+  color: #fff;
+  font-size: var(--nv-fs-small);
+  font-weight: 800;
+  transform: skewX(var(--nv-skew));
+}
+
+.nvm-tile--hero .nvm-tile__tag {
+  top: 1.4em;
+  left: 1.6em;
 }
 
 .nvm-tile__label {
-  font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-size: 1.75em;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.nvm-tile--hero .nvm-tile__label {
+  font-size: var(--nv-fs-hero);
 }
 
 .nvm-tile__sub {
+  max-width: 100%;
   font-size: var(--nv-fs-small);
-  color: var(--nv-text-2);
+  font-weight: 700;
+  opacity: 0.9;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.nvm-tile:focus .nvm-tile__sub {
-  color: var(--nv-focus-sub);
+.nvm-tile--hero .nvm-tile__sub {
+  font-size: var(--nv-fs-body);
 }
 
-.nvm-tile__arrow {
-  font-size: var(--nv-fs-section);
-  color: var(--nv-text-3);
-  text-align: right;
+/* the hero's call to action: a slanted white strip in the tile's colour */
+.nvm-tile__go {
+  margin-top: 0.8em;
+  padding: 0.45em 1.2em;
+  background: #fff;
+  color: var(--tile);
+  font-weight: 800;
+  transform: skewX(var(--nv-skew));
 }
 
-.nvm-tile:focus .nvm-tile__arrow {
-  color: var(--nv-focus-sub);
+.nvm-tile__go > span {
+  display: inline-block;
+  transform: skewX(calc(-1 * var(--nv-skew)));
 }
 
-.nvm-tile--primary {
-  background: var(--nv-accent);
-  color: var(--nv-accent-ink);
+@keyframes nvm-tile-in {
+  from {
+    opacity: 0;
+    transform: translateY(1.5em) scale(0.97);
+  }
 }
 
-.nvm-tile--primary .nvm-tile__sub,
-.nvm-tile--primary .nvm-tile__arrow {
-  color: var(--nv-accent-ink);
+.nvm-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1.3em;
+  padding-top: 0.5em;
 }
 
-.nvm-tile--primary:focus {
-  background: var(--nv-focus-bg);
-  color: var(--nv-focus-ink);
+.nvm-main__head {
+  display: flex;
+  align-items: center;
+  gap: 1.5em;
+  min-height: 3.6em;
 }
 
-.nvm-tile--primary:focus .nvm-tile__sub,
-.nvm-tile--primary:focus .nvm-tile__arrow {
-  color: var(--nv-focus-sub);
+.nvm-main .nvm-tab {
+  font-size: 1.2em;
+  padding: 0.5em 1.4em;
+}
+
+/* the player's record: a compact glass card at the top right */
+.nvm-main__stats {
+  margin-left: auto;
+  display: flex;
+  gap: 0.3em;
+  padding: 0.35em;
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-panel);
+  backdrop-filter: var(--nv-glass);
+}
+
+.nvm-main__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 4.2em;
+  padding: 0.3em 0.6em;
+}
+
+.nvm-main__stat b {
+  font-family: var(--nv-font-display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 1.7em;
+  line-height: 1;
+}
+
+.nvm-main__stat small {
+  font-size: var(--nv-fs-small);
+  font-weight: 700;
+  color: var(--nv-text-2);
 }
 
 /* ───────────────────────── value rows ───────────────────────── */
@@ -824,6 +1048,7 @@
 .nvm-row__label,
 .nvm-keyrow__label {
   color: inherit;
+  font-weight: 700;
 }
 
 .nvm-row__desc {
@@ -836,7 +1061,7 @@
   color: var(--nv-text-3);
 }
 
-/* focus inverts the whole row */
+/* the focused row turns pink */
 .nvm-row:focus-within,
 .nvm-keyrow:focus-within,
 .nvm-ytlink:focus-within {
@@ -857,7 +1082,7 @@
   min-height: 2.75em;
   border: 0;
   border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--nv-text);
   cursor: pointer;
 }
@@ -869,7 +1094,7 @@
   color: var(--nv-focus-ink);
 }
 
-/* inside a row the row itself carries the fill and the inversion */
+/* inside a row the row itself carries the fill */
 .nvm-row .nvm-cycler,
 .nvm-row .nvm-color,
 .nvm-row .nvm-cycler:focus,
@@ -894,7 +1119,7 @@
 .nvm-cycler:focus .nvm-cycler__arrow,
 .nvm-color:focus .nvm-cycler__arrow,
 .nvm-row:focus-within .nvm-cycler__arrow {
-  color: var(--nv-focus-ink);
+  color: #fff;
 }
 
 .nvm-cycler__mid {
@@ -911,7 +1136,7 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-weight: 500;
+  font-weight: 800;
 }
 
 .nvm-cycler__swatch {
@@ -929,26 +1154,27 @@
 }
 
 .nvm-cycler__dots i {
-  width: 0.5em;
+  width: 0.55em;
   height: 0.2em;
-  background: var(--nv-panel-hi);
+  background: rgba(255, 255, 255, 0.2);
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-cycler__dots i.is-on {
-  background: var(--nv-text);
+  background: var(--nv-accent);
 }
 
-/* on a white (focused) fill the idle bars need a darker neutral */
+/* on the pink (focused) fill the bars go white */
 .nvm-cycler:focus .nvm-cycler__dots i,
 .nvm-row:focus-within .nvm-cycler__dots i,
 .nvm-row:focus-within .nvm-pips i {
-  background: #d5d7da;
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .nvm-cycler:focus .nvm-cycler__dots i.is-on,
 .nvm-row:focus-within .nvm-cycler__dots i.is-on,
 .nvm-row:focus-within .nvm-pips i.is-on {
-  background: var(--nv-focus-ink);
+  background: #fff;
 }
 
 .nvm-color {
@@ -989,9 +1215,9 @@
 
 .nvm-slider__track {
   position: relative;
-  height: 0.375em;
+  height: 0.4em;
   border-radius: 2px;
-  background: var(--nv-panel-hi);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .nvm-slider__fill {
@@ -1000,31 +1226,33 @@
   top: 0;
   bottom: 0;
   border-radius: 2px;
-  background: var(--nv-text);
+  background: var(--nv-accent);
 }
 
 .nvm-slider__knob {
   position: absolute;
   top: 50%;
-  width: 0.7em;
-  height: 1.4em;
+  width: 0.75em;
+  height: 1.45em;
   border-radius: 2px;
-  background: var(--nv-text);
-  transform: translate(-50%, -50%);
+  background: #fff;
+  transform: translate(-50%, -50%) skewX(var(--nv-skew));
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 .nvm-row:focus-within .nvm-slider__track {
-  background: #d5d7da;
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .nvm-row:focus-within .nvm-slider__fill,
 .nvm-row:focus-within .nvm-slider__knob {
-  background: var(--nv-focus-ink);
+  background: #fff;
 }
 
 .nvm-slider__value {
   min-width: 6em;
   text-align: right;
+  font-weight: 800;
 }
 
 .nvm-input {
@@ -1033,9 +1261,10 @@
   padding: 0 0.8em;
   border: 1px solid var(--nv-line-strong);
   border-radius: var(--nv-radius);
-  background: var(--nv-bg);
+  background: rgba(5, 6, 12, 0.55);
   color: var(--nv-text);
   font: inherit;
+  font-weight: 700;
 }
 
 .nvm-input:focus {
@@ -1050,7 +1279,7 @@
   display: none;
   padding: 0.4em 0 0;
   font-size: var(--nv-fs-small);
-  color: var(--nv-danger);
+  color: #ff8a95;
 }
 
 .nvm-form__errors.is-visible {
@@ -1059,37 +1288,69 @@
 
 /* ───────────────────────── small pieces ───────────────────────── */
 
+/* tabs: the active one is a slanted pink field; the focused one also gets the white ring */
 .nvm-tabs {
   display: flex;
   align-items: center;
-  gap: 0.25em;
-  border-bottom: 1px solid var(--nv-line);
+  gap: 0.4em;
+  padding: 0.3em 0.2em;
   overflow-x: auto;
 }
 
+.nvm-tabs__key {
+  display: inline-flex;
+}
+
 .nvm-tab {
-  padding: 0.7em 1.1em;
-  margin-bottom: -1px;
+  position: relative;
+  isolation: isolate;
+  padding: 0.55em 1.25em;
   border: 0;
-  border-bottom: 2px solid transparent;
-  border-radius: var(--nv-radius) var(--nv-radius) 0 0;
   background: none;
   color: var(--nv-text-2);
-  font-weight: 500;
+  font-weight: 800;
   white-space: nowrap;
   cursor: pointer;
+  transition: color var(--nv-fast) ease;
+}
+
+.nvm-tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 2px;
+  background: transparent;
+  transform: skewX(var(--nv-skew));
+  transition:
+    background var(--nv-fast) ease,
+    box-shadow var(--nv-fast) ease;
+}
+
+.nvm-tab:hover {
+  color: var(--nv-text);
 }
 
 .nvm-tab.is-active {
-  color: var(--nv-text);
-  border-bottom-color: #fff;
+  color: #fff;
+}
+
+.nvm-tab.is-active::before {
+  background: var(--nv-accent);
 }
 
 .nvm-tab:focus {
   outline: none;
-  background: var(--nv-focus-bg);
-  color: var(--nv-focus-ink);
-  border-bottom-color: var(--nv-focus-bg);
+  color: #fff;
+}
+
+.nvm-tab:focus::before {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 0.14em #fff;
+}
+
+.nvm-tab.is-active:focus::before {
+  background: var(--nv-accent);
 }
 
 .nvm-stat {
@@ -1101,24 +1362,26 @@
 }
 
 .nvm-stat__label {
+  font-weight: 700;
   color: var(--nv-text-2);
 }
 
 .nvm-stat__bar {
-  height: 0.45em;
-  border-radius: 2px;
-  background: var(--nv-panel-hi);
+  height: 0.5em;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-stat__bar i {
   display: block;
   height: 100%;
-  background: var(--nv-text-2);
+  background: linear-gradient(90deg, var(--nv-accent) 0%, #ff7a3d 100%);
 }
 
 .nvm-stat__value {
   text-align: right;
+  font-weight: 800;
 }
 
 .nvm-info {
@@ -1131,23 +1394,26 @@
 
 .nvm-info__k {
   color: var(--nv-text-2);
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .nvm-info__v {
   text-align: right;
   color: var(--nv-text);
+  font-weight: 800;
 }
 
 .nvm-chip {
   display: inline-block;
   flex: none;
-  width: 0.375em;
-  height: 1.1em;
+  width: 0.4em;
+  height: 1.15em;
   margin-right: 0.6em;
   vertical-align: middle;
-  border-radius: 2px;
+  border-radius: 1px;
   background: var(--chip, var(--nv-text-2));
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-steps {
@@ -1157,11 +1423,12 @@
 }
 
 .nvm-steps__item {
-  padding: 0.25em 0.8em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel);
+  padding: 0.25em 0.9em;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
   color: var(--nv-text-3);
   font-size: var(--nv-fs-small);
+  font-weight: 700;
 }
 
 .nvm-steps__item.is-done {
@@ -1169,9 +1436,9 @@
 }
 
 .nvm-steps__item.is-current {
-  background: var(--nv-active);
-  color: var(--nv-text);
-  font-weight: 600;
+  background: var(--nv-accent);
+  color: #fff;
+  font-weight: 800;
 }
 
 .nvm-pips {
@@ -1181,117 +1448,126 @@
 
 .nvm-pips i {
   width: 1.2em;
-  height: 0.25em;
-  border-radius: 2px;
-  background: var(--nv-panel-hi);
+  height: 0.28em;
+  background: rgba(255, 255, 255, 0.2);
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-pips i.is-on {
-  background: var(--nv-text);
+  background: var(--nv-accent);
 }
 
 .nvm-minimap {
   display: block;
 }
 
-/* ───────────────────────── title & main menu ───────────────────────── */
+/* ───────────────────────── title ───────────────────────── */
 
-/* the wordmark block stays in the left 45% so it never reaches the showroom car */
+/* the wordmark block stays in the left half so it never reaches the showroom car */
 .nvm-title__block {
   position: absolute;
-  left: clamp(24px, 5vw, 96px);
-  top: 48%;
+  left: clamp(24px, 6vw, 112px);
+  top: 50%;
   transform: translateY(-50%);
-  max-width: 45%;
+  max-width: 50%;
   display: flex;
   flex-direction: column;
-  gap: 0.7em;
+  align-items: flex-start;
+  gap: 0.8em;
 }
 
 .nvm-title__logo {
   margin: 0;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   font-family: var(--nv-font-display);
   font-weight: 800;
   font-style: italic;
-  font-size: clamp(3.5em, min(7vw, 14vh), 8em);
-  line-height: 0.9;
+  font-size: clamp(4em, min(8vw, 16vh), 9.5em);
+  line-height: 0.86;
   letter-spacing: -0.01em;
+  text-transform: uppercase;
+  animation: nvm-title-in 700ms var(--nv-ease) backwards;
 }
 
 .nvm-title__nova {
   color: var(--nv-accent);
 }
 
+/* the year: a white slanted plate */
 .nvm-title__year {
+  margin-top: 0.12em;
+  padding: 0.04em 0.3em 0;
   font-size: 0.42em;
-  color: var(--nv-text-2);
+  background: #fff;
+  color: var(--nv-ink);
+  transform: skewX(var(--nv-skew));
 }
 
 .nvm-title__zh {
-  font-size: var(--nv-fs-section);
-  color: var(--nv-text-2);
+  font-size: 1.4em;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  color: var(--nv-text);
+  animation: nvm-title-in 700ms 120ms var(--nv-ease) backwards;
 }
 
+/* press start: a slanted pink strip that breathes */
 .nvm-title__press {
-  align-self: flex-start;
-  margin-top: 1.5em;
+  position: relative;
+  isolation: isolate;
+  margin-top: 1.6em;
   min-height: var(--nv-row-h);
-  padding: 0 1.8em;
+  padding: 0 2.2em;
   border: 0;
-  border-radius: var(--nv-radius);
-  background: var(--nv-accent);
-  color: var(--nv-accent-ink);
-  font-weight: 600;
+  background: none;
+  color: #fff;
+  font-size: 1.15em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   cursor: pointer;
-  transition:
-    background var(--nv-fast) ease,
-    color var(--nv-fast) ease;
+  animation: nvm-title-in 700ms 240ms var(--nv-ease) backwards;
+}
+
+.nvm-title__press::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--nv-accent);
+  transform: skewX(var(--nv-skew));
+  animation: nvm-breathe 1.6s ease-in-out infinite;
 }
 
 .nvm-title__press:focus {
   outline: none;
-  background: var(--nv-focus-bg);
-  color: var(--nv-focus-ink);
+}
+
+.nvm-title__press:hover::before,
+.nvm-title__press:focus-visible::before {
+  box-shadow: 0 0 0 0.16em #fff;
+}
+
+@keyframes nvm-breathe {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@keyframes nvm-title-in {
+  from {
+    opacity: 0;
+    transform: translateX(-1.2em);
+  }
 }
 
 /* bottom-left on the dark floor, clear of the wordmark block and of the showroom car's front wing */
 .nvm-title__note {
   position: absolute;
-  left: clamp(24px, 5vw, 96px);
+  left: clamp(24px, 6vw, 112px);
   bottom: 0.7em;
   margin: 0;
-  font-size: var(--nv-fs-small);
-  color: var(--nv-text-3);
-}
-
-.nvm-main .nvm-col {
-  height: 100%;
-}
-
-.nvm-main__stats {
-  display: flex;
-  gap: 0.4em;
-  margin-top: auto;
-}
-
-.nvm-main__stat {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 0.55em 0.3em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel);
-}
-
-.nvm-main__stat b {
-  font-size: var(--nv-fs-section);
-  font-weight: 600;
-}
-
-.nvm-main__stat small {
   font-size: var(--nv-fs-small);
   color: var(--nv-text-3);
 }
@@ -1299,20 +1575,22 @@
 /* ───────────────────────── confirm dialog ───────────────────────── */
 
 .nvm-confirm__box {
-  width: min(34em, 90vw);
+  width: min(36em, 90vw);
   display: flex;
   flex-direction: column;
-  gap: 0.85em;
-  padding: 1.5em;
+  gap: 0.9em;
+  padding: 1.6em;
+  border-top: 0.3em solid var(--nv-accent);
   border-radius: var(--nv-radius-lg);
-  background: var(--nv-panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* floats: taste-skill-ignore */
+  background: var(--nv-panel-solid);
+  box-shadow: var(--nv-float);
+  animation: nvm-pop var(--nv-med) var(--nv-spring) backwards;
 }
 
 .nvm-confirm__title {
   margin: 0;
-  font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-size: 1.5em;
+  font-weight: 800;
 }
 
 .nvm-confirm__text {
@@ -1325,6 +1603,13 @@
   display: flex;
   justify-content: flex-end;
   gap: 0.7em;
+}
+
+@keyframes nvm-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
 }
 
 /* ───────────────────────── track selection ───────────────────────── */
@@ -1346,21 +1631,21 @@
   display: inline-block;
   margin-left: 0.6em;
   padding: 0 0.5em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
+  border-radius: 2px;
+  background: rgba(255, 194, 26, 0.18);
   font-size: var(--nv-fs-small);
-  font-weight: 500;
+  font-weight: 700;
   vertical-align: middle;
   color: var(--nv-text-2);
   white-space: nowrap;
 }
 
-/* room for the 2px focus outline, which sits outside the card */
+/* room for the focused card's ring and lift */
 .nvm-trackgrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(14.5em, 1fr));
   gap: 0.85em;
-  padding: 4px;
+  padding: 0.6em;
 }
 
 .nvm-track {
@@ -1376,17 +1661,28 @@
   color: var(--nv-text);
   text-align: left;
   cursor: pointer;
+  transition:
+    transform var(--nv-med) var(--nv-spring),
+    box-shadow var(--nv-fast) ease,
+    background var(--nv-fast) ease;
 }
 
-/* canvas card: its map is drawn in white, so it cannot invert. Chosen = active fill, focused = plus a white outline */
+/* picture card: its map is drawn in white, so focus is the white ring and the lift; chosen = a pink edge */
 .nvm-track.is-selected {
   background: var(--nv-active);
+  box-shadow: inset 0 -0.25em 0 var(--nv-accent);
 }
 
 .nvm-track:focus {
-  outline: 2px solid #fff;
-  outline-offset: 2px;
+  outline: none;
+  z-index: 1;
   background: var(--nv-active);
+  transform: var(--nv-lift);
+  box-shadow: var(--nv-ring), var(--nv-float);
+}
+
+.nvm-track.is-selected:focus {
+  box-shadow: inset 0 -0.25em 0 var(--nv-accent), var(--nv-ring), var(--nv-float);
 }
 
 .nvm-track__map {
@@ -1397,7 +1693,7 @@
 }
 
 .nvm-track__name {
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-track__meta {
@@ -1413,7 +1709,7 @@
   border-radius: var(--nv-radius);
   background: var(--nv-bg);
   font-size: var(--nv-fs-small);
-  font-weight: 500;
+  font-weight: 700;
   color: var(--nv-text-2);
 }
 
@@ -1446,7 +1742,7 @@
 .nvm-details__name {
   margin: 0.25em 0 0;
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-details__desc {
@@ -1484,17 +1780,20 @@
   cursor: pointer;
   transition:
     background var(--nv-fast) ease,
-    color var(--nv-fast) ease;
+    color var(--nv-fast) ease,
+    transform var(--nv-med) var(--nv-spring);
 }
 
 .nvm-pick.is-selected {
   background: var(--nv-active);
+  box-shadow: inset 0.25em 0 0 var(--nv-accent-2);
 }
 
 .nvm-pick:focus {
   outline: none;
   background: var(--nv-focus-bg);
   color: var(--nv-focus-ink);
+  transform: scale(1.02);
 }
 
 .nvm-pick:disabled {
@@ -1508,7 +1807,7 @@
 }
 
 .nvm-pick__name {
-  font-weight: 500;
+  font-weight: 700;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1529,8 +1828,10 @@
 
 .nvm-pick__num {
   min-width: 2em;
-  font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-family: var(--nv-font-display);
+  font-style: italic;
+  font-size: 1.5em;
+  font-weight: 800;
   color: var(--team-2, var(--nv-text));
 }
 
@@ -1592,7 +1893,7 @@
 }
 
 .nvm-objective__v {
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-summary {
@@ -1613,7 +1914,7 @@
 
 .nvm-summary__item b {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-summary-card {
@@ -1634,7 +1935,7 @@
 
 .nvm-summary-card b {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 /* ───────────────────────── hubs ───────────────────────── */
@@ -1648,7 +1949,7 @@
 .nvm-hub__id b {
   display: block;
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-hub__id small {
@@ -1672,7 +1973,7 @@
 
 .nvm-hub__stats b {
   font-size: var(--nv-fs-figure);
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1.2;
 }
 
@@ -1690,7 +1991,7 @@
 .nvm-hub__round b {
   display: block;
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-hub__round small {
@@ -1731,7 +2032,7 @@
 
 .nvm-calendar__name b {
   display: block;
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-calendar__name small {
@@ -1760,7 +2061,7 @@
 
 .nvm-versus b {
   font-size: var(--nv-fs-figure);
-  font-weight: 600;
+  font-weight: 800;
   color: var(--nv-text-3);
 }
 
@@ -1822,7 +2123,7 @@
 
 .nvm-rnd__head b {
   min-width: 5.5em;
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-rnd__rating {
@@ -1859,7 +2160,7 @@
 
 .nvm-market__head b {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-market__head small {
@@ -1881,9 +2182,9 @@
   padding: 0.5em 0.6em;
   text-align: left;
   font-size: var(--nv-fs-small);
-  font-weight: 400;
-  color: var(--nv-text-3);
-  background: var(--nv-panel);
+  font-weight: 700;
+  color: var(--nv-text-2);
+  background: var(--nv-panel-solid);
 }
 
 .nvm-table td {
@@ -1897,22 +2198,22 @@
 }
 
 .nvm-table tr.is-me td {
-  background: var(--nv-active);
+  background: rgba(230, 16, 106, 0.32);
 }
 
 .nvm-table__pos {
   width: 3.5em;
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-table__pts {
-  font-weight: 600;
+  font-weight: 800;
   text-align: right;
 }
 
 .nvm-table td.is-fastest {
   color: var(--nv-time-overall);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-table--results th:nth-child(n + 4),
@@ -1946,7 +2247,7 @@
 }
 
 .nvm-board li b {
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-board li.is-best b {
@@ -2012,34 +2313,40 @@
   padding: 1.1em 1.25em;
   border: 0;
   border-radius: var(--nv-radius-lg);
-  background: var(--nv-panel);
+  background: linear-gradient(135deg, var(--nv-c-purple) 0%, color-mix(in srgb, var(--nv-c-purple) 45%, #05060c) 100%);
   color: var(--nv-text);
   text-align: left;
   cursor: pointer;
   transition:
-    background var(--nv-fast) ease,
-    color var(--nv-fast) ease;
+    transform var(--nv-med) var(--nv-spring),
+    box-shadow var(--nv-fast) ease;
 }
 
 .nvm-story__card:focus {
   outline: none;
-  background: var(--nv-focus-bg);
-  color: var(--nv-focus-ink);
+  z-index: 1;
+  transform: var(--nv-lift);
+  box-shadow: var(--nv-ring), var(--nv-float);
 }
 
 .nvm-story__card.is-locked {
+  background: var(--nv-panel);
   color: var(--nv-text-3);
   cursor: not-allowed;
 }
 
 .nvm-story__no {
-  font-size: var(--nv-fs-small);
+  font-family: var(--nv-font-display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 1.5em;
+  line-height: 1;
   color: var(--nv-text-2);
 }
 
 .nvm-story__title {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-story__sub {
@@ -2097,7 +2404,7 @@
   padding: 0.1em 0.8em;
   border-radius: var(--nv-radius);
   background: var(--nv-panel-hi);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-cards__text {
@@ -2215,7 +2522,7 @@
 }
 
 .nvm-keyrow:focus-within .nvm-keyrow__note {
-  color: #8a5a00;
+  color: #ffe08a;
 }
 
 .nvm-keyslot {
@@ -2229,21 +2536,18 @@
   cursor: pointer;
 }
 
-/* inside the inverted row the idle slots go light, the focused slot goes dark */
+/* inside the pink row the idle slots go translucent, the focused slot becomes a light key cap */
 .nvm-keyrow:focus-within .nvm-keyslot {
-  background: #d5d7da;
-  color: var(--nv-focus-ink);
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
-.nvm-keyslot:focus {
-  outline: none;
-  background: var(--nv-focus-ink);
-  color: var(--nv-text);
-}
-
+.nvm-keyslot:focus,
 .nvm-keyrow:focus-within .nvm-keyslot:focus {
-  background: var(--nv-focus-ink);
-  color: var(--nv-text);
+  outline: none;
+  background: #f1f2f6;
+  color: var(--nv-ink);
+  box-shadow: inset 0 -0.16em 0 rgba(0, 0, 0, 0.25);
 }
 
 .nvm-keyslot.is-empty {
@@ -2259,13 +2563,13 @@
 }
 
 .nvm-keyrow:focus-within .nvm-keyslot.is-shared {
-  color: #8a5a00;
+  color: #ffe08a;
 }
 
 .nvm-keyslot.is-capturing,
 .nvm-keyrow:focus-within .nvm-keyslot.is-capturing {
-  background: var(--nv-active);
-  color: var(--nv-text);
+  background: var(--nv-accent-2);
+  color: var(--nv-ink);
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
@@ -2300,7 +2604,7 @@
   height: 2.6em;
   border-radius: var(--nv-radius);
   background: var(--nv-panel-hi);
-  font-weight: 600;
+  font-weight: 800;
   color: var(--nv-text-3);
 }
 
@@ -2311,7 +2615,7 @@
 
 .nvm-badge__title {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-badge__desc {
@@ -2368,7 +2672,7 @@
 
 .nvm-banner b {
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-banner.is-good b {
@@ -2422,7 +2726,7 @@
   order: 0;
   flex: none;
   font-size: var(--nv-fs-section);
-  font-weight: 600;
+  font-weight: 800;
 }
 
 .nvm-onboard__card .nvm-btn__sub {
@@ -2454,7 +2758,7 @@
 }
 
 .nvm-onboard__keys {
-  font-weight: 600;
+  font-weight: 800;
   text-align: right;
 }
 
@@ -2475,7 +2779,7 @@
 }
 .nvm-lobby__player b {
   grid-area: name;
-  font-weight: 600;
+  font-weight: 800;
 }
 .nvm-lobby__player span {
   grid-area: driver;
@@ -2526,7 +2830,18 @@
   }
 }
 
-/* no travel: screens and toasts only fade; the loading indicator keeps moving */
+/* small windows: the mosaic takes the whole width, the record card drops under the tabs */
+@media (max-width: 980px) {
+  .nvm-mosaic {
+    width: 100%;
+  }
+  .nvm-main__head {
+    flex-wrap: wrap;
+    gap: 0.6em 1.5em;
+  }
+}
+
+/* no travel: screens, tiles, dialogs and toasts only fade; no lift, no breathing; the loading indicator keeps moving */
 @media (prefers-reduced-motion: reduce) {
   .nvm-screen.is-enter-fwd,
   .nvm-screen.is-enter-back {
@@ -2536,8 +2851,27 @@
   .nvm-screen.is-leave-back {
     animation-name: nvm-fade-out;
   }
-  .nvm-toast {
+  .nvm-toast,
+  .nvm-tile,
+  .nvm-confirm__box,
+  .nvm-title__logo,
+  .nvm-title__zh,
+  .nvm-title__press {
     animation-name: nvm-fade-in;
+  }
+  .nvm-tile {
+    animation-delay: 0ms;
+  }
+  .nvm-title__press::before {
+    animation: none;
+  }
+  .nvm-tile:focus,
+  .nvm-track:focus,
+  .nvm-story__card:focus,
+  .nvm-btn:focus,
+  .nvm-pick:focus,
+  .nvm-tile:focus .nvm-tile__art {
+    transform: none;
   }
   .nvm-cards__text.is-in {
     animation-name: nvm-fade-in;

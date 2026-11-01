@@ -107,6 +107,21 @@ export class ScaleSlot {
   }
 }
 
+/**
+ * Cached 0..1 arc fill for an SVG path with pathLength 100 and `stroke-dasharray: 100` (set in CSS): the dash is
+ * shortened with stroke-dashoffset. Quantised to 1/500 like ScaleSlot.
+ */
+export class DashSlot {
+  private last = -1;
+  constructor(readonly node: SVGElement) {}
+  set(value: number): void {
+    const q = Math.round(clamp01(Number.isFinite(value) ? value : 0) * 500) / 500;
+    if (q === this.last) return;
+    this.last = q;
+    this.node.style.strokeDashoffset = String(Math.round((1 - q) * 1000) / 10);
+  }
+}
+
 /** Cached visibility toggle (class-based so it beats author `display` rules). */
 export class ShowSlot {
   private last: boolean | null = null;

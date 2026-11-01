@@ -30,9 +30,11 @@ export interface MinimapStyle {
   lineWidth: number;
   /** show start/finish tick + direction chevron */
   markers: boolean;
+  /** direction chevron fill */
+  accent: string;
 }
 
-const DEFAULT_STYLE: MinimapStyle = { color: '#eef2f7', lineWidth: 2.5, markers: true };
+const DEFAULT_STYLE: MinimapStyle = { color: '#eef2f7', lineWidth: 2.5, markers: true, accent: '#ff3d8b' };
 
 /** Paint a layout outline into a canvas of the given CSS size. */
 export function paintMinimap(canvas: HTMLCanvasElement, layoutId: string, cssW: number, cssH: number, style: Partial<MinimapStyle> = {}): void {
@@ -110,7 +112,7 @@ export function paintMinimap(canvas: HTMLCanvasElement, layoutId: string, cssW: 
   const cx = X(p0) + ux * tick * 2.2;
   const cy = Y(p0) + uy * tick * 2.2;
   const a = tick * 0.9;
-  ctx.fillStyle = '#ff5a1f';
+  ctx.fillStyle = s.accent;
   ctx.beginPath();
   ctx.moveTo(cx + ux * a, cy + uy * a);
   ctx.lineTo(cx - ux * a * 0.6 - uy * a * 0.8, cy - uy * a * 0.6 + ux * a * 0.8);

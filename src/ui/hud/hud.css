@@ -1,10 +1,13 @@
 /*
- * FORMULA NOVA 25 — in-session HUD (2026-11 redesign, docs/plans/ui-redesign-2026-11.md §1 and §3).
- * Blocks sit on --nv-scrim (flat, no blur). No borders, shadows, gradients or glow at rest; colour only on data
- * (team strips, tyres, sector colours, flags, DRS / ERS, damage, warnings). One face (Inter, tabular figures).
+ * FORMULA NOVA 25 — in-session HUD (2026-11 festival look, docs/plans/ui-festival-2026-11.md §1 and §3).
+ * Blocks are dark glass (--nv-scrim, never a backdrop blur: the world behind a live race is moving). Figures (position,
+ * lap, speed, gear, times) are in the display face (Barlow Condensed 800 italic) with tabular numbers; words are heavy
+ * Inter. Small accent shapes lean (skewX(--nv-skew)): the shape is a pseudo-element, the text stays upright. Pink is
+ * the player / selection colour; colour on data (team bars, tyres, sector colours, flags, DRS / ERS, damage) keeps
+ * its own tokens. Only the pause overlay and the help card over it blur (the race is paused).
  * Sizes are in em off a viewport-scaled root. Every text element is at least 11px at the smallest root (12px):
  * small text uses --nvh-xs (0.92em), which a split-screen half raises to 1em because the half itself is 0.92em.
- * Dynamic state is expressed with data-* attributes; bars move with transforms only.
+ * Dynamic state is expressed with data-* attributes; bars and arcs move with transforms / stroke-dashoffset only.
  */
 
 /* ───────────── root & shared ───────────── */
@@ -26,6 +29,7 @@
   --nvh-mm: 14em;
   --nvh-tw-row: 1.75em; /* keep in step with TOWER_ROW_EM in tower.ts */
   --nvh-xs: 0.92em; /* smallest text */
+  --nvh-tag-bg: #fff; /* slanted block-header tags: white with dark ink */
   /* 2x2 chequered tile for finish flags (a data URI, not a gradient) */
   --nvh-checker: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 2'%3E%3Crect width='2' height='2' fill='%23111'/%3E%3Cpath fill='%23f4f4f4' d='M0 0h1v1H0zM1 1h1v1H1z'/%3E%3C/svg%3E");
 }
@@ -79,12 +83,62 @@
 }
 .nvh-k {
   color: var(--nv-text-3);
+  font-weight: 600;
   white-space: nowrap;
 }
 .nvh-v {
   color: var(--nv-text);
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
+}
+/* figures: the display face (position, lap, speed, gear, times) */
+.nvh-pos,
+.nvh-lapbox-v,
+.nvh-laptime,
+.nvh-delta-v,
+.nvh-speed-num,
+.nvh-gear,
+.nvh-fuel-kg,
+.nvh-tw-pos > b,
+.nvh-tw-val,
+.nvh-watch-pos,
+.nvh-tyre-badge,
+.nvh-v.nvh-mono {
+  font-family: var(--nv-font-display);
+  font-weight: 800;
+  font-style: italic;
+}
+/* block headers: small slanted white tags */
+.nvh-tw-title,
+.nvh-session-kind,
+.nvh-mfd-title,
+.nvh-hint-title,
+.nvh-watch-title,
+.nvh-net-title,
+.nvh-view-tag {
+  position: relative;
+  isolation: isolate;
+  width: fit-content;
+  padding: 0.12em 0.85em;
+  font-size: var(--nvh-xs);
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--nv-ink);
+}
+.nvh-tw-title::before,
+.nvh-session-kind::before,
+.nvh-mfd-title::before,
+.nvh-hint-title::before,
+.nvh-watch-title::before,
+.nvh-net-title::before,
+.nvh-view-tag::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--nv-radius);
+  background: var(--nvh-tag-bg);
+  transform: skewX(var(--nv-skew));
 }
 .nvh-v[data-state='overall'] {
   color: var(--nv-time-overall);
@@ -139,13 +193,7 @@
   position: absolute;
   top: calc(var(--nvh-edge) + 1.6em);
   left: var(--nvh-edge);
-  padding: 0.25em 0.6em;
-  border-radius: var(--nv-radius);
-  font-size: var(--nvh-xs);
-  font-weight: 600;
-  line-height: 1.2;
-  color: var(--nv-text);
-  background: var(--nv-scrim);
+  padding: 0.12em 0.85em;
 }
 .nvh-view[data-region='left'][data-compact] > .nvh-view-tag {
   left: auto;
@@ -216,7 +264,7 @@
   padding: 0.1em 0.5em;
   border-radius: var(--nv-radius);
   font-size: var(--nvh-xs);
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1.4;
   color: var(--nv-text-2);
   background: var(--nv-scrim);
@@ -251,8 +299,7 @@
   translate: none;
 }
 .nvh-net-title {
-  margin-bottom: 0.25em;
-  color: var(--nv-text-3);
+  margin-bottom: 0.4em;
 }
 .nvh-net-row {
   display: flex;
@@ -287,17 +334,11 @@
 }
 .nvh-session-kind {
   flex: none;
-  padding: 0.15em 0.5em;
-  border-radius: var(--nv-radius);
-  font-size: var(--nvh-xs);
-  font-weight: 600;
-  color: var(--nv-text);
-  background: var(--nv-panel-hi);
 }
 .nvh-session-track {
   min-width: 0;
   font-size: 1em;
-  font-weight: 600;
+  font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -329,7 +370,7 @@
 }
 .nvh-weather-label {
   color: var(--nv-text);
-  font-weight: 600;
+  font-weight: 700;
 }
 /* temperatures take their own line so the strip stays narrow */
 .nvh-weather-temps {
@@ -347,17 +388,20 @@
 }
 
 /* ───────────── timing tower ───────────── */
+/* no block of its own: every row is a glass strip (a team-colour bar, the position in display figures); the player's is pink */
 .nvh-tower {
-  padding: 0.45em 0 0.35em;
+  padding: 0;
+  background: none;
+  border-radius: 0;
 }
 .nvh-tw-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.4em;
-  padding: 0 0.5em 0.4em 0.65em;
+  padding: 0 0 0.4em 0.2em;
   font-size: var(--nvh-xs);
-  color: var(--nv-text-3);
+  color: var(--nv-text-2);
 }
 /* click only (tabindex -1, no focus on press so driving keys never press it); no key yet, see HudLayer.toggleTowerMode */
 .nvh-tw-toggle {
@@ -365,8 +409,9 @@
   cursor: pointer;
   padding: 0.2em 0.65em;
   border-radius: var(--nv-radius);
-  color: var(--nv-text-2);
-  background: var(--nv-panel-hi);
+  font-weight: 700;
+  color: var(--nv-text);
+  background: var(--nv-scrim);
   transition: background var(--nv-fast), color var(--nv-fast);
 }
 .nvh-tw-toggle:hover {
@@ -383,15 +428,21 @@
   right: 0;
   height: var(--nvh-tw-row);
   display: grid;
-  grid-template-columns: 1.5em 0.24em minmax(0, 1fr) 1.5em 4.7em 2.7em;
+  grid-template-columns: 1.5em 0.3em minmax(0, 1fr) 1.5em 4.7em 2.7em;
   align-items: center;
   column-gap: 0.35em;
   padding: 0 0.5em 0 0.4em;
+  /* a transparent border leaves a hairline gap between the glass strips */
+  border-block: 0.07em solid transparent;
+  border-radius: var(--nv-radius);
+  background: var(--nv-scrim);
+  background-clip: padding-box;
   transition: transform 450ms var(--nv-ease);
   will-change: transform;
 }
 .nvh-tw-row[data-player] {
-  background: var(--nv-active);
+  background: var(--nv-accent);
+  background-clip: padding-box;
 }
 .nvh-tw-row[data-status='retired'],
 .nvh-tw-row[data-status='retired'] .nvh-tw-val {
@@ -402,12 +453,12 @@
 }
 /* the first row after a skipped stretch of positions (windowed tower) */
 .nvh-tw-row[data-gap] {
-  border-top: 1px solid var(--nv-line-strong);
+  border-top-color: var(--nv-line-strong);
 }
 /* the car a spectating player watches */
 .nvh-tw-row[data-watched] {
-  outline: 1px solid #fff;
-  outline-offset: -1px;
+  outline: 2px solid #fff;
+  outline-offset: -2px;
 }
 /* position numbers sit in a fixed column above the gliding rows (same box as the rows' first grid column) */
 .nvh-tw-pos {
@@ -424,24 +475,26 @@
   color: var(--nv-text-2);
 }
 .nvh-tw-pos > b {
-  font-weight: 600;
+  font-size: 1.2em;
+  line-height: 1;
 }
 .nvh-tw-pos[data-player] {
-  color: var(--nv-text);
+  color: var(--nv-focus-ink);
 }
 .nvh-tw-pos[data-status='retired'] {
   color: var(--nv-text-3);
 }
 .nvh-tw-team {
-  height: 1.15em;
+  height: 1.25em;
   border-radius: 1px;
+  transform: skewX(var(--nv-skew));
 }
 .nvh-tw-abbr {
   display: flex;
   align-items: center;
   gap: 0.3em;
   min-width: 0;
-  font-weight: 600;
+  font-weight: 700;
 }
 .nvh-tw-fl {
   display: none;
@@ -459,39 +512,39 @@
   width: 1.45em;
   height: 1.45em;
   border-radius: 50%;
-  border: 0.12em solid var(--nvh-tyre, var(--nv-text-3));
+  border: 0.14em solid var(--nvh-tyre, var(--nv-text-3));
   font-size: var(--nvh-xs);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
-  color: var(--nvh-tyre, var(--nv-text-2));
+  color: var(--nv-text);
 }
 .nvh-tw-val {
   text-align: right;
-  font-size: 0.95em;
+  font-size: 1.05em;
   color: var(--nv-text-2);
   white-space: nowrap;
 }
 .nvh-tw-row[data-player] .nvh-tw-val {
-  color: var(--nv-text);
+  color: var(--nv-focus-ink);
 }
 .nvh-tw-tag {
   justify-self: end;
   font-size: var(--nvh-xs);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
 }
 .nvh-tw-tag[data-kind='pit'] {
   padding: 0.25em 0.35em;
   border-radius: var(--nv-radius);
-  color: #1d1300;
-  background: var(--nv-warning);
+  color: var(--nv-ink);
+  background: var(--nv-c-yellow);
 }
 .nvh-tw-tag[data-kind='pen'] {
   padding: 0.25em 0.35em;
   border-radius: var(--nv-radius);
   color: #fff;
-  background: var(--nv-danger);
+  background: var(--nv-c-red);
 }
 .nvh-tw-tag[data-kind='flag'] {
   width: 1.6em;
@@ -501,11 +554,14 @@
 }
 
 /* ───────────── minimap ───────────── */
+/* a rounded glass square; the player's marker is pink (drawn in minimap.ts) */
 .nvh-minimap {
-  padding: 0.35em;
+  padding: 0.4em;
+  border-radius: var(--nv-radius-lg);
 }
 .nvh-minimap-canvas {
   display: block;
+  border-radius: var(--nv-radius);
 }
 
 /* ───────────── timing panel ───────────── */
@@ -532,26 +588,41 @@
   justify-content: space-between;
   gap: 0.6em;
 }
+/* the position: a slanted pink slab with huge figures (P2 large, /22 small) */
 .nvh-pos {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: baseline;
+  padding: 0.05em 0.55em 0.1em 0.5em;
+  color: var(--nv-focus-ink);
+}
+.nvh-pos::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--nv-radius);
+  background: var(--nv-accent);
+  transform: skewX(var(--nv-skew));
 }
 .nvh-pos-p {
-  font-size: 1.15em;
-  font-weight: 600;
-  color: var(--nv-text-2);
-  margin-right: 0.1em;
+  font-size: 1.7em;
+  line-height: 1;
+  margin-right: 0.08em;
 }
 .nvh-pos-n {
-  font-size: 2.4em;
-  font-weight: 600;
-  line-height: 0.95;
+  font-size: 4.2em;
+  line-height: 0.9;
 }
 .nvh-pos-of {
-  font-size: 1.15em;
-  font-weight: 500;
-  color: var(--nv-text-2);
+  font-size: 1.5em;
+  line-height: 1;
   margin-left: 0.1em;
+  opacity: 0.86;
+}
+.nvh-view[data-compact] .nvh-pos-n {
+  font-size: 3.2em;
 }
 .nvh-lapbox {
   margin-left: auto;
@@ -559,11 +630,11 @@
 }
 .nvh-lapbox .nvh-k {
   font-size: var(--nvh-xs);
+  font-weight: 700;
 }
 .nvh-lapbox-v {
-  font-size: 1.55em;
-  font-weight: 600;
-  line-height: 1.05;
+  font-size: 2.1em;
+  line-height: 1;
 }
 .nvh-lapbox-sub {
   font-size: var(--nvh-xs);
@@ -579,17 +650,16 @@
   gap: 0.5em;
 }
 .nvh-laptime {
-  font-size: 1.75em;
-  font-weight: 600;
+  font-size: 2.3em;
   line-height: 1;
 }
 .nvh-invalid {
   padding: 0.25em 0.55em;
   border-radius: var(--nv-radius);
   font-size: var(--nvh-xs);
-  font-weight: 600;
+  font-weight: 700;
   color: #fff;
-  background: var(--nv-danger);
+  background: var(--nv-c-red);
 }
 .nvh-tp-delta {
   display: flex;
@@ -601,10 +671,11 @@
 }
 .nvh-tp-delta .nvh-k {
   font-size: var(--nvh-xs);
+  font-weight: 700;
 }
 .nvh-delta-v {
-  font-size: 1.25em;
-  font-weight: 600;
+  font-size: 1.5em;
+  line-height: 1.1;
 }
 .nvh-tp-delta[data-sign='ahead'] .nvh-delta-v {
   color: var(--nv-ok);
@@ -615,12 +686,13 @@
 .nvh-sectors {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.3em;
+  gap: 0.4em;
 }
 .nvh-sec-bar {
-  height: 0.4em;
+  height: 0.45em;
   border-radius: 2px;
   background: var(--nv-panel-hi);
+  transform: skewX(var(--nv-skew));
 }
 .nvh-sec[data-state='overall'] .nvh-sec-bar {
   background: var(--nv-time-overall);
@@ -646,10 +718,13 @@
   color: var(--nv-text-3);
 }
 .nvh-sec-n {
-  font-weight: 600;
+  font-weight: 700;
 }
 .nvh-sec-t {
   color: var(--nv-text-2);
+  font-family: var(--nv-font-display);
+  font-weight: 800;
+  font-style: italic;
 }
 .nvh-sec[data-state='overall'] .nvh-sec-t {
   color: var(--nv-time-overall);
@@ -671,19 +746,19 @@
   padding: 0.38em 0.6em;
   border-radius: var(--nv-radius);
   text-align: center;
-  font-weight: 600;
+  font-weight: 700;
 }
 .nvh-pitstat[data-state='box'] {
   color: var(--nv-focus-ink);
   background: var(--nv-focus-bg);
 }
 .nvh-pitstat[data-state='lane'] {
-  color: #1d1300;
-  background: var(--nv-warning);
+  color: var(--nv-ink);
+  background: var(--nv-c-yellow);
 }
 .nvh-pitstat[data-state='stop'] {
-  color: #04140a;
-  background: var(--nv-ok);
+  color: #fff;
+  background: var(--nv-c-green);
 }
 .nvh-view[data-compact] .nvh-tp-laps,
 .nvh-view[data-compact] .nvh-tp-gaps,
@@ -692,15 +767,18 @@
 }
 
 /* ───────────── telemetry cluster ───────────── */
+/* the round gauge (left) and the tyre / damage / fuel card (right); 21em in all, the bottom-centre stack (.nvh-bc)
+   is capped against this width. Everything lines up: the card runs the full height of the gauge column (its top with
+   the shift lights, its bottom with the pills), and every bar in the column is as wide as the gauge. */
 .nvh-tele {
   position: absolute;
   right: var(--nvh-edge);
   bottom: var(--nvh-edge);
   width: 21em;
-  padding: 0.6em 0.75em 0.7em;
-  display: flex;
-  flex-direction: column;
-  gap: 0.55em;
+  display: grid;
+  grid-template-columns: 11.5em minmax(0, 1fr);
+  column-gap: 0.4em;
+  align-items: stretch;
 }
 .nvh-view[data-region='left'] > .nvh-tele {
   right: auto;
@@ -708,116 +786,163 @@
 }
 .nvh-view[data-compact] > .nvh-tele {
   width: 16em;
+  grid-template-columns: 9.2em minmax(0, 1fr);
 }
+.nvh-gw {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4em;
+}
+/* shift lights: dots spread across a glass pill as wide as the gauge */
 .nvh-shift {
-  display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 0.28em;
-  height: 0.6em;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.3em;
+  padding: 0.3em 0.65em;
+  border-radius: 999px;
+  background: var(--nv-scrim);
 }
 .nvh-led {
-  border-radius: 2px;
-  background: var(--nv-panel-hi);
+  width: 0.7em;
+  height: 0.7em;
+  border-radius: 50%;
+  background: var(--nv-active);
 }
 .nvh-led[data-on][data-c='g'] {
   background: #2fd27a;
+  box-shadow: 0 0 0.6em #2fd27a;
 }
 .nvh-led[data-on][data-c='r'] {
   background: #ff3b4e;
+  box-shadow: 0 0 0.6em #ff3b4e;
 }
 .nvh-led[data-on][data-c='b'] {
-  background: #7d6bff;
+  background: #7d9bff;
+  box-shadow: 0 0 0.6em #7d9bff;
 }
 .nvh-shift[data-flash] .nvh-led {
-  background: #7d6bff;
+  background: #7d9bff;
+  box-shadow: 0 0 0.6em #7d9bff;
   animation: nvh-flash 120ms steps(2, jump-none) infinite;
 }
-.nvh-tele-core {
-  display: grid;
-  grid-template-columns: 0.55em minmax(0, 1fr) 0.55em;
-  gap: 0.65em;
-  align-items: stretch;
-}
-.nvh-pedal {
+.nvh-gauge {
   position: relative;
-  min-height: 5.2em;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--nv-panel-hi);
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--nv-scrim);
 }
-.nvh-pedal-fill {
+.nvh-gauge-svg {
   position: absolute;
   inset: 0;
-  transform-origin: 50% 100%;
-  transform: scaleY(0);
+  width: 100%;
+  height: 100%;
+  fill: none;
 }
-.nvh-pedal[data-k='thr'] .nvh-pedal-fill {
-  background: var(--nv-ok);
+.nvh-arc-track {
+  fill: none;
+  stroke: var(--nv-panel-hi);
+  stroke-width: 5;
 }
-.nvh-pedal[data-k='brk'] .nvh-pedal-fill {
-  background: var(--nv-danger);
+.nvh-arc-red.nvh-arc-track {
+  stroke: color-mix(in srgb, var(--nv-accent) 40%, transparent);
 }
-.nvh-dial {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-rows: 1fr auto;
-  column-gap: 0.75em;
-  row-gap: 0.35em;
-  align-items: end;
-}
-.nvh-gear {
-  grid-row: 1 / span 2;
-  align-self: center;
-  min-width: 0.75em;
-  text-align: center;
-  font-size: 4em;
-  font-weight: 600;
-  line-height: 0.9;
-  color: #fff;
-}
-.nvh-speed {
-  justify-self: end;
-  display: flex;
-  align-items: baseline;
-  gap: 0.3em;
-}
-.nvh-speed-num {
-  font-size: 2.4em;
-  font-weight: 600;
-  line-height: 1;
-}
-.nvh-speed-unit {
-  font-size: var(--nvh-xs);
-  color: var(--nv-text-2);
-}
-.nvh-rpm {
-  grid-column: 2;
-  height: 0.42em;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--nv-panel-hi);
+/* a fill is a dash of the full length (pathLength 100), shortened by stroke-dashoffset from the DashSlot */
+.nvh-arc-fill {
+  fill: none;
+  stroke-width: 5;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
 }
 .nvh-rpm-fill {
-  height: 100%;
-  transform-origin: 0 50%;
-  transform: scaleX(0);
-  background: var(--nv-text-2);
-  will-change: transform;
+  stroke: #fff;
 }
-.nvh-sys {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.7em;
+.nvh-rpm-red {
+  stroke: var(--nv-accent-hi);
+}
+.nvh-arc-thin {
+  stroke-width: 2.6;
+}
+.nvh-arc-thr {
+  stroke: var(--nv-ok);
+}
+.nvh-arc-brk {
+  stroke: var(--nv-danger);
+}
+.nvh-arc-ers-track {
+  stroke-width: 3;
+}
+.nvh-ers-fill {
+  stroke: var(--nv-ers);
+  stroke-width: 3;
+}
+.nvh-gw[data-mode='none'] .nvh-ers-fill {
+  stroke: var(--nv-text-3);
+}
+.nvh-gw[data-mode='hotlap'] .nvh-ers-fill {
+  stroke: #ffa62e;
+}
+.nvh-gw[data-mode='overtake'] .nvh-ers-fill {
+  stroke: #ff7a1f;
+}
+/* centre: speed, unit, the gear in a pink disc (percent offsets of the square gauge, so it scales with it) */
+.nvh-dial {
+  position: absolute;
+  inset: 0;
+}
+.nvh-speed {
+  position: absolute;
+  top: 22%;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
 }
+.nvh-speed-num {
+  font-size: 3.5em;
+  line-height: 0.9;
+}
+.nvh-speed-unit {
+  margin-top: 0.1em;
+  font-size: var(--nvh-xs);
+  font-weight: 700;
+  color: var(--nv-text-2);
+}
+.nvh-gear {
+  position: absolute;
+  top: 61%;
+  left: 50%;
+  translate: -50% 0;
+  display: grid;
+  place-items: center;
+  width: 1.4em;
+  height: 1.4em;
+  border-radius: 50%;
+  font-size: 1.7em;
+  line-height: 1;
+  color: var(--nv-accent-ink);
+  background: var(--nv-accent);
+}
+.nvh-view[data-compact] .nvh-speed-num {
+  font-size: 2.7em;
+}
+.nvh-view[data-compact] .nvh-gear {
+  font-size: 1.4em;
+}
+/* ERS readout: tag and mode on the left, the charge on the right, as wide as the gauge */
 .nvh-ers-head {
   display: flex;
   align-items: baseline;
-  gap: 0.4em;
+  gap: 0.45em;
+  padding: 0.15em 0.7em;
+  border-radius: var(--nv-radius);
+  background: var(--nv-scrim);
   font-size: var(--nvh-xs);
+  font-weight: 700;
 }
 .nvh-ers-tag {
-  font-weight: 600;
   color: var(--nv-ers);
 }
 .nvh-ers-mode {
@@ -827,85 +952,81 @@
 .nvh-ers-pct {
   margin-left: auto;
 }
-.nvh-ers-bar {
-  height: 0.42em;
-  margin-top: 0.28em;
-  border-radius: 2px;
-  overflow: hidden;
-  background: var(--nv-panel-hi);
-}
-.nvh-ers-fill {
-  height: 100%;
-  transform-origin: 0 50%;
-  transform: scaleX(0);
-  background: var(--nv-ers);
-}
-.nvh-ers[data-mode='none'] .nvh-ers-fill {
-  background: var(--nv-text-3);
-}
-.nvh-ers[data-mode='hotlap'] .nvh-ers-fill {
-  background: #ffa62e;
-}
-.nvh-ers[data-mode='overtake'] .nvh-ers-fill {
-  background: #ff7a1f;
-}
+/* the shown pills share the gauge width in equal cells */
 .nvh-pills {
-  display: flex;
-  gap: 0.35em;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.3em;
 }
+/* straight-edged (a slant would push the outer corners past the column edge); the fill is the pseudo-element */
 .nvh-pill {
-  padding: 0.42em 0.6em;
-  border-radius: var(--nv-radius);
+  --nvh-pill-bg: var(--nv-scrim);
+  position: relative;
+  isolation: isolate;
+  padding: 0.4em 0.3em;
+  text-align: center;
   font-size: var(--nvh-xs);
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   white-space: nowrap;
   color: var(--nv-text-3);
-  background: var(--nv-panel-hi);
-  transition: background var(--nv-fast), color var(--nv-fast);
+  transition: color var(--nv-fast);
+}
+.nvh-pill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--nv-radius);
+  background: var(--nvh-pill-bg);
+  transition: background var(--nv-fast);
 }
 .nvh-pill[data-state='eligible'] {
   color: var(--nv-drs);
 }
 .nvh-pill[data-k='drs'][data-state='available'] {
-  color: #b9ffd8;
-  background: color-mix(in srgb, var(--nv-drs) 30%, var(--nv-panel-hi));
+  --nvh-pill-bg: color-mix(in srgb, var(--nv-drs) 38%, var(--nv-bg));
+  color: #fff;
 }
 .nvh-pill[data-k='drs'][data-state='open'] {
-  color: #04140a;
-  background: #4dff9a;
+  --nvh-pill-bg: #4dff9a;
+  color: var(--nv-ink);
 }
 .nvh-pill[data-k='ot'][data-state='available'] {
-  color: #ffd9a8;
-  background: color-mix(in srgb, #ff9f2e 28%, var(--nv-panel-hi));
+  --nvh-pill-bg: color-mix(in srgb, #ff9f2e 40%, var(--nv-bg));
+  color: #fff;
 }
 .nvh-pill[data-k='ot'][data-state='active'] {
-  color: #1f1000;
-  background: #ff9f2e;
+  --nvh-pill-bg: #ff9f2e;
+  color: var(--nv-ink);
 }
 .nvh-pill[data-k='wake'][data-state='tow'] {
-  color: #c8ecff;
-  background: color-mix(in srgb, #5cbeff 28%, var(--nv-panel-hi));
+  --nvh-pill-bg: color-mix(in srgb, #5cbeff 40%, var(--nv-bg));
+  color: #fff;
 }
 .nvh-pill[data-k='wake'][data-state='dirty'] {
-  color: #ffe2b8;
-  background: color-mix(in srgb, #ffb048 28%, var(--nv-panel-hi));
+  --nvh-pill-bg: color-mix(in srgb, #ffb048 40%, var(--nv-bg));
+  color: #fff;
 }
 .nvh-pill[data-k='lim'] {
-  color: #1d1300;
-  background: var(--nv-warning);
+  --nvh-pill-bg: var(--nv-c-yellow);
+  color: var(--nv-ink);
   animation: nvh-blink 0.9s ease-in-out infinite;
 }
+/* the card: the tyre on top, the damage silhouette large in the middle, fuel at the bottom with its bar last, so the
+   bar's bottom edge is the card's (and the pills') bottom edge */
 .nvh-car-row {
-  display: grid;
-  grid-template-columns: 2.3em minmax(0, 1fr) auto;
-  gap: 0.7em;
-  align-items: center;
-  padding-top: 0.45em;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.45em;
+  padding: 0.55em 0.55em 0.6em;
 }
 .nvh-car {
-  width: 2.3em;
-  height: 4.8em;
+  align-self: center;
+  width: 2.7em;
+  height: 5.67em;
   overflow: visible;
 }
 .nvh-car-tyres rect {
@@ -965,23 +1086,25 @@
 .nvh-car-susp[data-dmg='severe'] {
   stroke: var(--nv-danger);
 }
+/* compound badge on the left, wear / temperature / laps beside it; first in the card (the silhouette comes first in
+   the DOM) */
 .nvh-tyre {
+  order: -1;
   display: flex;
   align-items: center;
-  gap: 0.6em;
+  gap: 0.45em;
   min-width: 0;
 }
 .nvh-tyre-badge {
   flex: none;
   display: grid;
   place-items: center;
-  width: 2.3em;
-  height: 2.3em;
+  width: 2em;
+  height: 2em;
   border-radius: 50%;
-  border: 0.3em solid var(--nvh-tyre, var(--nv-text-3));
+  border: 0.28em solid var(--nvh-tyre, var(--nv-text-3));
   background: var(--nv-panel);
   font-size: 1em;
-  font-weight: 600;
   line-height: 1;
   color: #fff;
 }
@@ -991,11 +1114,15 @@
   border-width: 0.24em;
 }
 .nvh-tyre-info {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.12em;
   min-width: 0;
   font-size: var(--nvh-xs);
+}
+.nvh-tyre-info .nvh-kv {
+  gap: 0.3em;
 }
 .nvh-temp[data-band='cold'] {
   color: #5aa8ff;
@@ -1012,21 +1139,47 @@
 .nvh-temp[data-band='hot'] {
   color: var(--nv-danger);
 }
+/* the small size is on the rows, not the block, so the bar's em margins match the card padding exactly */
 .nvh-fuel {
-  text-align: right;
-  font-size: var(--nvh-xs);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
   white-space: nowrap;
 }
+.nvh-fuel > .nvh-kv {
+  font-size: var(--nvh-xs);
+}
 .nvh-fuel-kg {
-  font-size: 1.3em;
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: 1.5em;
+  line-height: 1.05;
+}
+/* the fuel bar: what is left of the starting load; yellow, orange when the margin is tight, red when it is short.
+   It runs edge to edge along the card's bottom (the negative margins cancel the card padding), so its bottom edge is
+   the card's and the pills' bottom edge. */
+.nvh-fuel-bar {
+  height: 0.5em;
+  margin: 0.3em -0.55em -0.6em;
+  border-radius: 0 0 var(--nv-radius-lg) var(--nv-radius-lg);
+  overflow: hidden;
+  background: var(--nv-panel-hi);
+}
+.nvh-fuel-fill {
+  height: 100%;
+  background: var(--nv-accent-2);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+.nvh-fuel-bar[data-state='tight'] .nvh-fuel-fill {
+  background: var(--nv-warning);
+}
+.nvh-fuel-bar[data-state='short'] .nvh-fuel-fill {
+  background: var(--nv-danger);
 }
 .nvh-fuel-laps {
   color: var(--nv-text-2);
 }
 .nvh-fuel-margin {
-  font-weight: 600;
+  font-weight: 700;
 }
 .nvh-fuel-margin:empty {
   display: none;
@@ -1040,20 +1193,51 @@
 .nvh-fuel-margin[data-state='short'] {
   color: var(--nv-danger);
 }
-.nvh-view[data-compact] .nvh-pedal,
+/* split-screen halves: a smaller gauge, the card keeps only the tyre */
 .nvh-view[data-compact] .nvh-car,
 .nvh-view[data-compact] .nvh-fuel,
 .nvh-view[data-compact] .nvh-pill[data-k='ot'] {
   display: none;
 }
-.nvh-view[data-compact] .nvh-tele-core {
-  grid-template-columns: minmax(0, 1fr);
-}
 .nvh-view[data-compact] .nvh-car-row {
-  grid-template-columns: minmax(0, 1fr);
+  justify-content: center;
+  padding: 0.45em 0.4em;
+}
+/* the narrow card stacks the badge above the tyre figures */
+.nvh-view[data-compact] .nvh-tyre {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3em;
+}
+.nvh-view[data-compact] .nvh-tyre-badge {
+  align-self: flex-start;
 }
 
 /* ───────────── feeds: toasts, radio, banners ───────────── */
+/* slanted fields: the shape is the pseudo-element (skewed), the text stays upright. The fill is --nvh-bg, the text
+   --nvh-fg; the tone rules below set both. */
+.nvh-toast,
+.nvh-banner,
+.nvh-flagpill,
+.nvh-rc {
+  --nvh-bg: var(--nv-scrim);
+  --nvh-fg: var(--nv-text);
+  isolation: isolate;
+  color: var(--nvh-fg);
+}
+.nvh-toast::before,
+.nvh-banner::before,
+.nvh-flagpill::before,
+.nvh-rc::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--nv-radius);
+  background: var(--nvh-bg);
+  transform: skewX(var(--nv-skew));
+}
+
 .nvh-toasts {
   position: absolute;
   top: 1.6em;
@@ -1067,42 +1251,45 @@
   z-index: 3;
 }
 .nvh-toast {
-  --nvh-tone: var(--nv-text-3);
+  position: relative;
   min-width: 13em;
   max-width: 100%;
-  padding: 0.5em 1em 0.55em;
-  border-radius: var(--nv-radius);
-  border-left: 0.3em solid var(--nvh-tone);
-  background: var(--nv-scrim);
+  padding: 0.5em 1.8em 0.55em;
   text-align: center;
-  animation: nvh-drop 240ms var(--nv-ease) both;
+  animation: nvh-slide 300ms var(--nv-ease) both;
 }
 .nvh-toast.is-out {
   animation: nvh-fade-out 320ms ease forwards;
 }
 .nvh-toast[data-tone='good'] {
-  --nvh-tone: var(--nv-ok);
+  --nvh-bg: var(--nv-c-green);
+  --nvh-fg: #fff;
 }
 .nvh-toast[data-tone='warn'] {
-  --nvh-tone: var(--nv-warning);
+  --nvh-bg: var(--nv-c-yellow);
+  --nvh-fg: var(--nv-ink);
 }
 .nvh-toast[data-tone='bad'] {
-  --nvh-tone: var(--nv-danger);
+  --nvh-bg: var(--nv-c-red);
+  --nvh-fg: #fff;
 }
 .nvh-toast[data-tone='purple'] {
-  --nvh-tone: var(--nv-time-overall);
+  --nvh-bg: var(--nv-c-purple);
+  --nvh-fg: #fff;
 }
 .nvh-toast[data-tone='flag'] {
-  --nvh-tone: #f4f4f4;
+  --nvh-bg: #f4f4f4;
+  --nvh-fg: var(--nv-ink);
 }
 .nvh-toast-title {
-  font-weight: 600;
+  font-weight: 800;
   font-size: 1em;
 }
 .nvh-toast-sub {
   margin-top: 0.15em;
   font-size: var(--nvh-xs);
-  color: var(--nv-text-2);
+  font-weight: 500;
+  opacity: 0.88;
 }
 
 .nvh-bc {
@@ -1134,12 +1321,12 @@
 .nvh-radio {
   --nvh-team: var(--nv-text-3);
   padding: 0.55em 0.85em 0.65em;
-  border-radius: var(--nv-radius);
-  border-left: 0.32em solid var(--nvh-team);
+  border-radius: var(--nv-radius-lg);
+  border-left: 0.4em solid var(--nvh-team);
   background: var(--nv-scrim);
 }
 .nvh-radio.is-in {
-  animation: nvh-rise 260ms var(--nv-ease) both;
+  animation: nvh-slide 300ms var(--nv-ease) both;
 }
 .nvh-radio-head {
   display: flex;
@@ -1168,7 +1355,7 @@
   padding: 0.5em 0.75em 0.6em;
   border-radius: var(--nv-radius-lg);
   background: var(--nv-scrim);
-  animation: nvh-rise 320ms var(--nv-ease) both;
+  animation: nvh-slide 320ms var(--nv-ease) both;
   transition: opacity 0.6s ease;
 }
 .nvh-hint.is-out {
@@ -1180,10 +1367,6 @@
   gap: 0.6em;
   font-size: var(--nvh-xs);
   color: var(--nv-text-3);
-}
-.nvh-hint-title {
-  font-weight: 600;
-  color: var(--nv-text);
 }
 .nvh-hint-more {
   flex: 1;
@@ -1217,18 +1400,56 @@
   font-weight: 500;
   color: var(--nv-text-2);
 }
+/* key prompts. Keyboard: a light cap with dark text. Gamepad (data-pad, set on the pad page of 操作說明): a round
+   face-button glyph in its colour, other buttons as dark pills. */
 .nvh-key {
   display: inline-block;
-  min-width: 1.6em;
-  padding: 0.1em 0.45em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
+  min-width: 1.7em;
+  padding: 0.08em 0.5em 0.12em;
+  border-radius: 0.35em;
+  background: #f1f2f7;
+  box-shadow: 0 0.14em 0 #9aa0b8;
   font: inherit;
-  font-weight: 500;
+  font-weight: 700;
   line-height: 1.3;
   text-align: center;
   white-space: nowrap;
-  color: var(--nv-text);
+  color: var(--nv-ink);
+}
+.nvh-key[data-pad] {
+  box-shadow: inset 0 0 0 0.1em rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+.nvh-key[data-pad='pill'] {
+  padding: 0.08em 0.7em;
+  border-radius: 999px;
+  background: #1c1f36;
+}
+.nvh-key[data-pad='a'],
+.nvh-key[data-pad='b'],
+.nvh-key[data-pad='x'],
+.nvh-key[data-pad='y'] {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7em;
+  height: 1.7em;
+  min-width: 0;
+  padding: 0;
+  border-radius: 50%;
+  line-height: 1;
+}
+.nvh-key[data-pad='a'] {
+  background: var(--nv-pad-a);
+}
+.nvh-key[data-pad='b'] {
+  background: var(--nv-pad-b);
+}
+.nvh-key[data-pad='x'] {
+  background: var(--nv-pad-x);
+}
+.nvh-key[data-pad='y'] {
+  background: var(--nv-pad-y);
+  color: var(--nv-ink);
 }
 
 /* 觀戰中 card (bottom stack, in place of the MFD while the player's car is out of a multiplayer race) */
@@ -1237,7 +1458,7 @@
   padding: 0.5em 0.85em 0.6em;
   border-radius: var(--nv-radius-lg);
   background: var(--nv-scrim);
-  animation: nvh-rise 320ms var(--nv-ease) both;
+  animation: nvh-slide 320ms var(--nv-ease) both;
 }
 .nvh-watch-head {
   display: flex;
@@ -1246,13 +1467,8 @@
   gap: 0.6em;
   font-size: var(--nvh-xs);
 }
-.nvh-watch-title {
-  font-weight: 600;
-  color: var(--nv-text-2);
-}
 .nvh-watch-pos {
-  font-size: 1.2em;
-  font-weight: 600;
+  font-size: 1.6em;
   line-height: 1;
   color: var(--nv-text);
 }
@@ -1262,9 +1478,9 @@
   gap: 0.5em;
   margin-top: 0.3em;
   padding-left: 0.5em;
-  border-left: 0.32em solid var(--nvh-team);
+  border-left: 0.4em solid var(--nvh-team);
   font-size: 1.05em;
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
 }
 .nvh-watch-name {
@@ -1275,7 +1491,7 @@
   padding: 0.05em 0.4em;
   border-radius: var(--nv-radius);
   font-size: var(--nvh-xs);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--nv-text);
   background: var(--nv-panel-hi);
 }
@@ -1288,54 +1504,63 @@
   margin-top: 0.45em;
 }
 
+/* wide banners that slide in, coloured by meaning */
 .nvh-banner {
-  --nvh-tone: var(--nv-text);
   position: absolute;
   top: 36%;
   left: 50%;
   translate: -50% 0;
   min-width: 20em;
   max-width: 92%;
-  padding: 0.55em 2.6em 0.65em;
-  border-radius: var(--nv-radius-lg);
+  padding: 0.55em 3em 0.65em;
   text-align: center;
-  background: var(--nv-scrim);
   z-index: 4;
 }
 .nvh-banner.is-in {
-  animation: nvh-banner-in 420ms var(--nv-ease) both;
+  animation: nvh-slide-wide 420ms var(--nv-ease) both;
+}
+.nvh-banner[data-tone='info'] {
+  --nvh-bg: var(--nv-c-slate);
+  --nvh-fg: #fff;
 }
 .nvh-banner[data-tone='good'] {
-  --nvh-tone: var(--nv-ok);
+  --nvh-bg: var(--nv-c-green);
+  --nvh-fg: #fff;
 }
 .nvh-banner[data-tone='warn'] {
-  --nvh-tone: var(--nv-warning);
+  --nvh-bg: var(--nv-c-yellow);
+  --nvh-fg: var(--nv-ink);
 }
 .nvh-banner[data-tone='bad'] {
-  --nvh-tone: var(--nv-danger);
+  --nvh-bg: var(--nv-c-red);
+  --nvh-fg: #fff;
 }
 .nvh-banner[data-tone='purple'] {
-  --nvh-tone: var(--nv-time-overall);
+  --nvh-bg: var(--nv-c-purple);
+  --nvh-fg: #fff;
 }
 /* chequered flag: a strip of squares above and below the text */
 .nvh-banner[data-tone='flag'] {
+  --nvh-fg: #fff;
   padding-top: 1.1em;
   padding-bottom: 1.2em;
+}
+.nvh-banner[data-tone='flag']::before {
   background:
     var(--nvh-checker) 0 0 / 0.5em 0.5em repeat-x,
     var(--nvh-checker) 0 100% / 0.5em 0.5em repeat-x,
-    var(--nv-scrim);
+    var(--nv-bg);
 }
 .nvh-banner-title {
   font-size: 2em;
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1.15;
   white-space: nowrap;
-  color: var(--nvh-tone);
 }
 .nvh-banner-sub {
   margin-top: 0.2em;
-  color: var(--nv-text-2);
+  font-weight: 500;
+  opacity: 0.9;
 }
 .nvh-gbanner {
   top: 30%;
@@ -1377,21 +1602,26 @@
   height: 2.6em;
   border-radius: 50%;
   background: var(--nv-panel-hi);
-  transition: background 60ms linear;
+  transition: background 60ms linear, box-shadow 60ms linear;
 }
+/* a lit lamp glows */
 .nvh-lights-pod[data-lit] .nvh-lamp {
-  background: #ff3b2e;
+  background: #ff2a1f;
+  box-shadow:
+    0 0 1em 0.1em rgba(255, 42, 31, 0.8),
+    inset 0 0 0.6em rgba(255, 210, 200, 0.6);
 }
 .nvh-lights-go {
   font-size: 3em;
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1;
   color: var(--nv-drs);
-  animation: nvh-go 600ms var(--nv-ease) both;
+  text-shadow: 0 0 0.45em rgba(47, 210, 122, 0.7);
+  animation: nvh-go 600ms var(--nv-spring) both;
 }
 .nvh-lights-caption {
   font-size: 1.1em;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   color: var(--nv-text-2);
 }
@@ -1409,9 +1639,7 @@
   font-size: var(--nvh-xs);
   color: var(--nv-text-2);
 }
-.nvh-mfd-title {
-  font-weight: 600;
-}
+
 /* the MFD's buttons are click only (tabindex -1, no focus on press); keyboard path: the MFD key row (see .nvh-mfd-hint) */
 .nvh-mfd-close {
   cursor: pointer;
@@ -1527,6 +1755,7 @@
 }
 
 /* ───────────── pause menu ───────────── */
+/* the race is paused, so this overlay (and the help card over it) may blur the world behind it; the live HUD never does */
 .nvh-pause {
   position: absolute;
   inset: 0;
@@ -1535,50 +1764,67 @@
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(8, 9, 20, 0.72);
+  backdrop-filter: blur(10px) saturate(1.2);
 }
 .nvh-pause-card {
   position: relative;
-  width: min(26em, 92vw);
+  width: min(30em, 92vw);
   max-height: 94vh;
   overflow-y: auto;
-  padding: 1.25em;
-  border-radius: var(--nv-radius-lg);
-  background: var(--nv-panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* taste-skill-ignore: floating overlay */
+  padding: 1.25em 1.5em;
   font-size: 1.15em;
-  animation: nvh-rise 200ms var(--nv-ease) both;
+  animation: nvh-slide 300ms var(--nv-ease) both;
 }
 .nvh-pause-title {
-  font-size: 2em;
-  font-weight: 600;
+  position: relative;
+  isolation: isolate;
+  padding-left: 0.5em;
+  font-size: 3em;
+  font-weight: 800;
   line-height: 1.1;
-  letter-spacing: -0.01em;
+}
+/* the slanted pink tag before the title */
+.nvh-pause-title::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.12em;
+  bottom: 0.12em;
+  width: 0.14em;
+  z-index: -1;
+  background: var(--nv-accent);
+  transform: skewX(var(--nv-skew));
 }
 .nvh-pause-sub {
-  margin: 0.35em 0 0.9em;
+  margin: 0.35em 0 1em 1.2em;
   font-size: var(--nvh-xs);
+  font-weight: 500;
   color: var(--nv-text-2);
 }
 .nvh-pause-list {
   display: flex;
   flex-direction: column;
-  gap: 0.25em;
+  gap: 0.35em;
 }
-/* every item is a button; the focused (= selected) one inverts, whether it got there by key, pad or mouse hover */
+/* every item is a big row button; the focused (= selected) one is a pink field with white text and a small spring
+   lift, whether it got there by key, pad or mouse hover */
 .nvh-pi {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1em;
   width: 100%;
-  min-height: 3.43em;
-  padding: 0.6em 1em;
-  border-radius: var(--nv-radius);
-  background: var(--nv-panel-hi);
+  min-height: 3.3em;
+  padding: 0.6em 1.1em;
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-panel);
   color: var(--nv-text);
   cursor: pointer;
-  transition: background var(--nv-fast), color var(--nv-fast);
+  transition:
+    background var(--nv-fast),
+    color var(--nv-fast),
+    transform var(--nv-med) var(--nv-spring);
 }
 .nvh-pi[data-danger] .nvh-pi-label {
   color: var(--nv-danger);
@@ -1588,13 +1834,15 @@
   outline: none;
   background: var(--nv-focus-bg);
   color: var(--nv-focus-ink);
+  transform: translateX(0.5em) scale(1.02);
 }
 .nvh-pi:focus[data-danger] .nvh-pi-label,
 .nvh-pi[data-selected][data-danger] .nvh-pi-label {
-  color: #c4242a;
+  color: var(--nv-focus-ink);
 }
 .nvh-pi-label {
-  font-weight: 500;
+  font-size: 1.1em;
+  font-weight: 700;
 }
 .nvh-pi-value {
   display: flex;
@@ -1605,27 +1853,27 @@
 .nvh-pi-cur {
   min-width: 5em;
   text-align: center;
-  font-weight: 500;
+  font-weight: 600;
 }
 .nvh-pi-arrow {
   padding: 0.5em 0.6em;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--nv-text-3);
 }
 .nvh-pi:focus .nvh-pi-value,
 .nvh-pi[data-selected] .nvh-pi-value,
 .nvh-pi:focus .nvh-pi-arrow,
 .nvh-pi[data-selected] .nvh-pi-arrow {
-  color: var(--nv-focus-ink);
+  color: var(--nv-focus-sub);
 }
 .nvh-pause-hint {
-  margin-top: 0.9em;
+  margin-top: 1em;
   text-align: center;
   font-size: var(--nvh-xs);
   color: var(--nv-text-3);
 }
 
-/* confirm dialog inside the pause overlay */
+/* confirm dialog inside the pause overlay (same glass as the menus' dialogs: pink top edge) */
 .nvh-confirm {
   position: absolute;
   inset: 0;
@@ -1633,19 +1881,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(8, 9, 20, 0.7);
 }
 .nvh-confirm-box {
-  width: min(24em, 92vw);
-  padding: 1.25em;
+  width: min(26em, 92vw);
+  padding: 1.25em 1.4em;
   border-radius: var(--nv-radius-lg);
-  background: var(--nv-panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* taste-skill-ignore: floating overlay */
+  border-top: 0.25em solid var(--nv-accent);
+  background: var(--nv-panel-solid);
   font-size: 1.15em;
+  animation: nvh-slide 240ms var(--nv-ease) both;
 }
 .nvh-confirm-title {
-  font-size: 1.143em;
-  font-weight: 600;
+  font-size: 1.4em;
+  font-weight: 800;
 }
 .nvh-confirm-text {
   margin-top: 0.5em;
@@ -1660,13 +1909,16 @@
 }
 .nvh-cbtn {
   min-height: 3em;
-  padding: 0 1.15em;
-  border-radius: var(--nv-radius);
+  padding: 0 1.3em;
+  border-radius: var(--nv-radius-lg);
   background: var(--nv-panel-hi);
-  font-weight: 500;
+  font-weight: 700;
   color: var(--nv-text);
   cursor: pointer;
-  transition: background var(--nv-fast), color var(--nv-fast);
+  transition:
+    background var(--nv-fast),
+    color var(--nv-fast),
+    transform var(--nv-med) var(--nv-spring);
 }
 .nvh-cbtn[data-danger] {
   color: var(--nv-danger);
@@ -1676,10 +1928,11 @@
   outline: none;
   background: var(--nv-focus-bg);
   color: var(--nv-focus-ink);
+  transform: scale(1.04);
 }
 .nvh-cbtn[data-danger]:focus,
 .nvh-cbtn[data-danger][data-selected] {
-  color: #c4242a;
+  color: var(--nv-focus-ink);
 }
 
 /* ───────────── controls help (操作說明, over the pause menu) ───────────── */
@@ -1691,7 +1944,8 @@
   align-items: center;
   justify-content: center;
   pointer-events: auto;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(8, 9, 20, 0.72);
+  backdrop-filter: blur(10px) saturate(1.2);
 }
 .nvh-help-card {
   position: relative;
@@ -1699,12 +1953,12 @@
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  padding: 1.25em 1.25em 0.9em;
+  padding: 1.25em 1.4em 0.9em;
   overflow: hidden;
   border-radius: var(--nv-radius-lg);
-  background: var(--nv-panel);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); /* taste-skill-ignore: floating overlay */
-  animation: nvh-rise 200ms var(--nv-ease) both;
+  border-top: 0.25em solid var(--nv-accent);
+  background: var(--nv-panel-solid);
+  animation: nvh-slide 300ms var(--nv-ease) both;
 }
 .nvh-help-head {
   display: flex;
@@ -1713,17 +1967,16 @@
   gap: 1em;
 }
 .nvh-help-title {
-  font-size: 1.7em;
-  font-weight: 600;
+  font-size: 2em;
+  font-weight: 800;
   line-height: 1.1;
-  letter-spacing: -0.01em;
 }
 .nvh-help-close {
   cursor: pointer;
-  padding: 0.35em 0.95em;
-  border-radius: var(--nv-radius);
+  padding: 0.4em 1.1em;
+  border-radius: var(--nv-radius-lg);
   font-size: 1em;
-  font-weight: 500;
+  font-weight: 700;
   color: var(--nv-text);
   background: var(--nv-panel-hi);
   transition: background var(--nv-fast), color var(--nv-fast);
@@ -1734,25 +1987,37 @@
 }
 .nvh-help-tabs {
   display: flex;
-  gap: 0.3em;
-  margin: 0.8em 0 0.7em;
-  border-bottom: 1px solid var(--nv-line);
+  gap: 0.4em;
+  margin: 0.9em 0 0.8em;
 }
+/* tabs lean like the menus' tabs: the pink shape is the pseudo-element */
 .nvh-help-tab {
+  position: relative;
+  isolation: isolate;
   cursor: pointer;
-  margin-bottom: -1px;
-  padding: 0.55em 1em;
-  border-bottom: 2px solid transparent;
-  font-weight: 500;
+  padding: 0.5em 1.2em;
+  font-weight: 700;
   color: var(--nv-text-2);
   transition: color var(--nv-fast);
+}
+.nvh-help-tab::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: var(--nv-radius);
+  background: var(--nv-panel-hi);
+  transform: skewX(var(--nv-skew));
+  transition: background var(--nv-fast);
 }
 .nvh-help-tab:hover {
   color: var(--nv-text);
 }
 .nvh-help-tab[data-active] {
-  color: var(--nv-text);
-  border-bottom-color: #fff;
+  color: var(--nv-focus-ink);
+}
+.nvh-help-tab[data-active]::before {
+  background: var(--nv-focus-bg);
 }
 .nvh-help-body {
   flex: 1 1 auto;
@@ -1767,8 +2032,8 @@
 .nvh-help-sec-title {
   margin-bottom: 0.25em;
   font-size: 1em;
-  font-weight: 600;
-  color: var(--nv-text);
+  font-weight: 800;
+  color: var(--nv-accent-hi);
 }
 .nvh-help-row {
   display: flex;
@@ -1785,7 +2050,7 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 0.25em;
+  gap: 0.3em;
 }
 .nvh-help-none {
   color: var(--nv-text-3);
@@ -1870,6 +2135,10 @@
   flex: none;
   min-width: 9.5em;
   text-align: center;
+  font-family: var(--nv-font-display);
+  font-size: 1.15em;
+  font-weight: 800;
+  font-style: italic;
   color: var(--nv-text-2);
 }
 .nvh-rp-scrub {
@@ -1894,7 +2163,7 @@
   border-radius: inherit;
   transform-origin: 0 50%;
   transform: scaleX(0);
-  background: var(--nv-text-2);
+  background: var(--nv-accent);
 }
 .nvh-rp-knobwrap {
   position: absolute;
@@ -1954,8 +2223,10 @@
 }
 
 /* ───────────── race control (strip, flag pills, sector flags, tower chip) ───────────── */
+/* the strip is a wide slanted field: orange for the safety car, red for a red flag, green, slate for the formation lap */
 .nvh-rc {
-  --nvh-rc: var(--nv-warning);
+  --nvh-bg: var(--nv-c-orange);
+  --nvh-fg: #fff;
   position: absolute;
   top: 1.1em;
   left: 50%;
@@ -1964,42 +2235,38 @@
   display: flex;
   align-items: center;
   gap: 0.7em;
-  padding: 0.45em 1.1em 0.5em 0.8em;
-  border-radius: var(--nv-radius);
-  border-left: 0.32em solid var(--nvh-rc);
-  background: var(--nv-scrim);
+  padding: 0.45em 2em 0.5em 1.6em;
   z-index: 5;
-}
-.nvh-rc[data-tone='yellow'] {
-  --nvh-rc: #ffd500;
+  animation: nvh-slide-wide 360ms var(--nv-ease) both;
 }
 .nvh-rc[data-tone='red'] {
-  --nvh-rc: var(--nv-danger);
+  --nvh-bg: var(--nv-c-red);
 }
 .nvh-rc[data-tone='green'] {
-  --nvh-rc: var(--nv-ok);
+  --nvh-bg: var(--nv-c-green);
 }
 .nvh-rc[data-tone='formation'] {
-  --nvh-rc: var(--nv-text-3);
+  --nvh-bg: var(--nv-c-slate);
 }
 .nvh-rc-icon {
   flex: none;
   width: 2em;
   height: 2em;
-  color: var(--nvh-rc);
+  color: var(--nvh-fg);
 }
 .nvh-rc-text {
   min-width: 0;
 }
 .nvh-rc-title {
   font-size: 1.5em;
-  font-weight: 600;
+  font-weight: 800;
   line-height: 1.15;
   white-space: nowrap;
 }
 .nvh-rc-sub {
   margin-top: 0.15em;
-  color: var(--nv-text-2);
+  font-weight: 500;
+  opacity: 0.9;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2029,19 +2296,17 @@
   z-index: 3;
 }
 .nvh-flagpill {
-  --nvh-fp: var(--nv-warning);
+  --nvh-bg: var(--nv-scrim);
+  position: relative;
   max-width: 100%;
   display: flex;
   align-items: baseline;
   justify-content: center;
   gap: 0.8em;
-  padding: 0.35em 1em 0.4em;
-  border-radius: var(--nv-radius);
-  border-left: 0.32em solid var(--nvh-fp);
-  background: var(--nv-scrim);
-  font-weight: 600;
+  padding: 0.35em 1.6em 0.4em;
+  font-weight: 700;
   text-align: center;
-  color: var(--nv-text);
+  animation: nvh-slide 300ms var(--nv-ease) both;
 }
 .nvh-flagpill-x {
   font-weight: 500;
@@ -2050,56 +2315,54 @@
   display: none;
 }
 .nvh-flagpill[data-kind='blue'] {
-  --nvh-fp: #6aa4ff;
-  padding: 0.5em 1.4em 0.55em;
+  --nvh-bg: #1f5be0;
+  --nvh-fg: #fff;
+  padding: 0.5em 2em 0.55em;
   font-size: 1.15em;
-  color: #fff;
-  background: #1f5be0;
-  animation: nvh-blink 1.2s ease-in-out infinite;
+  font-weight: 800;
+  animation: nvh-slide 300ms var(--nv-ease) both, nvh-blink 1.2s ease-in-out 300ms infinite;
 }
 /* black flag with an orange disc */
 .nvh-flagpill[data-kind='blackorange'] {
-  --nvh-fp: #ff8a1f;
-  padding: 0.5em 1.4em 0.55em 2.3em;
-  color: #fff;
-  border-left: 0;
+  --nvh-fg: #fff;
+  padding: 0.5em 2em 0.55em 2.8em;
+}
+.nvh-flagpill[data-kind='blackorange']::before {
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 2'%3E%3Ccircle cx='1' cy='1' r='1' fill='%23ff8a1f'/%3E%3C/svg%3E") 0.55em 50% / 1.1em 1.1em no-repeat,
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 2'%3E%3Ccircle cx='1' cy='1' r='1' fill='%23ff8a1f'/%3E%3C/svg%3E") 0.9em 50% / 1.1em 1.1em no-repeat,
     #050608;
 }
 .nvh-flagpill[data-kind='blackorange'] .nvh-flagpill-x {
   color: #ffb066;
 }
 .nvh-flagpill[data-kind='penalty'] {
-  --nvh-fp: #ff7a85;
-  color: #ffb3ba;
+  --nvh-bg: var(--nv-c-red);
+  --nvh-fg: #fff;
 }
 .nvh-flagpill[data-kind='mandatory'] {
-  --nvh-fp: var(--nv-text-3);
-  font-weight: 500;
-  color: var(--nv-text-2);
+  --nvh-bg: var(--nv-c-slate);
+  --nvh-fg: var(--nv-text-2);
+  font-weight: 600;
 }
 .nvh-flagpill[data-kind='giveback'] {
-  --nvh-fp: #ff7a85;
-  color: #fff;
-  background: #c4242a;
+  --nvh-bg: var(--nv-c-red);
+  --nvh-fg: #fff;
 }
 .nvh-flagpill[data-kind='queue'] {
-  --nvh-fp: #ffd500;
-  color: #ffd500;
+  --nvh-bg: var(--nv-c-yellow);
+  --nvh-fg: var(--nv-ink);
 }
 .nvh-flagpill[data-kind='delta'] {
-  --nvh-fp: var(--nv-warning);
-  color: var(--nv-warning);
+  --nvh-bg: var(--nv-c-yellow);
+  --nvh-fg: var(--nv-ink);
 }
 .nvh-flagpill[data-kind='delta'][data-class='ok'] {
-  --nvh-fp: var(--nv-ok);
-  color: var(--nv-ok);
+  --nvh-bg: var(--nv-c-green);
+  --nvh-fg: #fff;
 }
 .nvh-flagpill[data-kind='delta'][data-class='bad'] {
-  --nvh-fp: var(--nv-danger);
-  color: #fff;
-  background: #c4242a;
+  --nvh-bg: var(--nv-c-red);
+  --nvh-fg: #fff;
 }
 
 .nvh-flagchips {
@@ -2114,8 +2377,8 @@
   padding: 0.12em 0.55em;
   border-radius: var(--nv-radius);
   font-size: var(--nvh-xs);
-  font-weight: 600;
-  color: #1a1300;
+  font-weight: 700;
+  color: var(--nv-ink);
   background: #ffd500;
 }
 /* double yellow: black on yellow, flashing */
@@ -2133,60 +2396,64 @@
 .nvh-tw-mode {
   padding: 0.05em 0.5em;
   border-radius: var(--nv-radius);
-  font-weight: 600;
-  color: #1a1300;
+  font-weight: 700;
+  color: var(--nv-ink);
   background: #ffd500;
 }
 .nvh-tw-mode[data-mode='red'] {
   color: #fff;
-  background: var(--nv-danger);
+  background: var(--nv-c-red);
 }
 .nvh-tw-mode[data-mode='formation'] {
   color: var(--nv-text);
-  background: var(--nv-panel-hi);
+  background: var(--nv-c-slate);
 }
 
 /* ───────────── motion ───────────── */
-@keyframes nvh-drop {
+/* fields slide in from the side (travel); reduced motion swaps every slide for a fade */
+@keyframes nvh-slide {
   from {
     opacity: 0;
-    transform: translateY(-0.6em);
+    transform: translateX(-2.2em);
   }
   to {
     opacity: 1;
     transform: none;
+  }
+}
+@keyframes nvh-slide-wide {
+  from {
+    opacity: 0;
+    transform: translateX(-6em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes nvh-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nvh-fade-out-flat {
+  to {
+    opacity: 0;
   }
 }
 @keyframes nvh-fade-out {
   to {
     opacity: 0;
-    transform: translateY(-0.4em);
-  }
-}
-@keyframes nvh-rise {
-  from {
-    opacity: 0;
-    transform: translateY(0.6em);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes nvh-banner-in {
-  from {
-    opacity: 0;
-    transform: translateY(0.6em);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    transform: translateX(1.2em);
   }
 }
 @keyframes nvh-go {
   from {
     opacity: 0;
-    transform: scale(1.2);
+    transform: scale(1.3);
   }
   to {
     opacity: 1;
@@ -2208,17 +2475,30 @@
   .nvh-root *,
   .nvh-root *::before,
   .nvh-root *::after {
-    animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
   }
   .nvh-pause-card,
   .nvh-help-card,
+  .nvh-confirm-box,
   .nvh-toast,
   .nvh-radio.is-in,
   .nvh-hint,
   .nvh-watch,
+  .nvh-rc,
+  .nvh-flagpill,
+  .nvh-lights-go,
   .nvh-banner.is-in {
-    animation: none;
+    animation-name: nvh-fade;
+    animation-duration: 200ms;
+  }
+  .nvh-toast.is-out {
+    animation-name: nvh-fade-out-flat;
+  }
+  .nvh-pi:focus,
+  .nvh-pi[data-selected],
+  .nvh-cbtn:focus,
+  .nvh-cbtn[data-selected] {
+    transform: none;
   }
 }

@@ -50,15 +50,44 @@ export function button(o: ButtonOptions): HTMLButtonElement {
   return el;
 }
 
-/** Main-menu row: label, one line on what it opens, a chevron. `primary` = the screen's one primary action. */
-export function tile(label: string, sub: string, onClick: () => void, primary = false): HTMLButtonElement {
+export interface TileOptions {
+  label: string;
+  /** one line on what it opens */
+  sub: string;
+  onClick: () => void;
+  /** the field colour, a festival token (`var(--nv-c-pink)` …) */
+  color: string;
+  /** hero = 2×2, wide = 2×1 in the main-menu mosaic */
+  size: 'hero' | 'wide';
+  /** the big drawn picture of what it opens */
+  art?: HTMLElement;
+  /** small slanted tag at the top-left */
+  tag?: string;
+  /** a call-to-action strip under the sub (hero tiles) */
+  go?: string;
+  /** dark text, for the light fields (yellow) */
+  dark?: boolean;
+  /** stagger index of the rise-in */
+  index?: number;
+}
+
+/** Main-menu tile: a colour field with a drawn picture, a heavy title bottom-left and its sub. */
+export function tile(o: TileOptions): HTMLButtonElement {
+  const style: Record<string, string> = { '--tile': o.color, '--i': String(o.index ?? 0) };
+  if (o.dark) style['--tile-ink'] = 'var(--nv-ink)';
   return h(
     'button',
-    { class: `nvm-tile${primary ? ' nvm-tile--primary' : ''}`, attrs: { type: 'button', 'data-sound': 'confirm' }, on: { click: () => onClick() } },
-    h('span', { class: 'nvm-tile__body' }, h('span', { class: 'nvm-tile__label', text: label }), h('span', { class: 'nvm-tile__sub', text: sub })),
-    h('span', { class: 'nvm-tile__arrow', text: '›', attrs: { 'aria-hidden': 'true' } }),
+    { class: `nvm-tile nvm-tile--${o.size}`, attrs: { type: 'button', 'data-sound': 'confirm' }, style, on: { click: () => o.onClick() } },
+    o.art ?? null,
+    o.tag ? h('span', { class: 'nvm-tile__tag', text: o.tag }) : null,
+    h('span', { class: 'nvm-tile__label', text: o.label }),
+    h('span', { class: 'nvm-tile__sub', text: o.sub }),
+    o.go ? h('span', { class: 'nvm-tile__go' }, h('span', { text: o.go })) : null,
   );
 }
+
+/** Gamepad glyph shape by pad spelling: the face buttons are round in their colours, the rest are pills. */
+const PAD_GLYPH: Record<string, string> = { A: 'a', B: 'b', X: 'x', Y: 'y', LB: 'shoulder', RB: 'shoulder', 'LB/RB': 'shoulder' };
 
 /**
  * A key cap: the keyboard spelling, and the gamepad spelling shown instead after pad input (the menu root's
@@ -66,7 +95,7 @@ export function tile(label: string, sub: string, onClick: () => void, primary = 
  */
 export function keyCap(kb: string, pad?: string): HTMLElement {
   if (pad === undefined) return h('kbd', { text: kb });
-  return h('kbd', null, h('span', { class: 'nvm-key-kb', text: kb }), h('span', { class: 'nvm-key-pad', text: pad }));
+  return h('kbd', { attrs: { 'data-pad': PAD_GLYPH[pad] ?? 'other' } }, h('span', { class: 'nvm-key-kb', text: kb }), h('span', { class: 'nvm-key-pad', text: pad }));
 }
 
 // ───────────────────────────── value rows ─────────────────────────────

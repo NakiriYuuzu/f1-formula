@@ -1,13 +1,14 @@
 /**
- * Driver telemetry cluster: speed, gear, rpm bar + shift lights, throttle/brake, ERS battery & mode,
- * overtake, DRS / 2026 straight-line mode, limiter, aero wake (tow / dirty air), tyre (compound, wear, temperature),
- * damage silhouette, fuel.
+ * Driver telemetry cluster (festival look): a round gauge with the rpm arc, shift-light dots above it, the speed in the
+ * centre, the gear in a disc, throttle / brake / ERS arcs, and under it the overtake, DRS / 2026 straight-line mode,
+ * limiter and aero-wake (tow / dirty air) pills; beside it a card: the tyre (compound, wear, temperature) on top, the
+ * damage silhouette in the middle, fuel and its bar (what is left of the starting load) at the bottom. Arcs are SVG paths with pathLength 100, filled through stroke-dashoffset.
  */
 import type { AeroWake, CarEntry, SpeedUnit, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { clamp01 } from '../../core/math';
 import { fuelPerKm } from '../../physics/index';
-import { AttrSlot, ScaleSlot, ShowSlot, TextSlot, el, svgEl } from './dom';
+import { AttrSlot, DashSlot, ScaleSlot, ShowSlot, TextSlot, el, svgEl } from './dom';
 import { ERS_LABEL, damageBand, displaySpeed, fin, gearLabel, tempBand, unitLabel } from './labels';
 import { tyreWindow } from './tyreWindow';
 
@@ -19,6 +20,23 @@ const LED_SPAN = 0.28;
 const WAKE_MIN_SPEED = 30;
 const WAKE_SHOWN = 0.97;
 const WAKE_CORNER_G = 1.2;
+/** Gauge arcs, in degrees clockwise from 3 o'clock on a 100 x 100 viewBox centred at 50,50 (y points down). */
+const RPM_START = 135;
+const RPM_SWEEP = 270;
+/** The last stretch of the rpm arc (fraction of full scale) is drawn pink. */
+const RPM_RED = 0.86;
+
+/** SVG arc path from angle `a0` to `a1` (degrees, clockwise-positive) at radius `r`; the sweep follows the order. */
+function arcPath(r: number, a0: number, a1: number): string {
+  const pt = (a: number): string => `${(50 + r * Math.cos((a * Math.PI) / 180)).toFixed(2)} ${(50 + r * Math.sin((a * Math.PI) / 180)).toFixed(2)}`;
+  return `M${pt(a0)}A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} ${a1 > a0 ? 1 : 0} ${pt(a1)}`;
+}
+
+/** A dim track plus its fill path (class `fill`), both pathLength 100; returns the fill. */
+function arc(parent: Element, d: string, track: string, fill: string): SVGPathElement {
+  svgEl('path', { d, class: track, pathLength: 100 }, parent);
+  return svgEl('path', { d, class: fill, pathLength: 100 }, parent);
+}
 
 /** Aero-wake pill content for a car (null = clean air, slow, or the rule is off). */
 export function wakeIndicator(wake: AeroWake | undefined, speed: number, gLat: number): { state: 'tow' | 'dirty'; text: string } | null {
@@ -28,15 +46,17 @@ export function wakeIndicator(wake: AeroWake | undefined, speed: number, gLat: n
   return null;
 }
 
-/** Measures real fuel consumption per metre from consecutive frames. */
+/** Measures real fuel consumption per metre from consecutive frames, and the load the car started with. */
 export class FuelEstimator {
   private prevFuel = NaN;
   private prevProgress = NaN;
   private usedFuel = 0;
   private usedDist = 0;
+  private startFuel = 0;
 
   sample(fuelKg: number, progress: number, inPit: boolean): void {
     if (!Number.isFinite(fuelKg) || !Number.isFinite(progress)) return;
+    if (fuelKg > this.startFuel) this.startFuel = fuelKg;
     const dF = this.prevFuel - fuelKg;
     const dP = progress - this.prevProgress;
     if (!inPit && dP > 0 && dP < 200 && dF >= 0 && dF < 2) {
@@ -53,6 +73,11 @@ export class FuelEstimator {
     if (this.usedDist > 800) return this.usedFuel / this.usedDist;
     return nominal;
   }
+
+  /** What is left of the starting load, 0..1 (the fuel bar: full at the start, empty when the tank is dry). */
+  level(fuelKg: number): number {
+    return this.startFuel > 0 ? fuelKg / this.startFuel : 0;
+  }
 }
 
 export class TelemetryPanel {
@@ -62,11 +87,12 @@ export class TelemetryPanel {
   private readonly gear: TextSlot;
   private readonly speed: TextSlot;
   private readonly unit: TextSlot;
-  private readonly rpm: ScaleSlot;
-  private readonly throttle: ScaleSlot;
-  private readonly brake: ScaleSlot;
+  private readonly rpmLow: DashSlot;
+  private readonly rpmRed: DashSlot;
+  private readonly throttle: DashSlot;
+  private readonly brake: DashSlot;
   private readonly ersPct: TextSlot;
-  private readonly ersFill: ScaleSlot;
+  private readonly ersFill: DashSlot;
   private readonly ersMode: TextSlot;
   private readonly ersState: AttrSlot;
   private readonly drsLabel: TextSlot;
@@ -91,12 +117,17 @@ export class TelemetryPanel {
   private readonly fuelLaps: TextSlot;
   private readonly fuelMargin: TextSlot;
   private readonly fuelMarginState: AttrSlot;
+  private readonly fuelFill: ScaleSlot;
+  private readonly fuelBarState: AttrSlot;
   private fuelEst = new FuelEstimator();
 
   constructor(parent: Element) {
-    this.el = el('div', 'nvh-tele nvh-panel', parent);
+    this.el = el('div', 'nvh-tele', parent);
 
-    const shift = el('div', 'nvh-shift', this.el);
+    // Left column: shift dots, the round gauge, the ERS readout and the pills.
+    const col = el('div', 'nvh-gw', this.el);
+    this.ersState = new AttrSlot(col, 'data-mode');
+    const shift = el('div', 'nvh-shift', col);
     this.shift = new AttrSlot(shift, 'data-flash');
     for (const c of LED_COLORS) {
       const led = el('span', 'nvh-led', shift);
@@ -104,31 +135,31 @@ export class TelemetryPanel {
       this.leds.push(new AttrSlot(led, 'data-on'));
     }
 
-    const core = el('div', 'nvh-tele-core', this.el);
-    const thr = el('div', 'nvh-pedal', core);
-    thr.dataset.k = 'thr';
-    this.throttle = new ScaleSlot(el('div', 'nvh-pedal-fill', thr), 'y');
-    const dial = el('div', 'nvh-dial', core);
-    this.gear = new TextSlot(el('div', 'nvh-gear', dial));
+    const gauge = el('div', 'nvh-gauge', col);
+    const dialSvg = svgEl('svg', { viewBox: '0 0 100 100', class: 'nvh-gauge-svg', 'aria-hidden': 'true' }, gauge);
+    const redAt = RPM_START + RPM_SWEEP * RPM_RED;
+    const lowFill = arc(dialSvg, arcPath(44, RPM_START, redAt), 'nvh-arc-track', 'nvh-arc-fill nvh-rpm-fill');
+    const redFill = arc(dialSvg, arcPath(44, redAt, RPM_START + RPM_SWEEP), 'nvh-arc-track nvh-arc-red', 'nvh-arc-fill nvh-rpm-fill nvh-rpm-red');
+    this.rpmLow = new DashSlot(lowFill);
+    this.rpmRed = new DashSlot(redFill);
+    // throttle fills up the left side from the bottom, brake up the right side
+    this.throttle = new DashSlot(arc(dialSvg, arcPath(34, 135, 225), 'nvh-arc-track nvh-arc-thin', 'nvh-arc-fill nvh-arc-thin nvh-arc-thr'));
+    this.brake = new DashSlot(arc(dialSvg, arcPath(34, 45, -45), 'nvh-arc-track nvh-arc-thin', 'nvh-arc-fill nvh-arc-thin nvh-arc-brk'));
+    // ERS under the gear, filling left to right
+    this.ersFill = new DashSlot(arc(dialSvg, arcPath(44, 118, 62), 'nvh-arc-track nvh-arc-ers-track', 'nvh-arc-fill nvh-ers-fill'));
+
+    const dial = el('div', 'nvh-dial', gauge);
     const spd = el('div', 'nvh-speed', dial);
     this.speed = new TextSlot(el('span', 'nvh-speed-num', spd));
     this.unit = new TextSlot(el('span', 'nvh-speed-unit', spd));
-    const rpm = el('div', 'nvh-rpm', dial);
-    this.rpm = new ScaleSlot(el('div', 'nvh-rpm-fill', rpm), 'x');
-    const brk = el('div', 'nvh-pedal', core);
-    brk.dataset.k = 'brk';
-    this.brake = new ScaleSlot(el('div', 'nvh-pedal-fill', brk), 'y');
+    this.gear = new TextSlot(el('div', 'nvh-gear', dial));
 
-    const sys = el('div', 'nvh-sys', this.el);
-    const ers = el('div', 'nvh-ers', sys);
-    this.ersState = new AttrSlot(ers, 'data-mode');
-    const ersHead = el('div', 'nvh-ers-head', ers);
+    const ersHead = el('div', 'nvh-ers-head', col);
     el('span', 'nvh-ers-tag', ersHead, 'ERS');
     this.ersMode = new TextSlot(el('span', 'nvh-ers-mode', ersHead));
     this.ersPct = new TextSlot(el('span', 'nvh-ers-pct', ersHead));
-    this.ersFill = new ScaleSlot(el('div', 'nvh-ers-fill', el('div', 'nvh-ers-bar', ers)), 'x');
 
-    const pills = el('div', 'nvh-pills', sys);
+    const pills = el('div', 'nvh-pills', col);
     const drs = el('div', 'nvh-pill', pills);
     drs.dataset.k = 'drs';
     this.drsLabel = new TextSlot(drs);
@@ -146,7 +177,8 @@ export class TelemetryPanel {
     this.wakeText = new TextSlot(wake);
     this.wakeState = new AttrSlot(wake, 'data-state');
 
-    const carRow = el('div', 'nvh-car-row', this.el);
+    // Right column: the card. Tyre on top, the damage silhouette in the middle, fuel at the bottom with its bar last.
+    const carRow = el('div', 'nvh-car-row nvh-panel', this.el);
     const svg = svgEl('svg', { viewBox: '0 0 40 84', class: 'nvh-car', 'aria-hidden': 'true' }, carRow);
     const tyres = svgEl('g', { class: 'nvh-car-tyres' }, svg);
     for (const [x, y, w, h] of [
@@ -188,12 +220,17 @@ export class TelemetryPanel {
     this.tyreLaps = new TextSlot(el('span', 'nvh-v', lapsRow));
 
     const fuel = el('div', 'nvh-fuel', carRow);
-    el('div', 'nvh-k', fuel, '燃油');
-    this.fuelKg = new TextSlot(el('div', 'nvh-fuel-kg', fuel));
-    this.fuelLaps = new TextSlot(el('div', 'nvh-fuel-laps', fuel));
-    const margin = el('div', 'nvh-fuel-margin', fuel);
+    const fuelHead = el('div', 'nvh-kv', fuel);
+    el('span', 'nvh-k', fuelHead, '燃油');
+    this.fuelKg = new TextSlot(el('span', 'nvh-fuel-kg', fuelHead));
+    const fuelFoot = el('div', 'nvh-kv', fuel);
+    this.fuelLaps = new TextSlot(el('span', 'nvh-fuel-laps', fuelFoot));
+    const margin = el('span', 'nvh-fuel-margin', fuelFoot);
     this.fuelMargin = new TextSlot(margin);
     this.fuelMarginState = new AttrSlot(margin, 'data-state');
+    const bar = el('div', 'nvh-fuel-bar', fuel);
+    this.fuelFill = new ScaleSlot(el('div', 'nvh-fuel-fill', bar), 'x');
+    this.fuelBarState = new AttrSlot(bar, 'data-state');
   }
 
   /** Another car is shown from now on (spectating): measure its fuel use with `next`; returns the replaced measure. */
@@ -216,7 +253,9 @@ export class TelemetryPanel {
     const maxRpm = fin(spec.maxRpm) > 0 ? spec.maxRpm : 12000;
     const idle = Math.min(Math.max(0, fin(spec.idleRpm)), maxRpm * 0.6);
     const shiftRpm = fin(spec.shiftRpm) > idle && spec.shiftRpm <= maxRpm ? spec.shiftRpm : maxRpm * 0.93;
-    this.rpm.set(rpm / maxRpm);
+    const rpmFrac = rpm / maxRpm;
+    this.rpmLow.set(rpmFrac / RPM_RED);
+    this.rpmRed.set((rpmFrac - RPM_RED) / (1 - RPM_RED));
     const ledStart = shiftRpm - (shiftRpm - idle) * LED_SPAN;
     const ledFrac = shiftRpm > ledStart ? clamp01((rpm - ledStart) / (shiftRpm - ledStart)) : 0;
     const litCount = Math.round(ledFrac * LED_COLORS.length);
@@ -268,6 +307,7 @@ export class TelemetryPanel {
     const inPit = car.pit.phase !== 'none';
     this.fuelEst.sample(fuel, car.timing.progress, inPit);
     this.fuelKg.set(`${fuel.toFixed(1)} kg`);
+    this.fuelFill.set(this.fuelEst.level(fuel));
     const perLap = this.fuelEst.rate(world.config.rules.fuel, fuelPerKm(car.spec) / 1000) * trackLength;
     if (perLap > 1e-6 && Number.isFinite(perLap)) {
       const laps = fuel / perLap;
@@ -275,16 +315,20 @@ export class TelemetryPanel {
       if (world.session.kind === 'race' && trackLength > 0 && car.status !== 'finished' && car.status !== 'retired') {
         const remainDist = Math.max(0, world.session.totalLaps * trackLength - fin(car.timing.progress));
         const margin = laps - remainDist / trackLength;
+        const state = margin < 0 ? 'short' : margin < 0.3 ? 'tight' : 'ok';
         this.fuelMargin.set(`${margin >= 0 ? '+' : '-'}${Math.abs(margin).toFixed(1)}`);
-        this.fuelMarginState.set(margin < 0 ? 'short' : margin < 0.3 ? 'tight' : 'ok');
+        this.fuelMarginState.set(state);
+        this.fuelBarState.set(state);
       } else {
         this.fuelMargin.set('');
         this.fuelMarginState.set(null);
+        this.fuelBarState.set(null);
       }
     } else {
       this.fuelLaps.set('不消耗');
       this.fuelMargin.set('');
       this.fuelMarginState.set(null);
+      this.fuelBarState.set(null);
     }
   }
 }

@@ -1,5 +1,7 @@
 # UI/UX redesign — menus and HUD (2026-11)
 
+> Visual rules (§1–§3) superseded by `ui-festival-2026-11.md` (the game-UI look). §4 navigation still applies.
+
 The user asked for a redesign that makes the whole game easier to operate, and chose: faster race start with
 consistent controls, a new menu visual system, a new HUD, and reworked settings and pause menus. The brand orange
 stays only on each screen's one primary action. Rendering quality is a separate piece of work in `src/render`.

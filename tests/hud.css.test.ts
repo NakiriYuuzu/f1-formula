@@ -1,7 +1,8 @@
 /**
- * HUD stylesheet house rules (docs/plans/ui-redesign-2026-11.md §1 and §3), checked on the CSS text: no blur,
- * gradients, text shadow, uppercase, tracked letter-spacing, mono / display faces, glowing shadows or text under 11px
- * at the smallest root, and the split-screen FPS block must not sit on the divider.
+ * HUD stylesheet house rules (docs/plans/ui-festival-2026-11.md §1 and §3), checked on the CSS text: glass blocks
+ * without a backdrop blur (only the pause overlay and the help card over it may blur), figures in the display face
+ * with tabular numbers, text of at least 11px at the smallest root, the tower row height, the split-screen FPS block
+ * off the divider, the bottom-centre stack capped against the telemetry cluster, and the pink focus fill.
  */
 import { describe, expect, test } from 'bun:test';
 import { TOWER_ROW_EM } from '../src/ui/hud/tower';
@@ -16,24 +17,15 @@ function rule(selector: string): string {
 }
 
 describe('HUD stylesheet', () => {
-  test('banned properties and values are absent', () => {
-    for (const banned of [/backdrop-filter/, /gradient\(/, /text-shadow/, /text-transform:\s*uppercase/, /font-style:\s*italic/, /--nv-font-display|--nv-font-mono|Barlow|monospace/]) {
-      expect(code).not.toMatch(banned);
-    }
+  test('no backdrop-filter outside the pause overlay and the help card over it', () => {
+    const blurred = [...code.matchAll(/([^{}]+)\{[^{}]*backdrop-filter[^{}]*\}/g)].map((m) => m[1].trim());
+    expect(blurred.length).toBeGreaterThan(0);
+    expect(new Set(blurred)).toEqual(new Set(['.nvh-pause', '.nvh-help']));
   });
 
-  test('letter-spacing is never tracked out', () => {
-    for (const m of code.matchAll(/letter-spacing:\s*(-?[\d.]+)em/g)) expect(Number(m[1])).toBeLessThan(0.05);
-  });
-
-  test('weights are 400, 500 and 600 only', () => {
-    for (const m of code.matchAll(/font-weight:\s*(\d+)/g)) expect([400, 500, 600]).toContain(Number(m[1]));
-  });
-
-  test('the only box-shadow is the floating one on the pause menu, its confirm dialog and the help card', () => {
-    const shadows = [...code.matchAll(/box-shadow:\s*([^;]+);/g)].map((m) => m[1]);
-    expect(shadows.length).toBe(3);
-    expect(new Set(shadows)).toEqual(new Set(['0 12px 32px rgba(0, 0, 0, 0.5)']));
+  test('blocks are glass: --nv-scrim, no blur on the panel', () => {
+    expect(rule('.nvh-panel')).toContain('background: var(--nv-scrim)');
+    expect(rule('.nvh-panel')).not.toContain('backdrop-filter');
   });
 
   test('literal font sizes are at least 0.917em (11px at the smallest 12px root)', () => {
@@ -53,6 +45,15 @@ describe('HUD stylesheet', () => {
     expect(code).toContain('font-variant-numeric: tabular-nums');
   });
 
+  test('figures (position, lap, speed, gear, times) use the display face', () => {
+    const at = code.indexOf('.nvh-pos,');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const block = code.slice(at, code.indexOf('}', at));
+    for (const sel of ['.nvh-pos', '.nvh-lapbox-v', '.nvh-laptime', '.nvh-speed-num', '.nvh-gear', '.nvh-tw-pos > b']) expect(block).toContain(sel);
+    expect(block).toContain('font-family: var(--nv-font-display)');
+    expect(block).toContain('font-weight: 800');
+  });
+
   test('the tower row height matches the TOWER_ROW_EM the windowing measures with', () => {
     expect(code).toContain(`--nvh-tw-row: ${TOWER_ROW_EM}em`);
   });
@@ -67,13 +68,28 @@ describe('HUD stylesheet', () => {
     expect(net).toContain('translate: none');
   });
 
-  test('the bottom-centre stack is capped to stay clear of the 21em telemetry cluster on both sides', () => {
-    expect(code).toMatch(/\.nvh-tele \{[^}]*width: 21em/);
-    expect(rule('.nvh-bc')).toContain('calc(100% - 2 * (21em + var(--nvh-edge) + 0.75em))');
+  test('the bottom-centre stack is capped to stay clear of the telemetry cluster on both sides', () => {
+    const width = /\.nvh-tele \{[^}]*?\bwidth: ([\d.]+)em/.exec(code);
+    expect(width).not.toBeNull();
+    expect(rule('.nvh-bc')).toContain(`calc(100% - 2 * (${width![1]}em + var(--nvh-edge) + 0.75em))`);
   });
 
-  test('pause items and confirm buttons invert on focus', () => {
+  test('the gauge arcs are filled by dash offset and the gear sits in a pink disc', () => {
+    expect(rule('.nvh-arc-fill')).toContain('stroke-dasharray: 100');
+    expect(rule('.nvh-gear')).toContain('background: var(--nv-accent)');
+    expect(rule('.nvh-tw-row[data-player]')).toContain('background: var(--nv-accent)');
+  });
+
+  test('pause items and confirm buttons take the pink focus fill', () => {
     expect(code).toMatch(/\.nvh-pi:focus,\s*\.nvh-pi\[data-selected\]\s*\{[^}]*var\(--nv-focus-bg\)[^}]*var\(--nv-focus-ink\)/);
     expect(code).toMatch(/\.nvh-cbtn:focus,\s*\.nvh-cbtn\[data-selected\]\s*\{[^}]*var\(--nv-focus-bg\)[^}]*var\(--nv-focus-ink\)/);
+  });
+
+  test('reduced motion swaps the slides for fades and stops the focus lift', () => {
+    const at = code.indexOf('@media (prefers-reduced-motion: reduce)');
+    expect(at).toBeGreaterThanOrEqual(0);
+    const media = code.slice(at);
+    expect(media).toContain('animation-name: nvh-fade');
+    expect(media).toMatch(/\.nvh-pi:focus,[^{]*\{[^}]*transform: none/);
   });
 });

@@ -10,7 +10,7 @@ import { identColor } from '../../meta/roster';
 import { controlOf, sectorFlagLevels } from './raceControl';
 
 const FRAME = 1 / 30;
-const PLAYER_RING = ['#ff5a1f', '#19d3c5'];
+const PLAYER_RING = ['#ff3d8b', '#19d3c5'];
 const YELLOW_FLAG = '#ffd500';
 const SC_COLOR = '#ff8a1f';
 /** a car reported by an 'incident' event keeps its warning marker until it moves faster than this (m/s), after INCIDENT_GRACE seconds */
