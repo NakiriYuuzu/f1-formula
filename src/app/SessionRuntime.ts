@@ -396,6 +396,7 @@ export class SessionRuntime {
   private flashbackBlock(): string | null {
     const w = this.world;
     if (this.online) return '線上模式無法回溯';
+    if (w.config.rules.flashbacks === 0) return '本節不提供回溯';
     if (w.session.phase === 'finished') return '節次已結束';
     // a retirement chosen from the pause menu is final (rewinding would put the car back in the race); a crash is not
     if (this.humans.some((id) => w.cars[id]?.status === 'retired' && this.quit.has(id))) return '退賽後無法回溯';
@@ -446,9 +447,14 @@ export class SessionRuntime {
     return true;
   }
 
+  /** Career / My Team sessions count as played: no restart there (nor online). */
+  private get restartable(): boolean {
+    return !this.online && this.ctx.returnTo !== 'career' && this.ctx.returnTo !== 'myTeam';
+  }
+
   /** Same config from the start: new world, fresh HUD, empty flashback / replay buffers. */
   restart(): void {
-    if (this.disposed || this.online) return;
+    if (this.disposed || !this.restartable) return;
     const settings = this.deps.settings();
     this.world = createWorld(this.config, this.track);
     this.hud.destroy();
@@ -499,7 +505,7 @@ export class SessionRuntime {
   private createHud(settings: Settings): HudLayer {
     const cb: HudCallbacks = {
       resume: () => this.setPaused(false),
-      restart: () => this.restart(),
+      restart: this.restartable ? () => this.restart() : undefined,
       quit: () => this.deps.quit(),
       openSettings: () => this.deps.openSettings(),
       requestPit: (carId, compound) => (this.client ? this.client.requestPit(compound) : requestPit(this.world, carId, compound)),

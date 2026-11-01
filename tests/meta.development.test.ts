@@ -603,6 +603,28 @@ describe('session plumbing', () => {
     expect(requestFromConfig(config).development).toEqual(config.development);
   });
 
+  test('a season round (career / My Team) allows no flashback, whatever the season rules say', () => {
+    const settings = { ...DEFAULT_SEASON_SETTINGS, rules: { ...DEFAULT_SEASON_SETTINGS.rules, flashbacks: -1 } };
+    for (const mode of ['career', 'myTeam'] as const) {
+      const req = roundRequest({
+        mode,
+        kind: 'race',
+        round: { layoutId: LAYOUT_ID, weather: 'clear' },
+        fullLaps: 50,
+        settings,
+        roster: standardRoster(),
+        seed: 1,
+        assists: { ...DEFAULT_ASSISTS },
+        setup: { ...DEFAULT_SETUP },
+        startCompound: null,
+        gridOrder: null,
+      });
+      expect(req.rules.flashbacks).toBe(0);
+      expect(buildSessionConfig(req, layoutOrDefault(LAYOUT_ID)).rules.flashbacks).toBe(0);
+    }
+    expect(settings.rules.flashbacks).toBe(-1);
+  });
+
   test('world car specs (human and AI teams) and simulated qualifying use the gains', () => {
     const track = getLayout(LAYOUT_ID);
     const gains = Object.fromEntries(CAR_PARTS.map((p) => [p, 5]));

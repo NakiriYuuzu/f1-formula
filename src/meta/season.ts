@@ -530,7 +530,8 @@ export function roundRequest(a: RoundRequestArgs): SessionRequest {
     regulation: a.settings.regulation,
     aiDifficulty: a.settings.aiDifficulty,
     qualifying: a.settings.qualifying,
-    rules: { ...a.settings.rules },
+    // a season round is played once: no flashback (the pause menu offers no restart either)
+    rules: { ...a.settings.rules, flashbacks: 0 },
     seed: a.seed,
     players: [
       {

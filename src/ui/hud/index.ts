@@ -73,7 +73,8 @@ export interface HudView {
 
 export interface HudCallbacks {
   resume(): void;
-  restart(): void;
+  /** omitted: the pause menu offers no restart (career / My Team) */
+  restart?(): void;
   quit(): void;
   /** opens MenuSystem.openSettingsOverlay */
   openSettings(): void;
@@ -773,13 +774,14 @@ export class HudLayer {
   private buildPauseItems(world: WorldState): PauseItem[] {
     const s = world.session;
     const items: PauseItem[] = [{ kind: 'action', id: 'resume', label: '繼續', run: () => this.cb.resume() }];
-    if (!this.online) {
+    const restart = this.cb.restart;
+    if (!this.online && restart) {
       items.push({
         kind: 'action',
         id: 'restart',
         label: '重新開始',
         confirm: { title: '重新開始？', text: '本節進度會清除，從頭開始這一節。', ok: '重新開始' },
-        run: () => this.cb.restart(),
+        run: () => restart(),
       });
     }
     const flashbacksLeft = (): number => fin(this.lastInfo?.flashbacksLeft ?? world.config.rules.flashbacks, 0);
