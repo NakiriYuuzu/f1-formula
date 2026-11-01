@@ -242,9 +242,17 @@ const CURV_SPAN = 3;
  * and handed the place over.) Elsewhere ±6 m — a lane along the edge through a chicane is that tight (read over ±24 m
  * everywhere, cars kept at the edge into Monza's first chicane ran over the track limits) — and so for a constant
  * offset (the wide line of a late-braking mistake), whose ±6 m reading is the margin that brings it back before the
- * gravel.
+ * gravel; an attack's steered offset (`steered`) only where the line is a sweep wider than SWEEP_RADIUS.
  */
 const BLEND_SPAN = 12;
+/**
+ * Line radius (m) from which an attack's steered offset reads the edge its path meets over ±BLEND_SPAN: a sweep this
+ * open is taken at ≈ 250 km/h and more, where the steering looks ≥ 36 m ahead. (Read over ±6 m, a car stalking 5.3 m
+ * off the line at Spa read the edge its path met as R 90 m in a R 400 m flat-out sweep and braked from 326 to 170 km/h
+ * into the car behind. Read over ±24 m in every corner, attackers carried that much more speed into the slower ones:
+ * heavy contacts 3 → 7 in 16 races, 1 → 9 in 24 rain / dry races.)
+ */
+const SWEEP_RADIUS = 250;
 /**
  * Rejoining the racing line after a tactical move (no lateral target any more): the car keeps its lateral while the
  * line sweeps across toward it and merges where the line reaches it, closing any rest at this rate (m/s). (A plain
@@ -318,10 +326,11 @@ let planOffsets = new Float64Array(256);
 
 /**
  * Curvature of the driven path at step `step` (sample i) of a plan: the kerb-use blend of the line, or the offset
- * path when tighter — at the plan's own offsets when `offs` is given (`steps` = its last), else at the constant `off`.
- * Behind the car (before step 0) the planned path runs on as it leaves the car: the car is on it already. (Held at
- * the first offset there, a car rejoining the line from 5 m off it read its path bending at R 50–70 m beside it on a
- * R 140 m sweep and braked from 235 to 117 km/h down the straight, into the car behind.)
+ * path when tighter — at the plan's own offsets when `offs` is given (`steps` = its last), else at the constant `off`
+ * (`steered`: an attack's, see SWEEP_RADIUS). Behind the car (before step 0) the planned path runs on as it leaves the
+ * car: the car is on it already. (Held at the first offset there, a car rejoining the line from 5 m off it read its
+ * path bending at R 50–70 m beside it on a R 140 m sweep and braked from 235 to 117 km/h down the straight, into the
+ * car behind.)
  */
 function pathCurvature(
   track: BuiltTrack,
@@ -333,6 +342,7 @@ function pathCurvature(
   offs: Float64Array | null = null,
   step = 0,
   steps = 0,
+  steered = false,
 ): number {
   const kl = kerb ? base.curv[i] + ku * (kerb.curv[i] - base.curv[i]) : base.curv[i];
   let ko: number;
@@ -348,7 +358,7 @@ function pathCurvature(
     ko = pathOffsetCurvature(track, i, oFar0, at(-CURV_SPAN), oB, at(CURV_SPAN), oFar1);
   } else {
     if (off === 0) return kl;
-    ko = offsetPathCurvature(track, i, off);
+    ko = pathOffsetCurvature(track, i, off, off, off, off, off, steered && Math.abs(kl) * SWEEP_RADIUS < 1);
   }
   return Math.abs(ko) > Math.abs(kl) ? ko : kl;
 }
@@ -359,7 +369,8 @@ function pathCurvature(
  * horizon (braking distance from that speed). `offset` (m) = tactical offset from the racing line: when the car is
  * off-line the curvature of its actual (offset, road-clamped) path is used — the offset held for `hold` m (by default
  * all the way; with `lane` the lateral there is held instead, a lane of its own), the car rejoining the line beyond
- * (REJOIN_RATE). `kerbUse` (0..1) = the driver's line
+ * (REJOIN_RATE); `steered` = an offset held all the way that the steering rounds off at the edge in a sweep (an
+ * attack: SWEEP_RADIUS). `kerbUse` (0..1) = the driver's line
  * blends toward the kerb-use line (its curvature blended alike). `probe` (optional) reads the same plan `probe.ahead`
  * m further on (e.g. "is braking due within half a second" — no second scan; within the horizon a scan from there
  * would find the same braking need, short of rounding to a sample).
@@ -375,6 +386,7 @@ export function targetSpeedAt(
   probe?: SpeedProbe,
   hold = Infinity,
   lane = false,
+  steered = false,
 ): number {
   const n = track.count;
   if (probe) probe.speed = SPEED_CAP;
@@ -401,12 +413,12 @@ export function targetSpeedAt(
   const offs =
     Number.isFinite(offset) && (lane || (off !== 0 && Number.isFinite(hold))) ? plannedOffsets(track, i0, frac, steps, lane ? offset : off, Math.max(0, hold), lane, v0) : null;
 
-  let kNext = pathCurvature(track, base, kerb, ku, off, (i0 + steps) % n, offs, steps, steps);
+  let kNext = pathCurvature(track, base, kerb, ku, off, (i0 + steps) % n, offs, steps, steps, steered);
   let v = cornerSpeed(cap, kNext) * k;
   if (probe && at >= steps) probe.speed = v;
   for (let step = steps - 1; step >= 1; step--) {
     const i = (i0 + step) % n;
-    const ki = pathCurvature(track, base, kerb, ku, off, i, offs, step, steps);
+    const ki = pathCurvature(track, base, kerb, ku, off, i, offs, step, steps, steered);
     const dsi = kerb ? ds[i] + ku * (kerb.ds[i] - ds[i]) : ds[i];
     const reach = Math.sqrt(v * v + 2 * brakingDecel(cap, v, kNext) * dsi);
     const lim = cornerSpeed(cap, ki) * k;
@@ -415,7 +427,7 @@ export function targetSpeedAt(
     if (step === at && probe) probe.speed = v;
   }
   // current position: between i0 and i0 + 1
-  const k0 = pathCurvature(track, base, kerb, ku, off, i0, offs, 0, steps);
+  const k0 = pathCurvature(track, base, kerb, ku, off, i0, offs, 0, steps, steered);
   const remain = (1 - frac) * (kerb ? ds[i0] + ku * (kerb.ds[i0] - ds[i0]) : ds[i0]);
   const reach = Math.sqrt(v * v + 2 * brakingDecel(cap, v, kNext) * remain);
   const lim = cornerSpeed(cap, k0 + (kNext - k0) * frac) * k;

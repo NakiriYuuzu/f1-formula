@@ -39,7 +39,10 @@ const SWEEP_CLOSING = 8;
  * level with it (looked ahead at most CROSS_LOOK s), as wide as it lies across the road: read where it is, a car coming
  * back on at 5 m/s across the racing line was seen 9 m short of it and hit, and one sliding across at 14 m/s, 27° to
  * the track, was hit from 9 m at full throttle. (Not a car racing: one on the line sweeps across the road at several
- * m/s through every bend — with all cars, passes fell from 27 to 9 a race.)
+ * m/s through every bend — with all cars, passes fell from 27 to 9 a race.) Where we will be by then too: as far on as
+ * we travel until level (beyond the look-ahead, along the line's sweep). (Read at the gap to it, a car on the line
+ * closing at 22 m/s on one 8 m inside it, slow from a cover and rejoining across, saw it in its path 4 m short —
+ * Silverstone s 2985, 200 km/h into 150 — the line had swept it to the apex there 0.8 s before.)
  */
 const CROSS_TROUBLE = 0.8;
 const CROSS_SPEED = 1;
@@ -276,6 +279,11 @@ export function planTraffic(world: WorldState, car: CarEntry, track: BuiltTrack,
   const kerbR = Math.max(0, ctx.kerbRight ?? 0);
   const plan: TrafficPlan = { speedLimit: SPEED_CAP, lateral: null, rate: 2.2, lo: -edge - kerbL, hi: edge + kerbR, overtake: false };
   const lookahead = Math.max(1, ctx.lookahead);
+  // our lateral `dist` m on: toward the planned lateral up to the look-ahead, beyond it along the line's sweep
+  const myLatAt = (dist: number): number =>
+    dist <= lookahead
+      ? me.lateral + (ctx.plannedLateral - me.lateral) * (dist / lookahead)
+      : ctx.plannedLateral + sampleAt(track, track.racingLine, me.s + dist) - sampleAt(track, track.racingLine, me.s + lookahead);
   const kAhead = upcomingCurvature(track, me.s, 90);
   const mode = world.session.control.mode;
   // (virtual) safety car: a place owed is given back by moving off the line (below)
@@ -320,11 +328,12 @@ export function planTraffic(world: WorldState, car: CarEntry, track: BuiltTrack,
       const far = ds - half > FOLLOW_RANGE && alongSpeed(track, o) > 0.6 * vMe;
       const vLat = lateralSpeed(track, o);
       const closingO = vMe - alongSpeed(track, o);
+      const tLevel = Math.min(CROSS_LOOK, ds / closingO);
       const crossing =
         Math.abs(vLat) > CROSS_SPEED &&
         closingO > 1 &&
         alongSpeed(track, o) < CROSS_TROUBLE * sampleAt(track, track.speedProfile, op.s) &&
-        Math.abs(op.lateral + vLat * Math.min(CROSS_LOOK, ds / closingO) - myLatThere) < myW / 2 + halfSpan(track, o) + 0.5;
+        Math.abs(op.lateral + vLat * tLevel - myLatAt(vMe * tLevel)) < myW / 2 + halfSpan(track, o) + 0.5;
       if (!far && (overlapNow || intoLane || crossing || Math.abs(op.lateral - myLatThere) < widthSum + 0.5) && ds - half < aheadGap) {
         ahead = o;
         aheadGap = ds - half;

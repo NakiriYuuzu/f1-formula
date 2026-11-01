@@ -587,8 +587,9 @@ describe('human crashes', () => {
     expect(touch.peak).toBeLessThan(HEAVY_IMPACT);
     expect(touch.humanIncidents).toBe(0);
 
+    // at the barrier: wherever the field put the human at 45 s (a wide run-off there hit nothing within 15 s)
     const off = race({ laps: 8, safetyCar: 'off', seed: 7 });
-    const hit = crash(off.world, off.track, { steer: -1, sec: 0.6, until: 60 });
+    const hit = crash(off.world, off.track, { steer: -1, sec: 0.6, until: 64, at: WALL_S });
     expect(hit.peak).toBeGreaterThan(HEAVY_IMPACT);
     expect(hit.humanIncidents).toBe(0);
     const k = off.world.session.control.counts;

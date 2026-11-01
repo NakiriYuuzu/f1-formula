@@ -448,7 +448,7 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   const offNow = ai.offsetHold > 0 ? ai.holdLateral - sampleAt(track, track.racingLine, p.s) : ai.offset + ai.lineNoise;
   const lift = paceMode === 'conserve' && !cooldown && !(Math.abs(offNow) > 0.3) ? LIFT_PROBE : undefined;
   if (lift) lift.ahead = v * (LIFT_COAST - h * 2);
-  let target = targetSpeedAt(track, cap, p.s + v * h * 2, v, cooldown ? 0.78 : 1, offNow, kerbUse, lift, ai.offsetHold, ai.offsetHold > 0 && ai.holdLane);
+  let target = targetSpeedAt(track, cap, p.s + v * h * 2, v, cooldown ? 0.78 : 1, offNow, kerbUse, lift, ai.offsetHold, ai.offsetHold > 0 && ai.holdLane, ai.mode === 'attack');
   // a late-braking mistake: lift to gather the car up while running wide
   if (runWide) target *= 1 - LATE_BRAKE_LIFT;
 
@@ -510,9 +510,10 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   // the next speed plan (above) holds the lateral the car is placed at: a lane of its own (kept beside a car, a cover,
   // giving way …) all the way — a cover up to the corner it is for, let go there; attacking (in the wake of the car,
   // alongside it), placed by that car, which drives its own line, the offset steered (from the line at the look-ahead,
-  // where that car is), and so the wide line of a late-braking mistake; rejoining the line, nothing held. (A pass
-  // committed into Monza's first chicane held as a lane read the inside of it at R 15 m — the line R 27 m — and braked
-  // to 64 km/h where its plan on the line said 81.)
+  // where that car is; where it meets the road edge in a fast sweep read as the steering rounds it off), and so the wide
+  // line of a late-braking mistake (read as it is: its margin back from the gravel); rejoining the line, nothing held.
+  // (A pass committed into Monza's first chicane held as a lane read the inside of it at R 15 m — the line R 27 m — and
+  // braked to 64 km/h where its plan on the line said 81.)
   const placed = desired !== null || kept;
   const cover = ai.mode === 'defend' && desired !== null && !kept ? track.corners[ai.defendCorner] : undefined;
   ai.offsetHold = !placed && wide === 0 ? 0 : cover ? forwardDistance(track, p.s, cover.startS) : Infinity;

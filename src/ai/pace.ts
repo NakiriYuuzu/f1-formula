@@ -29,15 +29,16 @@ export function difficulty01(difficulty: number): number {
 /** Pace skill the pace terms are anchored to: the best possible driver. */
 const PACE_TOP = 1;
 /**
- * A generational talent — pace above ELITE_PACE (Verstappen; the rest of the 2026 grid tops out at 0.965) — finds
- * grip and drive others do not: ELITE_PERF × its pace beyond ELITE_PACE on the physics performanceScale (power fully,
- * grip at 60 %), on top of the lateral / braking factors, so the edge stands at every difficulty, also where those
- * factors reach the limit. Pace 1: +1.75 % — simulated qualifying ≈ 1.0 % ahead of Antonelli / Hamilton at every
- * difficulty (0.33 % with the factors alone); 8-lap races on equal tyres, difficulty 85 / 100: average finish 1.05 / 1.0
- * from pole (with 0.3: 1.2).
+ * A generational talent — pace above ELITE_PACE (Verstappen; the rest of the 2026 grid tops out at 0.965) — finds a
+ * little grip and drive others do not: ELITE_PERF × its pace beyond ELITE_PACE on the physics performanceScale (power
+ * fully, grip at 60 %), on top of the lateral / braking factors, so the edge stands at every difficulty, also where those
+ * factors reach the limit. Pace 1: +0.18 % — simulated qualifying ≈ 0.4 % ahead of Antonelli at every difficulty (0.33 %
+ * with the factors alone), pole in 47 of 48; 8-lap races from qualifying order on equal tyres (difficulty 85 seeds 1–9,
+ * 100 seeds 1–3): won 34 of 48, most of the rest lost by under 1.5 s to Antonelli / Hamilton / Russell (0: won 28;
+ * 0.1: 33; 0.5 — ≈ 1 % in qualifying — won 12 of 12 by 9 s on average: nobody could race him).
  */
 const ELITE_PACE = 0.965;
-const ELITE_PERF = 0.5;
+const ELITE_PERF = 0.05;
 
 /**
  * Pace parameters for a driver pace skill (0..1, ≈ 0.85..1) at a difficulty. The driver's share is wide enough that
