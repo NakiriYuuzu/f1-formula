@@ -45,7 +45,7 @@ export function buildEnv(world: WorldState, track: BuiltTrack, car: CarEntry): P
     regulation: world.config.regulation,
     assists: car.assists,
     assistTargetSpeed,
-    wearMultiplier: rules.tyreWear ? 1 : 0,
+    wearMultiplier: rules.tyreWear ? (human ? 1 : car.ai.tyreWear) : 0,
     fuelMultiplier: rules.fuel ? fuelSaving(world, track, car) : 0,
     damageMultiplier: damageMultiplier(world),
     performanceScale: performance,

@@ -5,12 +5,19 @@
  */
 import { describe, expect, test } from 'bun:test';
 import {
+  ONE_LAP_QUALI,
+  ONE_LAP_RACE,
   SPEED_CAP,
+  applyQualifyingForm,
+  applyRaceForm,
   capability,
   chooseDryCompound,
   computeAIInput,
   cornerSpeed,
   createAIState,
+  driverStyle,
+  highSpeedMargin,
+  limitShare,
   lookaheadDistance,
   neutralInput,
   paceParams,
@@ -24,6 +31,7 @@ import { createWorld, stepWorld } from '../src/race/index';
 import { createCarSpec, maxCornerSpeed } from '../src/physics/index';
 import { DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
 import { DRIVERS, TEAMS } from '../src/data/teams';
+import { REAL_GRID } from '../src/data/realGrid';
 import { getLayout } from '../src/data/tracks/index';
 import type { SessionConfig } from '../src/core/types';
 
@@ -60,6 +68,41 @@ describe('createAIState', () => {
     const clamped = createAIState(varga, Number.NaN, Number.NaN);
     expect(Number.isFinite(clamped.latFactor)).toBe(true);
     expect(paceParams(500, 0.9).latFactor).toBe(paceParams(110, 0.9).latFactor);
+  });
+
+  test('above difficulty 90 the high-speed margin gives way step by step', () => {
+    expect(limitShare(0)).toBe(0);
+    expect(limitShare(90)).toBe(0);
+    expect(limitShare(100)).toBeCloseTo(0.5, 9);
+    expect(limitShare(110)).toBe(1);
+    expect(highSpeedMargin(0)).toBeCloseTo(0.92, 9);
+    expect(highSpeedMargin(limitShare(110))).toBeCloseTo(0.98, 9);
+  });
+
+  test('driver traits: one-lap pace, tyres, starts', () => {
+    const real = (id: string) => REAL_GRID.drivers.find((d) => d.id === id)!;
+    for (const d of [...REAL_GRID.drivers, ...DRIVERS]) {
+      const st = driverStyle(d);
+      for (const v of [st.oneLap, st.tyres, st.starts, st.nerves]) expect(Math.abs(v)).toBeLessThanOrEqual(1);
+    }
+    // Leclerc a qualifier, Pérez a racer
+    const lec = createAIState(real('leclerc'), 90, 1);
+    const q = { ...lec };
+    applyQualifyingForm(q);
+    expect(q.performance - lec.performance).toBeCloseTo(ONE_LAP_QUALI * driverStyle(real('leclerc')).oneLap, 12);
+    const per = createAIState(real('perez'), 90, 1);
+    const race = { ...per, rng: { ...per.rng } };
+    applyRaceForm(race);
+    expect(race.performance - per.performance).toBeCloseTo(-ONE_LAP_RACE * driverStyle(real('perez')).oneLap, 12);
+    expect(race.performance).toBeGreaterThan(per.performance);
+    // Alonso is easy on his tyres and quick off the line, Norris a slow starter
+    expect(createAIState(real('alonso'), 90, 1).tyreWear).toBeLessThan(lec.tyreWear);
+    const react = (id: string): number => {
+      let sum = 0;
+      for (let s = 1; s <= 50; s++) sum += createAIState(real(id), 90, s).reaction;
+      return sum / 50;
+    };
+    expect(react('alonso')).toBeLessThan(react('norris'));
   });
 
   test('wet skill matters in the wet only', () => {

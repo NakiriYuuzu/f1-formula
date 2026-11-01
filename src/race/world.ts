@@ -22,7 +22,7 @@ import { clamp, forwardX, forwardZ, randRange } from '../core/math';
 import { DRIVERS, TEAMS } from '../data/teams';
 import { COMPOUND_PARAMS, createCarPhysics, createCarSpec, fuelPerKm } from '../physics/index';
 import { poseAt, sampleAt, wrapS } from '../track/track';
-import { aiCarTeam, applyRaceForm, createAIState, isDry } from '../ai/index';
+import { aiCarTeam, applyQualifyingForm, applyRaceForm, createAIState, isDry } from '../ai/index';
 import { emit, mod } from './events';
 import type { CarRaceInternal } from './types';
 import { gearForSpeed } from './pitlane';
@@ -310,6 +310,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     ai.stintStartProgress = progress;
     ai.paceTime = paceEstimate(paceCache, track, carTeam, driver, config, weather.wetness);
     if (race && playerIndex === -1) applyRaceForm(ai);
+    if (kind === 'qualifying' && playerIndex === -1) applyQualifyingForm(ai);
     const zones = track.drsZones.length;
     cars.push({
       id: cars.length,

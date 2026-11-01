@@ -6,7 +6,21 @@
 import type { AIState, BuiltTrack, CarEntry, ControlInput, DriverDef, WorldState } from '../core/types';
 import { clamp, clamp01, nextRandom } from '../core/math';
 import { driveAI } from './controller';
-import { RACE_FORM, fitStyle, kerbSkill, paceParams, raceFormRange, racecraftSkill, skillBlend, styleFactors, trailBraking } from './pace';
+import {
+  ONE_LAP_QUALI,
+  ONE_LAP_RACE,
+  RACE_FORM,
+  STARTS_REACTION,
+  fitStyle,
+  kerbSkill,
+  paceParams,
+  raceFormRange,
+  racecraftSkill,
+  skillBlend,
+  styleFactors,
+  trailBraking,
+  tyreWearFactor,
+} from './pace';
 import { driverStyle } from './personality';
 
 export type { AIMode, AIPaceMode, AIMistake, AIAttackPhase, AIPitCall } from './types';
@@ -22,6 +36,12 @@ export {
   difficulty01,
   aiCarTeam,
   AI_CAR_GAP,
+  limitShare,
+  highSpeedMargin,
+  tyreWearFactor,
+  ONE_LAP_QUALI,
+  ONE_LAP_RACE,
+  STARTS_REACTION,
   RACE_FORM,
   DIFFICULTY_MAX,
   PACE_MODE_FACTOR,
@@ -86,13 +106,16 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
     consistency,
     aggression: clamp01(style.aggression + (r1 - 0.5) * 0.16),
     craft: racecraftSkill(difficulty, racecraft, awareness),
-    reaction: 0.16 + (1 - awareness) * 0.8 + r2 * 0.12,
+    reaction: Math.max(0.1, 0.16 + (1 - awareness) * 0.8 + r2 * 0.12 - STARTS_REACTION * style.starts),
     trail: trailBraking(difficulty, driverPace, consistency),
     kerbSkill: kerbSkill(difficulty, driverPace, consistency),
     gripLow: sf.low,
     gripHigh: sf.high,
     lineFreedom: style.lineFreedom,
     volatility: style.volatility,
+    oneLap: style.oneLap,
+    tyreWear: tyreWearFactor(style.tyres),
+    nerves: style.nerves,
     rng,
     offset: 0,
     offsetHold: 0,
@@ -182,15 +205,24 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
 
 /**
  * Race-day form (races only, after paceTime is set): the driver finds up to ± RACE_FORM × raceFormRange(volatility)
- * of its corner / braking factors on the day, so the race order is not just the grid order. Seeded from the car's
+ * of its corner / braking factors on the day, so the race order is not just the grid order, and a one-lap
+ * specialist gives ONE_LAP_RACE × oneLap of its performance back (a race specialist finds it). Seeded from the car's
  * own stream.
  */
 export function applyRaceForm(ai: AIState): void {
   const form = 1 + (nextRandom(ai.rng) * 2 - 1) * RACE_FORM * raceFormRange(ai.volatility);
   ai.latFactor = Math.min(1, ai.latFactor * form);
   ai.brakeFactor = Math.min(0.97, ai.brakeFactor * form);
-  // ≈ 0.37 % lap time per 1 % of both factors (point-mass model, 0.26 % Monza … 0.46 % Monaco)
-  if (ai.paceTime > 0) ai.paceTime *= 1 - 0.37 * (form - 1);
+  const perf = -ONE_LAP_RACE * ai.oneLap;
+  ai.performance += perf;
+  // ≈ 0.37 % lap time per 1 % of both factors (point-mass model, 0.26 % Monza … 0.46 % Monaco), and as much per 1 % of
+  // performanceScale (0.35 % Monaco … 0.40 % Silverstone)
+  if (ai.paceTime > 0) ai.paceTime *= 1 - 0.37 * (form - 1 + perf);
+}
+
+/** Qualifying: a one-lap specialist finds ONE_LAP_QUALI × oneLap of performance (a race specialist gives it away). */
+export function applyQualifyingForm(ai: AIState): void {
+  ai.performance += ONE_LAP_QUALI * ai.oneLap;
 }
 
 /** Compute this step's controls for an AI car (racing line following, overtaking, defending, avoidance, DRS/ERS use). */

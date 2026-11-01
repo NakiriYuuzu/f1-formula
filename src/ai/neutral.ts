@@ -44,6 +44,12 @@ const CATCH_UP_FACTOR = 0.85;
 /** VSC: delta the AI aims for and the speed gain per second of delta. */
 const VSC_DELTA_TARGET = 0.4;
 const VSC_DELTA_GAIN = 0.3;
+/**
+ * VSC: a car within this distance (m) ahead caps the delta catch-up (it closes to SC_QUEUE_GAP, no closer). Without it
+ * a car that had lifted to give a place back sped up to 1.15 × the VSC pace to recover its delta and drove past the
+ * car it had just let by (side by side on another line: no overtaking move to stop) — a second illegal pass.
+ */
+const VSC_FOLLOW_RANGE = 60;
 const YELLOW_SCALE = 0.9;
 const BLUE_SCALE = 0.95;
 const GIVE_BACK_SCALE = 0.85;
@@ -141,7 +147,9 @@ export function neutralPlan(world: WorldState, track: BuiltTrack, car: CarEntry)
     const delta = car.flags.delta;
     // no delta catch-up while giving a place back (it would undo the lift)
     const f = delta === null || car.flags.giveBack ? 1 : clamp(1 + VSC_DELTA_GAIN * (delta - VSC_DELTA_TARGET), 0.8, 1.15);
-    return giveBackPlan(car, { cap: ref * f, scale: 1, noOvertake: true, yieldSide: 0 });
+    const ahead = carAhead(world, track, car, VSC_FOLLOW_RANGE, false);
+    const follow = ahead ? Math.max(0, ahead.speed + FOLLOW_GAIN * (ahead.gap - SC_QUEUE_GAP)) : Infinity;
+    return giveBackPlan(car, { cap: Math.min(ref * f, follow), scale: 1, noOvertake: true, yieldSide: 0 });
   }
   if ((s.control.sectorFlags[sectorOf(track, car.phys.s)] ?? 0) > 0) {
     plan.scale = YELLOW_SCALE;

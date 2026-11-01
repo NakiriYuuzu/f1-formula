@@ -10,7 +10,7 @@ import type { AIMistake } from './types';
 import { AIR_DENSITY, angleDiff, clamp, clamp01, moveToward, nextRandom, worldToLocal } from '../core/math';
 import { isCarHeld, steerInputForAngle, tyreGrip } from '../physics/index';
 import { forwardDistance, inRangeS, pitLaneOffsetAt, pitRampLength, pitZoneLength, poseAt, sampleAt } from '../track/track';
-import { PACE_MODE_FACTOR, difficulty01, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
+import { PACE_MODE_FACTOR, difficulty01, highSpeedMargin, limitShare, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
 import { REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
 import { aeroWake } from '../race/wake';
@@ -37,9 +37,6 @@ const fin = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallb
 const CHASE_GAP = 1.5;
 const CHASE_PUSH = 0.015;
 
-/** Derating of the aero (speed²) part of the lateral grip the AI plans with. */
-const HIGH_SPEED_MARGIN = 0.92;
-
 /**
  * Natural mistakes (races from lap 2, green flag, not mid-attack), rolled once per corner: chance =
  * (1 − consistency) × NATURAL_MISTAKE × (1.6 − difficulty) × pressure × (1 + WET_MISTAKE·wetness) × wetMistakeFactor.
@@ -52,6 +49,30 @@ const WET_MISTAKE = 1.5;
 const CHASE_PRESSURE = 1.5;
 const CHASED_GAP = 1;
 const CHASED_PRESSURE = 1.3;
+/**
+ * A driver's nerves (personality −1..1) scale the extra mistakes pressure brings by 1 + NERVES × nerves (0.2..1.8):
+ * chasing, Verstappen (−0.8) errs 1.18 × as often, Norris (0.6) 1.74 ×.
+ */
+const NERVES = 0.8;
+
+/** Clean air: no other car on the road within this distance (m) ahead or behind (pace.ts limitShare). */
+const LIMIT_CLEAR = 100;
+
+/** Whether the car is alone on its stretch of road: no car on track (not in the pit lane) within LIMIT_CLEAR m. */
+function inCleanAir(world: WorldState, track: BuiltTrack, car: CarEntry): boolean {
+  for (const o of world.cars) {
+    if (o === car || o.status === 'retired' || o.status === 'finished' || o.pit.phase !== 'none') continue;
+    const d = forwardDistance(track, car.phys.s, o.phys.s);
+    if (d < LIMIT_CLEAR || track.length - d < LIMIT_CLEAR) return false;
+  }
+  return true;
+}
+
+/** Pressure (≥ 1) as a driver of these nerves feels it. */
+function felt(ai: AIState, pressure: number): number {
+  return 1 + (Math.max(1, fin(pressure, 1)) - 1) * clamp(1 + NERVES * fin(ai.nerves), 0.2, 1.8);
+}
+
 /** Share of natural mistakes that are late braking (the rest: early throttle). */
 const LATE_BRAKE_SHARE = 0.6;
 /**
@@ -181,12 +202,12 @@ function pitMovePush(car: CarEntry, track: BuiltTrack): boolean {
 }
 
 /**
- * Chance (per corner) of a natural mistake: consistency, difficulty, pressure (chasing / chased, ≥ 1), wetness and
- * wet skill.
+ * Chance (per corner) of a natural mistake: consistency, difficulty, pressure (chasing / chased, ≥ 1; as the driver's
+ * nerves feel it), wetness and wet skill.
  */
 export function naturalMistakeChance(ai: AIState, wetness: number, pressure = 1): number {
   const w = clamp01(fin(wetness));
-  const p = Math.max(1, fin(pressure, 1));
+  const p = felt(ai, pressure);
   const base = (1 - clamp01(ai.consistency)) * NATURAL_MISTAKE * (1.6 - difficulty01(ai.difficulty));
   return clamp01(base * p * (1 + WET_MISTAKE * w) * wetMistakeFactor(w, ai.wetSkill));
 }
@@ -292,7 +313,7 @@ function updateNoise(world: WorldState, car: CarEntry, track: BuiltTrack, dt: nu
   const spread = (1 - ai.consistency) * 0.22;
   ai.brakeNoise = 1 + (nextRandom(ai.rng) * 2 - 1) * spread;
   // pushing to catch the car ahead costs some consistency
-  const mistakeChance = (1 - ai.consistency) * 0.045 * (1.6 - difficulty01(ai.difficulty)) * (chasing(world, car) ? 1.5 : 1);
+  const mistakeChance = (1 - ai.consistency) * 0.045 * (1.6 - difficulty01(ai.difficulty)) * (chasing(world, car) ? felt(ai, 1.5) : 1);
   if (nextRandom(ai.rng) < mistakeChance) {
     ai.brakeNoise = 1.1 + nextRandom(ai.rng) * 0.06;
     ai.mistakeTimer = 2.5;
@@ -438,8 +459,9 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   const trail = sliding ? 0 : ai.trail * wetT * clamp01((TRAIL_OFF_LINE - offLine) / (TRAIL_OFF_LINE - TRAIL_ON_LINE));
   // in a car's dirty air the corners are slower (and its tow makes the straights quicker)
   const cap = capability(spec, grip, p.fuelKg, latF, brkF, aeroWake(world, track, car), trail);
-  // keep extra margin in fast corners: steering authority is tiny at speed, so a slide there cannot be caught
-  cap.latB *= HIGH_SPEED_MARGIN;
+  // keep extra margin in fast corners: steering authority is tiny at speed, so a slide there cannot be caught — alone
+  // on the road, above difficulty 90, less of it
+  cap.latB *= highSpeedMargin(ai.difficulty > 90 && inCleanAir(world, track, car) ? limitShare(ai.difficulty) : 0);
   // the driver's style: stronger in slow or in fast corners
   cap.latA *= ai.gripLow;
   cap.latB *= ai.gripHigh;

@@ -2,7 +2,7 @@
  * Qualifying lap-time simulation for cars not driven by humans. Each AI driver's lap is predicted with a
  * quasi-steady point-mass lap simulation on the racing line using the same capability model and pace parameters
  * as the on-track AI (car spec from team ratings — the closer AI ratings for AI-only teams — and part development, difficulty, driver pace, wet skill, weather / compound, rubber,
- * DRS on straights, trail braking and kerb use from pace / consistency), scaled by a calibration factor fitted to headless AI flying laps, plus ~0.15 % seeded noise.
+ * DRS on straights, trail braking and kerb use from pace / consistency, the one-lap trait), scaled by a calibration factor fitted to headless AI flying laps, plus ~0.15 % seeded noise.
  */
 import type { BuiltTrack, CarPartGains, CarSpec, DriverDef, SessionConfig, TeamDef, TireCompound, WeatherKind } from '../core/types';
 import { AIR_DENSITY, nextRandom } from '../core/math';
@@ -14,9 +14,11 @@ import {
   brakingDecel,
   difficulty01,
   driverStyle,
+  limitShare,
   kerbSkill,
   paceParams,
   fitStyle,
+  ONE_LAP_QUALI,
   styleFactors,
   trailBraking,
   wetBrakeFactor,
@@ -34,10 +36,14 @@ import { kerbData, lineData } from '../ai/profile';
  * ERS_SHARE / POWER_SHARE / TRACTION_SHARE): best of 2 timed laps, 1920 runs — 20 layouts × 8 drivers (4 teams each
  * set) × difficulty 0–110 × dry / light rain / heavy rain × 2025 / 2026: residual rms 0.58 % (90 % within ±1 %,
  * extremes −2.0 / +1.9 %); fitted on 12 layouts / 4 drivers, the other 8 layouts / 4 drivers hold out at 0.57 % rms.
+ * Above difficulty 90 an AI car in clean air gives up part of its high-speed margin (pace.ts limitShare), which the
+ * point-mass lap does not model: LIMIT_CAL × limitShare off (solo laps at 110 on 4–6 layouts: Verstappen −0.48 %, Sainz
+ * −0.46 %).
  */
 export function qualiCalibration(difficulty: number, regulation: SessionConfig['regulation']): number {
-  return (0.989 + 0.034 * difficulty01(difficulty)) * (regulation === '2026' ? 0.998 : 1);
+  return (0.989 + 0.034 * difficulty01(difficulty)) * (regulation === '2026' ? 0.998 : 1) * (1 - LIMIT_CAL * limitShare(difficulty));
 }
+const LIMIT_CAL = 0.0047;
 /** Seeded per-driver noise amplitude (fraction of the lap time). */
 const NOISE = 0.0015;
 /**
@@ -125,7 +131,10 @@ export function pointMassLap(track: BuiltTrack, spec: CarSpec, cap: Capability, 
   return Number.isFinite(t) && t > 0 ? t : track.referenceLapTime;
 }
 
-/** Predicted flying-lap time (s) of an AI driver in a team car with its part development (no calibration / noise). */
+/**
+ * Predicted flying-lap time (s) of an AI driver in a team car with its part development (no calibration / noise);
+ * `performanceBonus` adds to its performanceScale (the one-lap trait in qualifying).
+ */
 export function predictLapTime(
   track: BuiltTrack,
   team: TeamDef,
@@ -134,10 +143,12 @@ export function predictLapTime(
   regulation: SessionConfig['regulation'],
   wetness: number,
   parts: CarPartGains = {},
+  performanceBonus = 0,
 ): number {
   const spec = createCarSpec(team, DEFAULT_SETUP, regulation, parts);
   const sk = driver.skill;
-  const pace = paceParams(difficulty, sk.pace);
+  const base = paceParams(difficulty, sk.pace);
+  const pace = { ...base, performance: base.performance + performanceBonus };
   const wetF = wetPaceFactor(wetness, sk.wet);
   const wetT = wetTechnique(wetness, sk.wet);
   const compound = qualifyingCompound(wetness);
@@ -224,7 +235,8 @@ export function simulateQualifying(config: SessionConfig, track: BuiltTrack): Re
       // same car as on track (world.ts): AI-only teams run the closer AI car ratings, plus the team's part development
       const carTeam = humanTeams.has(team.id) ? team : aiCarTeam(team);
       const parts = config.development?.[team.id] ?? {};
-      base = predictLapTime(track, carTeam, driver, config.aiDifficulty, config.regulation, wetness, parts) * calibration;
+      const oneLap = ONE_LAP_QUALI * driverStyle(driver).oneLap;
+      base = predictLapTime(track, carTeam, driver, config.aiDifficulty, config.regulation, wetness, parts, oneLap) * calibration;
       cache.set(key, base);
     }
     const rng = { s: (seed ^ hashString(driver.id) ^ hashString(track.id)) >>> 0 };

@@ -41,6 +41,29 @@ const ELITE_PACE = 0.965;
 const ELITE_PERF = 0.05;
 
 /**
+ * From LIMIT_FROM up to DIFFICULTY_MAX an AI car in clean air gives up its high-speed margin step by step (limitShare
+ * 0 → 1): the aero (speed²) part of the lateral grip it plans with rises from HIGH_SPEED_MARGIN 0.92 to 0.98. Below
+ * LIMIT_FROM nothing changes; up to it the pace factors themselves already reach the limit by ≈ difficulty 92–100, so
+ * without this 100 and 110 drove alike. Solo laps at 110 (6 layouts): Verstappen −0.48 %, Sainz −0.46 %. In traffic the
+ * margin stays (controller.ts): at the limit in battles too, heavy car contacts at 110 rose 6 → 18 in 16 races, and
+ * raising the braking ceiling (0.94 → 0.97) instead 6 → 29 — near the 0.97 cap that also helped the midfield more
+ * than Verstappen, whose late braking already reaches it.
+ */
+const LIMIT_FROM = 90;
+const HIGH_SPEED_MARGIN = 0.92;
+const LIMIT_HIGH_SPEED = 0.06;
+
+/** 0..1: how far above LIMIT_FROM the difficulty is (0 at 90 and below, 1 at 110). */
+export function limitShare(difficulty: number): number {
+  return clamp01((fin(difficulty, 90) - LIMIT_FROM) / (DIFFICULTY_MAX - LIMIT_FROM));
+}
+
+/** Derating of the aero (speed²) part of the lateral grip the AI plans with: 0.92, up to 0.98 at a limit share of 1. */
+export function highSpeedMargin(share: number): number {
+  return HIGH_SPEED_MARGIN + LIMIT_HIGH_SPEED * clamp01(fin(share, 0));
+}
+
+/**
  * Pace parameters for a driver pace skill (0..1, ≈ 0.85..1) at a difficulty. The driver's share is wide enough that
  * a top driver is clearly quicker than the midfield in the same car (≈ 0.9 % lap time from pace 0.91 to 1), more than
  * its race-day form (RACE_FORM) usually takes away. Anchored to PACE_TOP: a driver of pace 1 reaches the limit (lateral
@@ -57,6 +80,24 @@ export function paceParams(difficulty: number, driverPace: number): PaceParams {
     performance: clamp(0.96 + 0.06 * d, 0.9, 1.03) + ELITE_PERF * Math.max(0, pace - ELITE_PACE),
   };
 }
+
+/**
+ * One-lap trait (personality oneLap −1..1) on the physics performanceScale: a one-lap specialist finds ONE_LAP_QUALI ×
+ * oneLap in qualifying and gives ONE_LAP_RACE × oneLap back in the race (a race specialist the other way round).
+ */
+export const ONE_LAP_QUALI = 0.008;
+export const ONE_LAP_RACE = 0.004;
+
+/** Tyre trait (personality tyres −1..1): a gentle driver wears its tyres TYRE_TRAIT × tyres slower (± 12 %). */
+const TYRE_TRAIT = 0.12;
+
+/** Tyre wear multiplier for a driver's tyre trait. */
+export function tyreWearFactor(tyres: number): number {
+  return 1 - TYRE_TRAIT * clamp(fin(tyres, 0), -1, 1);
+}
+
+/** Start trait (personality starts −1..1): launch reaction STARTS_REACTION × starts s shorter (± 0.08 s). */
+export const STARTS_REACTION = 0.08;
 
 /**
  * Attack / defence skill 0..1 from racecraft and awareness, scaled by difficulty (0.35 at 0, 1 at 110): how soon a

@@ -358,7 +358,11 @@ describe('A4 natural mistakes', () => {
     const base = naturalMistakeChance(ai, 0);
     expect(base).toBeGreaterThan(0.002);
     expect(base).toBeLessThan(0.02);
-    expect(naturalMistakeChance(ai, 0, 1.5)).toBeCloseTo(base * 1.5, 12);
+    expect(naturalMistakeChance({ ...ai, nerves: 0 }, 0, 1.5)).toBeCloseTo(base * 1.5, 12);
+    // nerves scale the extra mistakes pressure brings (cool −1 → ×1.1, nervy +1 → ×1.9)
+    expect(naturalMistakeChance({ ...ai, nerves: -1 }, 0, 1.5)).toBeCloseTo(base * 1.1, 12);
+    expect(naturalMistakeChance({ ...ai, nerves: 1 }, 0, 1.5)).toBeCloseTo(base * 1.9, 12);
+    expect(naturalMistakeChance({ ...ai, nerves: 1 }, 0)).toBe(base);
     expect(naturalMistakeChance(ai, 0.9)).toBeGreaterThan(base * 2);
     expect(naturalMistakeChance({ ...ai, consistency: 1 }, 0.9)).toBe(0);
     expect(naturalMistakeChance({ ...ai, consistency: 0.95 }, 0)).toBeLessThan(base);

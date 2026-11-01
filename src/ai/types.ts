@@ -64,6 +64,12 @@ export interface AIState {
   lineFreedom: number;
   /** 0..1 how much the pace swings within a race (personality volatility) */
   volatility: number;
+  /** -1..1 one-lap specialist (+) or race specialist (−) (personality oneLap; applyQualifyingForm / applyRaceForm) */
+  oneLap: number;
+  /** tyre wear multiplier from the personality tyre trait (pace.ts tyreWearFactor; 0.88 gentle … 1.12 hard on them) */
+  tyreWear: number;
+  /** -1..1 how much pressure gets to the driver (personality nerves; scales the pressure part of mistake chances) */
+  nerves: number;
   /** per-car deterministic RNG */
   rng: RngState;
 
