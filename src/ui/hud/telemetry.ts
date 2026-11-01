@@ -2,14 +2,15 @@
  * Driver telemetry cluster (festival look): a round gauge with the rpm arc, shift-light dots above it, the speed in the
  * centre, the gear in a disc, throttle / brake / ERS arcs, and under it the overtake, DRS / 2026 straight-line mode,
  * limiter and aero-wake (tow / dirty air) pills; beside it a card: the tyre (compound, wear, temperature) on top, the
- * damage silhouette in the middle, fuel and its bar (what is left of the starting load) at the bottom. Arcs are SVG paths with pathLength 100, filled through stroke-dashoffset.
+ * damage silhouette in the middle with a "—o" callout per part (its damage %), fuel and its bar (what is left of the
+ * starting load) at the bottom. Arcs are SVG paths with pathLength 100, filled through stroke-dashoffset.
  */
-import type { AeroWake, CarEntry, SpeedUnit, WorldState } from '../../core/types';
+import type { AeroWake, CarEntry, DamageState, SpeedUnit, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { clamp01 } from '../../core/math';
 import { fuelPerKm } from '../../physics/index';
 import { AttrSlot, DashSlot, ScaleSlot, ShowSlot, TextSlot, el, svgEl } from './dom';
-import { ERS_LABEL, damageBand, displaySpeed, fin, gearLabel, tempBand, unitLabel } from './labels';
+import { DAMAGE_PART_LABEL, ERS_LABEL, damageBand, displaySpeed, fin, gearLabel, tempBand, unitLabel } from './labels';
 import { tyreWindow } from './tyreWindow';
 
 const LED_COLORS = ['g', 'g', 'g', 'g', 'r', 'r', 'r', 'b', 'b', 'b'] as const;
@@ -25,6 +26,22 @@ const RPM_START = 135;
 const RPM_SWEEP = 270;
 /** The last stretch of the rpm arc (fraction of full scale) is drawn pink. */
 const RPM_RED = 0.86;
+/** Damage diagram, 1 unit = 0.1em (the card's content is 8em wide): the 40 x 84 silhouette scaled by DMG_CAR_S in the
+ * middle and, per part, a "—o" callout: a ring on the part, a line out to the card edge, the damage % above the line
+ * and the part's name below it. */
+const DMG_W = 80;
+const DMG_H = 78;
+const DMG_CAR_X = 24;
+const DMG_CAR_Y = 6;
+const DMG_CAR_S = 0.8;
+const DMG_RING_R = 1.9;
+/** Each part's ring in silhouette coordinates, and the card edge its line runs to. */
+const DMG_CALLOUTS: readonly { part: keyof DamageState; side: 'left' | 'right'; x: number; y: number }[] = [
+  { part: 'frontWing', side: 'left', x: 5.5, y: 5.75 },
+  { part: 'floor', side: 'left', x: 10, y: 47 },
+  { part: 'suspension', side: 'right', x: 27, y: 21.25 },
+  { part: 'rearWing', side: 'right', x: 31.5, y: 75 },
+];
 
 /** SVG arc path from angle `a0` to `a1` (degrees, clockwise-positive) at radius `r`; the sweep follows the order. */
 function arcPath(r: number, a0: number, a1: number): string {
@@ -109,10 +126,7 @@ export class TelemetryPanel {
   private readonly tyreTempBand: AttrSlot;
   private readonly tyreLaps: TextSlot;
   private readonly tyreBand: AttrSlot;
-  private readonly dmgFront: AttrSlot;
-  private readonly dmgRear: AttrSlot;
-  private readonly dmgFloor: AttrSlot;
-  private readonly dmgSusp: AttrSlot;
+  private readonly dmg: { part: keyof DamageState; shape: AttrSlot; tag: AttrSlot; pct: TextSlot }[] = [];
   private readonly fuelKg: TextSlot;
   private readonly fuelLaps: TextSlot;
   private readonly fuelMargin: TextSlot;
@@ -177,10 +191,11 @@ export class TelemetryPanel {
     this.wakeText = new TextSlot(wake);
     this.wakeState = new AttrSlot(wake, 'data-state');
 
-    // Right column: the card. Tyre on top, the damage silhouette in the middle, fuel at the bottom with its bar last.
+    // Right column: the card. Tyre on top, the damage diagram in the middle, fuel at the bottom with its bar last.
     const carRow = el('div', 'nvh-car-row nvh-panel', this.el);
-    const svg = svgEl('svg', { viewBox: '0 0 40 84', class: 'nvh-car', 'aria-hidden': 'true' }, carRow);
-    const tyres = svgEl('g', { class: 'nvh-car-tyres' }, svg);
+    const svg = svgEl('svg', { viewBox: `0 0 ${DMG_W} ${DMG_H}`, class: 'nvh-dmg', 'aria-hidden': 'true' }, carRow);
+    const car = svgEl('g', { class: 'nvh-car', transform: `translate(${DMG_CAR_X} ${DMG_CAR_Y}) scale(${DMG_CAR_S})` }, svg);
+    const tyres = svgEl('g', { class: 'nvh-car-tyres' }, car);
     for (const [x, y, w, h] of [
       [2, 14, 7, 13],
       [31, 14, 7, 13],
@@ -191,16 +206,27 @@ export class TelemetryPanel {
     }
     this.tyreBand = new AttrSlot(tyres, 'data-band');
     // suspension arms (wheel to body)
-    const susp = svgEl('g', { class: 'nvh-car-susp' }, svg);
+    const susp = svgEl('g', { class: 'nvh-car-susp' }, car);
     for (const d of ['M9 20.5L17 22', 'M31 20.5L23 22', 'M9 62.5L14 62', 'M31 62.5L26 62']) svgEl('path', { d }, susp);
-    this.dmgSusp = new AttrSlot(susp, 'data-dmg');
-    const floor = svgEl('path', { d: 'M18 9h4l1 13 2 8 5 6v22l-4 10H14l-4-10V36l5-6 2-8z', class: 'nvh-car-body' }, svg);
-    this.dmgFloor = new AttrSlot(floor, 'data-dmg');
-    svgEl('ellipse', { cx: 20, cy: 39, rx: 2.6, ry: 4.2, class: 'nvh-car-cockpit' }, svg);
-    const fw = svgEl('rect', { x: 5, y: 3, width: 30, height: 5.5, rx: 1.2, class: 'nvh-car-wing' }, svg);
-    this.dmgFront = new AttrSlot(fw, 'data-dmg');
-    const rw = svgEl('rect', { x: 8, y: 72, width: 24, height: 6, rx: 1.2, class: 'nvh-car-wing' }, svg);
-    this.dmgRear = new AttrSlot(rw, 'data-dmg');
+    const floor = svgEl('path', { d: 'M18 9h4l1 13 2 8 5 6v22l-4 10H14l-4-10V36l5-6 2-8z', class: 'nvh-car-body' }, car);
+    svgEl('ellipse', { cx: 20, cy: 39, rx: 2.6, ry: 4.2, class: 'nvh-car-cockpit' }, car);
+    const fw = svgEl('rect', { x: 5, y: 3, width: 30, height: 5.5, rx: 1.2, class: 'nvh-car-wing' }, car);
+    const rw = svgEl('rect', { x: 8, y: 72, width: 24, height: 6, rx: 1.2, class: 'nvh-car-wing' }, car);
+    const shapes: Record<keyof DamageState, Element> = { frontWing: fw, rearWing: rw, floor, suspension: susp };
+    for (const c of DMG_CALLOUTS) {
+      const x = +(DMG_CAR_X + c.x * DMG_CAR_S).toFixed(2);
+      const y = +(DMG_CAR_Y + c.y * DMG_CAR_S).toFixed(2);
+      const left = c.side === 'left';
+      const edge = left ? 0 : DMG_W;
+      const anchor = left ? 'start' : 'end';
+      const tag = svgEl('g', { class: 'nvh-dmg-tag' }, svg);
+      svgEl('path', { d: `M${edge} ${y}H${left ? x - DMG_RING_R : x + DMG_RING_R}`, class: 'nvh-dmg-line' }, tag);
+      svgEl('circle', { cx: x, cy: y, r: DMG_RING_R, class: 'nvh-dmg-ring' }, tag);
+      const pct = svgEl('text', { x: edge, y: +(y - 2).toFixed(2), 'text-anchor': anchor, class: 'nvh-dmg-pct' }, tag);
+      svgEl('text', { x: edge, y: +(y + 10).toFixed(2), 'text-anchor': anchor, class: 'nvh-dmg-name' }, tag).textContent =
+        DAMAGE_PART_LABEL[c.part];
+      this.dmg.push({ part: c.part, shape: new AttrSlot(shapes[c.part], 'data-dmg'), tag: new AttrSlot(tag, 'data-dmg'), pct: new TextSlot(pct) });
+    }
 
     const tyre = el('div', 'nvh-tyre', carRow);
     const badge = el('div', 'nvh-tyre-badge', tyre);
@@ -297,10 +323,13 @@ export class TelemetryPanel {
     this.tyreLaps.set(`${Math.max(0, Math.round(fin(p.tire.laps)))} 圈`);
 
     // Damage.
-    this.dmgFront.set(damageBand(p.damage.frontWing));
-    this.dmgRear.set(damageBand(p.damage.rearWing));
-    this.dmgFloor.set(damageBand(p.damage.floor));
-    this.dmgSusp.set(damageBand(p.damage.suspension));
+    for (const d of this.dmg) {
+      const level = p.damage[d.part];
+      const band = damageBand(level);
+      d.shape.set(band);
+      d.tag.set(band);
+      d.pct.set(`${Math.round(clamp01(fin(level)) * 100)}%`);
+    }
 
     // Fuel.
     const fuel = Math.max(0, fin(p.fuelKg));

@@ -61,7 +61,8 @@ Tokens live in `src/ui/tokens.css`. Rules below name them.
   along the arc or above it, the speed in big display figures in the centre, the unit under it, the gear in a pink
   disc. Throttle (green) and brake (red) are thin arcs or bars beside it. ERS as a yellow arc or bar under the gear.
   DRS / overtake / limiter / wake as pills under the gauge. Tyre, damage silhouette and fuel stay in a compact card
-  next to it.
+  next to it; each part (front wing, floor, suspension, rear wing) has a "—o" callout (a ring on the part, a hairline to the card edge, the damage %
+  above it and the part's name below).
 - **Position and lap (top-right).** Huge display-face position (`P2` with `/22` small), lap `1/3`, lap timer, sector
   colours, gaps.
 - **Timing tower (top-left).** Dark glass rows, a team-colour bar per row, positions in display figures, the player's

@@ -1014,8 +1014,8 @@
   color: var(--nv-ink);
   animation: nvh-blink 0.9s ease-in-out infinite;
 }
-/* the card: the tyre on top, the damage silhouette large in the middle, fuel at the bottom with its bar last, so the
-   bar's bottom edge is the card's (and the pills') bottom edge */
+/* the card: the tyre on top, the damage diagram in the middle, fuel at the bottom with its bar last, so the bar's
+   bottom edge is the card's (and the pills') bottom edge */
 .nvh-car-row {
   display: flex;
   flex-direction: column;
@@ -1023,10 +1023,11 @@
   gap: 0.45em;
   padding: 0.55em 0.55em 0.6em;
 }
-.nvh-car {
-  align-self: center;
-  width: 2.7em;
-  height: 5.67em;
+/* the damage diagram spans the card's content (8em): its SVG unit is 0.1em (telemetry.ts DMG_W = 80) */
+.nvh-dmg {
+  display: block;
+  width: 100%;
+  height: auto;
   overflow: visible;
 }
 .nvh-car-tyres rect {
@@ -1085,6 +1086,48 @@
 }
 .nvh-car-susp[data-dmg='severe'] {
   stroke: var(--nv-danger);
+}
+/* "—o" callouts: a ring on the part, a hairline out to the card edge, the damage % above it and the part's name
+   below, all in the part's damage colour once it is hit. Text sizes are SVG units (0.1em): 11.5 = 1.15em, 9.2 = 0.92em
+   (--nvh-xs). */
+.nvh-dmg-tag {
+  --nvh-dmg: rgba(255, 255, 255, 0.5);
+}
+.nvh-dmg-tag[data-dmg='minor'] {
+  --nvh-dmg: #ffcf33;
+}
+.nvh-dmg-tag[data-dmg='major'] {
+  --nvh-dmg: #ff8a3d;
+}
+.nvh-dmg-tag[data-dmg='severe'] {
+  --nvh-dmg: var(--nv-danger);
+}
+.nvh-dmg-line {
+  fill: none;
+  stroke: var(--nvh-dmg);
+  stroke-width: 0.7;
+  transition: stroke var(--nv-med);
+}
+.nvh-dmg-ring {
+  fill: var(--nv-bg);
+  stroke: var(--nvh-dmg);
+  stroke-width: 0.9;
+  transition: stroke var(--nv-med);
+}
+.nvh-dmg-pct {
+  font-family: var(--nv-font-display);
+  font-size: 11.5px;
+  font-weight: 800;
+  font-style: italic;
+  fill: #fff;
+}
+.nvh-dmg-tag:is([data-dmg='minor'], [data-dmg='major'], [data-dmg='severe']) .nvh-dmg-pct {
+  fill: var(--nvh-dmg);
+}
+.nvh-dmg-name {
+  font-size: 9.2px;
+  font-weight: 700;
+  fill: var(--nv-text-3);
 }
 /* compound badge on the left, wear / temperature / laps beside it; first in the card (the silhouette comes first in
    the DOM) */
@@ -1194,7 +1237,7 @@
   color: var(--nv-danger);
 }
 /* split-screen halves: a smaller gauge, the card keeps only the tyre */
-.nvh-view[data-compact] .nvh-car,
+.nvh-view[data-compact] .nvh-dmg,
 .nvh-view[data-compact] .nvh-fuel,
 .nvh-view[data-compact] .nvh-pill[data-k='ot'] {
   display: none;
