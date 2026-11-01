@@ -15,7 +15,7 @@
  */
 import type { BuiltTrack, CarEntry, WorldState } from '../core/types';
 import type { AIState } from './types';
-import { clamp, clamp01, damp, nextRandom } from '../core/math';
+import { angleDiff, clamp, clamp01, damp, nextRandom } from '../core/math';
 import { tyreGrip } from '../physics/index';
 import { DRS_GAP } from '../race/drs';
 import { forwardDistance, inRangeS, sampleAt, signedDeltaS } from '../track/track';
@@ -33,6 +33,17 @@ const STALK_GAP = 3;
 const FOLLOW_RANGE = 55;
 /** Closing speed (m/s) above which a car in the lane we steer into counts as in our path (see intoLane). */
 const SWEEP_CLOSING = 8;
+/**
+ * A car in trouble ahead (slower than CROSS_TROUBLE of the reference speed where it is) moving across the track faster
+ * than CROSS_SPEED (m/s) — back on from the run-off, sliding across — is in our path where it will be once we are
+ * level with it (looked ahead at most CROSS_LOOK s), as wide as it lies across the road: read where it is, a car coming
+ * back on at 5 m/s across the racing line was seen 9 m short of it and hit, and one sliding across at 14 m/s, 27° to
+ * the track, was hit from 9 m at full throttle. (Not a car racing: one on the line sweeps across the road at several
+ * m/s through every bend — with all cars, passes fell from 27 to 9 a race.)
+ */
+const CROSS_TROUBLE = 0.8;
+const CROSS_SPEED = 1;
+const CROSS_LOOK = 2;
 /** Curvature (1/m) above which a section counts as a tight corner for the yield rules (R < 120 m). */
 const TIGHT_CORNER = 1 / 120;
 /** Lateral offset (m) from the racing line, so cars at different points of a curving line compare sensibly. */
@@ -98,6 +109,24 @@ export const TRAIN_DRS_KEEP = 0.8;
  */
 const SHOW_SIDE = 0.6;
 const DEFEND_REACH = 1.5;
+/**
+ * Defending by skill (AIState.craft 0..1: racecraft, awareness, difficulty) and willingness (aggression): a covering
+ * move starts with DEFEND_REACT + DEFEND_REACT_SKILL × craft chance a step (× 0.5 + 0.5 × aggression) once it is due —
+ * ≈ 0.15 s for the best racer, ≈ 1 s for the weakest; it is due from DEFEND_GAP m + (DEFEND_WINDOW +
+ * DEFEND_WINDOW_SKILL × craft) s behind — about where an attacker pulls out of the wake (8 m + 0.08 s), the best racer
+ * a little before it (a move from further back changed nothing: with 10 m + 0.15 … 0.35 s, covers from beyond 15 m were
+ * passed as often as no cover, and used the one move of the straight); the side shown on a straight is read from
+ * SHOW_SIDE × (1.3 − 0.6 craft) m (0.47 m … 0.74 m); the next move may follow DEFEND_COOLDOWN − DEFEND_COOLDOWN_SKILL ×
+ * craft s after the last one. (Was: never for aggression × racecraft < 0.3 — some calm drivers did not defend at all —
+ * else 2–5 % a step, a 10 m + 0.25 s window and 6 s between moves for everyone.)
+ */
+const DEFEND_REACT = 0.01;
+const DEFEND_REACT_SKILL = 0.07;
+const DEFEND_GAP = 8;
+const DEFEND_WINDOW = 0.1;
+const DEFEND_WINDOW_SKILL = 0.08;
+const DEFEND_COOLDOWN = 6;
+const DEFEND_COOLDOWN_SKILL = 3;
 /** A defensive move needs its lane clear of cars ahead over 15 m + LANE_LOOK s at our speed. */
 const LANE_LOOK = 1.5;
 /** Side by side in a corner: the inside car leaves the outside one its width plus this (m) to the edge. */
@@ -161,6 +190,23 @@ export function alongSpeed(track: BuiltTrack, car: CarEntry): number {
   const i = p.trackIndex >= 0 && p.trackIndex < track.count ? p.trackIndex : 0;
   const v = p.vx * track.tx[i] + p.vz * track.tz[i];
   return Number.isFinite(v) ? v : 0;
+}
+
+/** Speed of a car across the track at its sample (m/s, + toward the right). */
+function lateralSpeed(track: BuiltTrack, car: CarEntry): number {
+  const p = car.phys;
+  const i = p.trackIndex >= 0 && p.trackIndex < track.count ? p.trackIndex : 0;
+  const v = p.vx * track.rx[i] + p.vz * track.rz[i];
+  return Number.isFinite(v) ? v : 0;
+}
+
+/** Half the width (m) a car covers across the track, lying at its angle to the track direction. */
+function halfSpan(track: BuiltTrack, car: CarEntry): number {
+  const p = car.phys;
+  const i = p.trackIndex >= 0 && p.trackIndex < track.count ? p.trackIndex : 0;
+  const a = angleDiff(p.yaw, Math.atan2(track.tx[i], track.tz[i]));
+  const w = (car.spec.width / 2) * Math.abs(Math.cos(a)) + (car.spec.length / 2) * Math.abs(Math.sin(a));
+  return Number.isFinite(w) ? w : car.spec.width / 2;
 }
 
 /** Cars that other drivers must respect on track (not retired, not hidden in the pit lane). */
@@ -272,7 +318,14 @@ export function planTraffic(world: WorldState, car: CarEntry, track: BuiltTrack,
         vMe - alongSpeed(track, o) > SWEEP_CLOSING &&
         Math.abs(op.lateral - ctx.plannedLateral) < widthSum + 0.5;
       const far = ds - half > FOLLOW_RANGE && alongSpeed(track, o) > 0.6 * vMe;
-      if (!far && (overlapNow || intoLane || Math.abs(op.lateral - myLatThere) < widthSum + 0.5) && ds - half < aheadGap) {
+      const vLat = lateralSpeed(track, o);
+      const closingO = vMe - alongSpeed(track, o);
+      const crossing =
+        Math.abs(vLat) > CROSS_SPEED &&
+        closingO > 1 &&
+        alongSpeed(track, o) < CROSS_TROUBLE * sampleAt(track, track.speedProfile, op.s) &&
+        Math.abs(op.lateral + vLat * Math.min(CROSS_LOOK, ds / closingO) - myLatThere) < myW / 2 + halfSpan(track, o) + 0.5;
+      if (!far && (overlapNow || intoLane || crossing || Math.abs(op.lateral - myLatThere) < widthSum + 0.5) && ds - half < aheadGap) {
         ahead = o;
         aheadGap = ds - half;
       }
@@ -383,11 +436,12 @@ export function planTraffic(world: WorldState, car: CarEntry, track: BuiltTrack,
     // a car far slower than us (stopped, spun, crawling) — not merely a slower start off the line — or a
     // stationary car we have been queued behind
     stopped = (vO < 8 && vMe > vO + 8) || (vO < 2 && ai.followTimer > 2.5 && !ctx.openingLapStart);
-    const closingNeeded = (ctx.openingLap ? 2.2 : 0.5) - 0.4 * ai.aggression;
+    // a willing (aggression) and skilled (craft) attacker tries with less closing speed and sooner when held up
+    const closingNeeded = (ctx.openingLap ? 2.2 : 0.5) - 0.3 * ai.aggression - 0.2 * ai.craft;
     const mine = paceOf(car, world.weather.wetness);
     const theirs = paceOf(ahead, world.weather.wetness);
     // quicker than the car ahead, or stuck behind it long enough to try anyway
-    const heldUp = !ctx.openingLap && ((ai.followTimer > 1 && mine > 0 && theirs > mine) || ai.followTimer > 6 - 3 * ai.aggression);
+    const heldUp = !ctx.openingLap && ((ai.followTimer > 1 && mine > 0 && theirs > mine) || ai.followTimer > 6 - 2 * ai.aggression - 2 * ai.craft);
     // a car that owes us a place (it passed illegally) is easing off for us: pass it back, even while overtaking is banned
     const owed = ahead.flags.giveBack?.carId === car.id;
     // team orders (strategy.ts): a team-mate letting us by is passed like a car that owes us the place (not under a
@@ -907,22 +961,23 @@ function defend(
   const ai = car.ai;
   if (ai.defendTimer > 0 || ai.defendCooldown > 0) return;
   const gap = -threatDs - car.spec.length;
-  if (gap < 2 || gap > 10 + 0.25 * vMe || Math.abs(kAhead) > TIGHT_CORNER) return;
+  if (gap < 2 || gap > DEFEND_GAP + (DEFEND_WINDOW + DEFEND_WINDOW_SKILL * ai.craft) * vMe || Math.abs(kAhead) > TIGHT_CORNER) return;
   if (closing > 0 && gap < closing) return;
   // never started under braking (for the corner ahead, or for a car ahead)
   if (braking || car.phys.brake > DEFEND_BRAKE) return;
   const corner = Math.abs(kNext) > 1 / 300;
   // on a straight: cover the side the attacker shows (relative to the racing line), once it shows one
   const shown = lineOffset(track, threat) - lineOffset(track, car);
-  if (!corner && Math.abs(shown) < SHOW_SIDE) return;
-  if (ai.aggression * ai.racecraft < 0.3 || nextRandom(ai.rng) > 0.02 + 0.03 * ai.aggression) return;
+  const showSide = SHOW_SIDE * (1.3 - 0.6 * ai.craft);
+  if (!corner && Math.abs(shown) < showSide) return;
+  if (nextRandom(ai.rng) > (DEFEND_REACT + DEFEND_REACT_SKILL * ai.craft) * (0.5 + 0.5 * ai.aggression)) return;
   // one move per straight: none made yet for the corner it leads to
   const next = nextCorner(track, car.phys.s);
   if (next >= 0 && next === ai.defendCorner) return;
   const lat = car.phys.lateral;
   const side = corner ? Math.sign(kNext) : shown > 0 ? 1 : -1;
   // toward the side it already shows: only while it is still DEFEND_REACH s away (no chopping across its nose)
-  if (Math.abs(shown) >= SHOW_SIDE && Math.sign(shown) === side && closing > 0 && gap < closing * DEFEND_REACH) return;
+  if (Math.abs(shown) >= showSide && Math.sign(shown) === side && closing > 0 && gap < closing * DEFEND_REACH) return;
   // covering the inside: toward half the road on that side, at most 3 m in one move (never away from it)
   const move = corner ? clamp(side * edge * 0.5 - lat, side > 0 ? 0 : -3, side > 0 ? 3 : 0) : side * 1.3;
   const cover = clamp(lat + move, -edge, edge);
@@ -931,7 +986,7 @@ function defend(
   ai.defendOffset = cover;
   ai.defendSide = side;
   ai.defendTimer = 2.5;
-  ai.defendCooldown = 6;
+  ai.defendCooldown = DEFEND_COOLDOWN - DEFEND_COOLDOWN_SKILL * ai.craft;
   ai.defendCorner = next;
   ai.mode = 'defend';
   plan.lateral = ai.defendOffset;

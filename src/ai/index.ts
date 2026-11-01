@@ -6,7 +6,7 @@
 import type { AIState, BuiltTrack, CarEntry, ControlInput, DriverDef, WorldState } from '../core/types';
 import { clamp, clamp01, nextRandom } from '../core/math';
 import { driveAI } from './controller';
-import { RACE_FORM, kerbSkill, paceParams, raceFormRange, skillBlend, styleFactors, styleGrip, trailBraking } from './pace';
+import { RACE_FORM, fitStyle, kerbSkill, paceParams, raceFormRange, racecraftSkill, skillBlend, styleFactors, trailBraking } from './pace';
 import { driverStyle } from './personality';
 
 export type { AIMode, AIPaceMode, AIMistake, AIAttackPhase, AIPitCall } from './types';
@@ -28,7 +28,8 @@ export {
   TRAIL_MAX,
   raceFormRange,
   styleFactors,
-  styleGrip,
+  fitStyle,
+  racecraftSkill,
   type PaceParams,
   type StyleFactors,
 } from './pace';
@@ -69,7 +70,7 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
   const driverPace = fin(sk.pace, 0.88);
   // the driver's own style (personality.ts); the day's mood around it from the seeded stream (one draw each, fixed order)
   const style = driverStyle(driver);
-  const sf = styleFactors(style);
+  const sf = fitStyle(styleFactors(style), pace.latFactor);
   const r1 = nextRandom(rng);
   const r2 = nextRandom(rng);
   return {
@@ -84,15 +85,19 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
     wetSkill: clamp01(fin(sk.wet, 0.88)),
     consistency,
     aggression: clamp01(style.aggression + (r1 - 0.5) * 0.16),
+    craft: racecraftSkill(difficulty, racecraft, awareness),
     reaction: 0.16 + (1 - awareness) * 0.8 + r2 * 0.12,
     trail: trailBraking(difficulty, driverPace, consistency),
     kerbSkill: kerbSkill(difficulty, driverPace, consistency),
-    gripLow: styleGrip(sf.low, pace.latFactor),
-    gripHigh: styleGrip(sf.high, pace.latFactor),
+    gripLow: sf.low,
+    gripHigh: sf.high,
     lineFreedom: style.lineFreedom,
     volatility: style.volatility,
     rng,
     offset: 0,
+    offsetHold: 0,
+    holdLateral: 0,
+    holdLane: false,
     lineNoise: 0,
     lineNoiseTarget: 0,
     noiseTimer: 0,

@@ -415,7 +415,11 @@ describe('flags and give-backs', () => {
 
 describe('human crashes', () => {
   interface CrashLog {
-    /** peak contact impulse of the human (collision events) and its s at that moment */
+    /**
+     * peak contact impulse of the human (collision events) and its s at that moment — up to another car first hitting
+     * it, like humanIncidents: what follows is that hit's doing (a light touch then knocked into the wall by a car
+     * that could not miss it sliding across read as a heavy hit)
+     */
     peak: number;
     peakS: number;
     /** 'incident' events of the human car until another car runs into it (a separate incident, e.g. on rejoining) */
@@ -462,7 +466,7 @@ describe('human crashes', () => {
       } else if (t >= o.sec) o.after?.(input, t);
       stepWorld(world, track, [input, null], SIM_DT);
       for (const e of world.events) {
-        if (e.type === 'collision' && e.carId === me.id && t > 0 && e.impulse > log.peak) {
+        if (e.type === 'collision' && e.carId === me.id && t > 0 && !carHit && e.otherCarId === null && e.impulse > log.peak) {
           log.peak = e.impulse;
           log.peakS = me.phys.s;
         }
@@ -499,10 +503,13 @@ describe('human crashes', () => {
   }, 120000);
 
   test('a human who crashes hard and comes to rest is judged as an AI crash (never just a yellow), keeps racing, and the race goes green again', () => {
-    const { world, track } = race({ laps: 8, safetyCar: 'standard', seed: 7 });
+    // a seed with no random incident before the crash: the human reaches the wall at racing speed (≈ 125 km/h), where
+    // 0.6 s into it is a heavy hit the car survives (≈ 26 000; 1 s ≈ 34 700 ends the race). (Seed 7 draws a failure at
+    // 39 s: whether a VSC slowed the approach to 78 km/h or a safety car did not decided the outcome.)
+    const { world, track } = race({ laps: 8, safetyCar: 'standard', seed: 1 });
     const me = world.cars.find((c) => c.playerIndex === 0)!;
     expect(world.config.rules.damage).not.toBe('full');
-    const log = crash(world, track, { steer: -1, sec: 1, until: 300, at: WALL_S, after: brakeFor20 });
+    const log = crash(world, track, { steer: -1, sec: 0.6, until: 300, at: WALL_S, after: brakeFor20 });
     expect(log.peak).toBeGreaterThan(HEAVY_IMPACT);
     const inc = log.decided[0];
     expect(inc).toBeDefined();

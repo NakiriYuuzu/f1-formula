@@ -233,6 +233,25 @@ export function brakingDecel(cap: Capability, v: number, curvature: number): num
 export const PATH_EDGE_MARGIN = 1.15;
 /** Sample offset for the three-point curvature of an offset path (±3 samples ≈ ±6 m). */
 const CURV_SPAN = 3;
+/**
+ * In a plan whose offset changes along the way (a lane held, rejoining the line: targetSpeedAt's `hold` / `lane`),
+ * where the path meets or leaves the road edge, or merges back onto the line, within the ±CURV_SPAN stencil, it has a
+ * corner no car drives: the steering rounds it off over its look-ahead, so there the curvature is read over
+ * ±BLEND_SPAN samples (≈ ±24 m). (Read over ±6 m, the corner where an outside car's path leaves the edge toward the
+ * apex came out as R 39 m in a R 117 m bend: a car alongside, or covering the inside, braked to half the corner speed
+ * and handed the place over.) Elsewhere ±6 m — a lane along the edge through a chicane is that tight (read over ±24 m
+ * everywhere, cars kept at the edge into Monza's first chicane ran over the track limits) — and so for a constant
+ * offset (the wide line of a late-braking mistake), whose ±6 m reading is the margin that brings it back before the
+ * gravel.
+ */
+const BLEND_SPAN = 12;
+/**
+ * Rejoining the racing line after a tactical move (no lateral target any more): the car keeps its lateral while the
+ * line sweeps across toward it and merges where the line reaches it, closing any rest at this rate (m/s). (A plain
+ * decay of the offset dragged a car that had covered the inside along the inside edge through the corner: the line
+ * swept on to the apex with the offset still added.)
+ */
+export const REJOIN_RATE = 3;
 
 function pathLateral(track: BuiltTrack, i: number, offset: number): number {
   const edge = Math.max(0.5, track.halfWidth[i] - PATH_EDGE_MARGIN);
@@ -245,12 +264,31 @@ function pathLateral(track: BuiltTrack, i: number, offset: number): number {
  * clamped to the road (an off-line car pinned to the edge through a kink follows a much tighter path).
  */
 export function offsetPathCurvature(track: BuiltTrack, i: number, offset: number): number {
+  return pathOffsetCurvature(track, i, offset, offset, offset, offset, offset, false);
+}
+
+/**
+ * Curvature at sample i of the road-clamped path whose offsets from the line are `oFar0` / `oA` / `oB` / `oC` /
+ * `oFar1` at i − BLEND_SPAN, i − CURV_SPAN, i, i + CURV_SPAN and i + BLEND_SPAN; with `blend`, read over ±BLEND_SPAN
+ * where the path meets or leaves the road edge, or reaches the line, within ±CURV_SPAN.
+ */
+function pathOffsetCurvature(track: BuiltTrack, i: number, oFar0: number, oA: number, oB: number, oC: number, oFar1: number, blend = true): number {
   const n = track.count;
-  const a = (i - CURV_SPAN + n) % n;
-  const c = (i + CURV_SPAN) % n;
-  const la = pathLateral(track, a, offset);
-  const lb = pathLateral(track, i, offset);
-  const lc = pathLateral(track, c, offset);
+  let a = (i - CURV_SPAN + n) % n;
+  let c = (i + CURV_SPAN) % n;
+  let la = pathLateral(track, a, oA);
+  const lb = pathLateral(track, i, oB);
+  let lc = pathLateral(track, c, oC);
+  const pinned = lb !== track.racingLine[i] + oB;
+  const kink =
+    pinned !== (la !== track.racingLine[a] + oA) || pinned !== (lc !== track.racingLine[c] + oC) || (oB === 0) !== (oA === 0) || (oB === 0) !== (oC === 0);
+  if (blend && kink) {
+    const span = Math.min(BLEND_SPAN, Math.floor((n - 1) / 2));
+    a = (i - span + n) % n;
+    c = (i + span) % n;
+    la = pathLateral(track, a, oFar0);
+    lc = pathLateral(track, c, oFar1);
+  }
   const ax = track.px[a] + la * track.rx[a];
   const az = track.pz[a] + la * track.rz[a];
   const bx = track.px[i] + lb * track.rx[i];
@@ -272,11 +310,46 @@ export interface SpeedProbe {
   speed: number;
 }
 
-/** Curvature of the driven path at sample i: the kerb-use blend of the line, or the offset path when tighter. */
-function pathCurvature(track: BuiltTrack, base: LineData, kerb: KerbData | null, ku: number, off: number, i: number): number {
+/**
+ * Offset (m) of the planned path at each step of a speed plan whose offset changes along the way (scratch, refilled
+ * per call: targetSpeedAt is not re-entrant).
+ */
+let planOffsets = new Float64Array(256);
+
+/**
+ * Curvature of the driven path at step `step` (sample i) of a plan: the kerb-use blend of the line, or the offset
+ * path when tighter — at the plan's own offsets when `offs` is given (`steps` = its last), else at the constant `off`.
+ * Behind the car (before step 0) the planned path runs on as it leaves the car: the car is on it already. (Held at
+ * the first offset there, a car rejoining the line from 5 m off it read its path bending at R 50–70 m beside it on a
+ * R 140 m sweep and braked from 235 to 117 km/h down the straight, into the car behind.)
+ */
+function pathCurvature(
+  track: BuiltTrack,
+  base: LineData,
+  kerb: KerbData | null,
+  ku: number,
+  off: number,
+  i: number,
+  offs: Float64Array | null = null,
+  step = 0,
+  steps = 0,
+): number {
   const kl = kerb ? base.curv[i] + ku * (kerb.curv[i] - base.curv[i]) : base.curv[i];
-  if (off === 0) return kl;
-  const ko = offsetPathCurvature(track, i, off);
+  let ko: number;
+  if (offs) {
+    const at = (d: number): number => {
+      const j = step + d;
+      return j < 0 ? 2 * offs[0] - offs[Math.min(steps, -j)] : offs[Math.min(steps, j)];
+    };
+    const oB = offs[step];
+    const oFar0 = at(-BLEND_SPAN);
+    const oFar1 = at(BLEND_SPAN);
+    if (oB === 0 && oFar0 === 0 && oFar1 === 0) return kl;
+    ko = pathOffsetCurvature(track, i, oFar0, at(-CURV_SPAN), oB, at(CURV_SPAN), oFar1);
+  } else {
+    if (off === 0) return kl;
+    ko = offsetPathCurvature(track, i, off);
+  }
   return Math.abs(ko) > Math.abs(kl) ? ko : kl;
 }
 
@@ -284,7 +357,9 @@ function pathCurvature(track: BuiltTrack, base: LineData, kerb: KerbData | null,
  * Highest speed (m/s) allowed at distance `s` so the car can still slow down for every sample within the braking
  * horizon. `scale` multiplies the corner speeds (e.g. 0.75 for a cool-down lap). `fromCurrentSpeed` sizes the
  * horizon (braking distance from that speed). `offset` (m) = tactical offset from the racing line: when the car is
- * off-line the curvature of its actual (offset, road-clamped) path is used. `kerbUse` (0..1) = the driver's line
+ * off-line the curvature of its actual (offset, road-clamped) path is used — the offset held for `hold` m (by default
+ * all the way; with `lane` the lateral there is held instead, a lane of its own), the car rejoining the line beyond
+ * (REJOIN_RATE). `kerbUse` (0..1) = the driver's line
  * blends toward the kerb-use line (its curvature blended alike). `probe` (optional) reads the same plan `probe.ahead`
  * m further on (e.g. "is braking due within half a second" — no second scan; within the horizon a scan from there
  * would find the same braking need, short of rounding to a sample).
@@ -298,6 +373,8 @@ export function targetSpeedAt(
   offset = 0,
   kerbUse = 0,
   probe?: SpeedProbe,
+  hold = Infinity,
+  lane = false,
 ): number {
   const n = track.count;
   if (probe) probe.speed = SPEED_CAP;
@@ -321,13 +398,15 @@ export function targetSpeedAt(
   const steps = Math.min(n - 1, Math.ceil(horizon / sp));
   // the sample the probe reads (step 0 = the queried position itself; beyond the horizon: its last sample)
   const at = probe ? Math.round(frac + probeAhead / sp) : -1;
+  const offs =
+    Number.isFinite(offset) && (lane || (off !== 0 && Number.isFinite(hold))) ? plannedOffsets(track, i0, frac, steps, lane ? offset : off, Math.max(0, hold), lane, v0) : null;
 
-  let kNext = pathCurvature(track, base, kerb, ku, off, (i0 + steps) % n);
+  let kNext = pathCurvature(track, base, kerb, ku, off, (i0 + steps) % n, offs, steps, steps);
   let v = cornerSpeed(cap, kNext) * k;
   if (probe && at >= steps) probe.speed = v;
   for (let step = steps - 1; step >= 1; step--) {
     const i = (i0 + step) % n;
-    const ki = pathCurvature(track, base, kerb, ku, off, i);
+    const ki = pathCurvature(track, base, kerb, ku, off, i, offs, step, steps);
     const dsi = kerb ? ds[i] + ku * (kerb.ds[i] - ds[i]) : ds[i];
     const reach = Math.sqrt(v * v + 2 * brakingDecel(cap, v, kNext) * dsi);
     const lim = cornerSpeed(cap, ki) * k;
@@ -336,7 +415,7 @@ export function targetSpeedAt(
     if (step === at && probe) probe.speed = v;
   }
   // current position: between i0 and i0 + 1
-  const k0 = pathCurvature(track, base, kerb, ku, off, i0);
+  const k0 = pathCurvature(track, base, kerb, ku, off, i0, offs, 0, steps);
   const remain = (1 - frac) * (kerb ? ds[i0] + ku * (kerb.ds[i0] - ds[i0]) : ds[i0]);
   const reach = Math.sqrt(v * v + 2 * brakingDecel(cap, v, kNext) * remain);
   const lim = cornerSpeed(cap, k0 + (kNext - k0) * frac) * k;
@@ -345,6 +424,33 @@ export function targetSpeedAt(
   if (probe && at === 0) probe.speed = res;
   if (probe && !Number.isFinite(probe.speed)) probe.speed = SPEED_CAP;
   return res;
+}
+
+/**
+ * The planned path's offset at each step (0 = sample i0) of a plan from fraction `frac` past i0: `off` held for `hold`
+ * m — with `lane`, the lateral of the line plus `off` at i0 held instead — then rejoining the line as the controller
+ * does: kept laterally while the line sweeps toward it (merged once it gets there), closing the rest at REJOIN_RATE
+ * at speed `v0`.
+ */
+function plannedOffsets(track: BuiltTrack, i0: number, frac: number, steps: number, off: number, hold: number, lane: boolean, v0: number): Float64Array {
+  if (planOffsets.length < steps + 1) planOffsets = new Float64Array(steps + 1);
+  const n = track.count;
+  const sp = track.spacing;
+  const close = (REJOIN_RATE / Math.max(10, v0)) * sp;
+  const lateral = track.racingLine[i0] + off;
+  let o = off;
+  planOffsets[0] = o;
+  for (let step = 1; step <= steps; step++) {
+    const i = (i0 + step) % n;
+    if ((step - frac) * sp <= hold) {
+      if (lane) o = lateral - track.racingLine[i];
+    } else if (o !== 0) {
+      const toward = (track.racingLine[i] - track.racingLine[(i0 + step - 1) % n]) * Math.sign(o);
+      o = Math.sign(o) * Math.max(0, Math.abs(o) - Math.max(0, toward) - close);
+    }
+    planOffsets[step] = o;
+  }
+  return planOffsets;
 }
 
 /** Signed racing-line curvature (+ right) at distance s (nearest sample); `kerbUse` blends toward the kerb-use line. */

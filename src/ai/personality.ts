@@ -24,7 +24,7 @@ export interface DriverStyle {
 type Signature = readonly [aggression: number, corners: number, braking: number, lineFreedom: number, volatility: number];
 
 const SIGNATURES: Readonly<Record<string, Signature>> = {
-  verstappen: [0.95, -0.3, 0.7, 0.45, 0.1],
+  verstappen: [0.95, -0.3, 0.7, 0.45, 0.05],
   hamilton: [0.8, 0.4, 0.6, 0.35, 0.2],
   antonelli: [0.88, -0.5, 0.3, 0.6, 0.45],
   russell: [0.75, 0.1, 0.2, 0.3, 0.25],

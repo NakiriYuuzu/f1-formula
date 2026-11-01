@@ -49,6 +49,8 @@ export interface AIState {
   consistency: number;
   /** 0..1 willingness to attack / defend */
   aggression: number;
+  /** 0..1 attack / defence skill: racecraft and awareness, scaled by difficulty (pace.ts racecraftSkill) */
+  craft: number;
   /** launch reaction time (s) after lights out */
   reaction: number;
   /** trail-braking coefficient 0..TRAIL_MAX (braking under lateral load; pace.ts trailBraking) */
@@ -68,6 +70,19 @@ export interface AIState {
   // ── dynamic controller state ──
   /** smoothed tactical offset (m) from the racing line */
   offset: number;
+  /**
+   * how far ahead (m) the speed plan holds the car's lateral (holdLateral) before it rejoins the line: a lane or an
+   * attack held all the way (Infinity), a cover up to the corner it is for, 0 rejoining (the plan then rejoins from
+   * `offset`)
+   */
+  offsetHold: number;
+  /**
+   * the lateral (m) held meanwhile, and whether as a lane of its own (beside a car, a cover, giving way …) or as the
+   * offset steered from the line (attacking: placed by the car attacked, which drives its own line; a mistake's wide
+   * line)
+   */
+  holdLateral: number;
+  holdLane: boolean;
   /** slowly varying line noise (m) and its current target */
   lineNoise: number;
   lineNoiseTarget: number;

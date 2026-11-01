@@ -16,8 +16,8 @@ import {
   driverStyle,
   kerbSkill,
   paceParams,
+  fitStyle,
   styleFactors,
-  styleGrip,
   trailBraking,
   wetBrakeFactor,
   wetPaceFactor,
@@ -144,12 +144,12 @@ export function predictLapTime(
   const tyre = tyreGrip(compound, 0, compoundMidTemp(compound), wetness);
   const grip = tyre * (1 + 0.03 * QUALI_RUBBER) * (1 + (pace.performance - 1) * 0.6);
   // the driver's style, as the on-track AI applies it (createAIState / driveAI)
-  const style = styleFactors(driverStyle(driver));
+  const style = fitStyle(styleFactors(driverStyle(driver)), pace.latFactor);
   const brakeF = Math.min(0.99, Math.min(0.97, pace.brakeFactor * style.brake) * wetF * wetBrakeFactor(wetness, sk.wet));
   const trail = trailBraking(difficulty, sk.pace, sk.consistency) * wetT;
   const cap = capability(spec, grip, QUALI_FUEL, pace.latFactor * wetF, brakeF, undefined, trail);
-  cap.latA *= styleGrip(style.low, pace.latFactor);
-  cap.latB *= styleGrip(style.high, pace.latFactor);
+  cap.latA *= style.low;
+  cap.latB *= style.high;
   const mass = spec.mass + QUALI_FUEL;
   const power = (spec.icePower * pace.performance + spec.ersPower * (ERS_SHARE[regulation] ?? ERS_SHARE['2025']) * pace.performance) * spec.drivetrainEfficiency * POWER_SHARE;
   return pointMassLap(track, spec, cap, power, mass, kerbSkill(difficulty, sk.pace, sk.consistency) * wetT);

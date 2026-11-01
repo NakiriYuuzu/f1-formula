@@ -26,19 +26,46 @@ export function difficulty01(difficulty: number): number {
   return clamp01(fin(difficulty, 90) / DIFFICULTY_MAX);
 }
 
+/** Pace skill the pace terms are anchored to: the best possible driver. */
+const PACE_TOP = 1;
 /**
- * Pace parameters for a driver pace skill (0..1, ≈ 0.85..0.98) at a difficulty. The driver's share is wide enough
- * that a top driver is clearly quicker than the midfield in the same car (≈ 0.7 % lap time from pace 0.91 to 0.98),
- * more than its race-day form (RACE_FORM) usually takes away.
+ * A generational talent — pace above ELITE_PACE (Verstappen; the rest of the 2026 grid tops out at 0.965) — finds
+ * grip and drive others do not: ELITE_PERF × its pace beyond ELITE_PACE on the physics performanceScale (power fully,
+ * grip at 60 %), on top of the lateral / braking factors, so the edge stands at every difficulty, also where those
+ * factors reach the limit. Pace 1: +1.75 % — simulated qualifying ≈ 1.0 % ahead of Antonelli / Hamilton at every
+ * difficulty (0.33 % with the factors alone); 8-lap races on equal tyres, difficulty 85 / 100: average finish 1.05 / 1.0
+ * from pole (with 0.3: 1.2).
+ */
+const ELITE_PACE = 0.965;
+const ELITE_PERF = 0.5;
+
+/**
+ * Pace parameters for a driver pace skill (0..1, ≈ 0.85..1) at a difficulty. The driver's share is wide enough that
+ * a top driver is clearly quicker than the midfield in the same car (≈ 0.9 % lap time from pace 0.91 to 1), more than
+ * its race-day form (RACE_FORM) usually takes away. Anchored to PACE_TOP: a driver of pace 1 reaches the limit (lateral
+ * 1, braking 0.94) at high difficulty and everyone else stays its pace gap below — a plain clamp at the limit gave
+ * the whole top half the same factors from difficulty ≈ 95 on (below that the two are identical).
  */
 export function paceParams(difficulty: number, driverPace: number): PaceParams {
   const d = difficulty01(difficulty);
-  const p = clamp(fin(driverPace, 0.9), 0.5, 1) - 0.91;
+  const pace = clamp(fin(driverPace, 0.9), 0.5, 1);
+  const gap = PACE_TOP - pace;
   return {
-    latFactor: clamp(0.755 + 0.26 * d + 0.3 * p, 0.6, 1.0),
-    brakeFactor: clamp(0.67 + 0.27 * d + 0.2 * p, 0.55, 0.94),
-    performance: clamp(0.96 + 0.06 * d, 0.9, 1.03),
+    latFactor: clamp(Math.min(1, 0.782 + 0.26 * d) - 0.3 * gap, 0.6, 1.0),
+    brakeFactor: clamp(Math.min(0.94, 0.688 + 0.27 * d) - 0.2 * gap, 0.55, 0.94),
+    performance: clamp(0.96 + 0.06 * d, 0.9, 1.03) + ELITE_PERF * Math.max(0, pace - ELITE_PACE),
   };
+}
+
+/**
+ * Attack / defence skill 0..1 from racecraft and awareness, scaled by difficulty (0.35 at 0, 1 at 110): how soon a
+ * driver covers a car behind, how often it can do so again, how small a move it reads and how little closing speed
+ * it needs to try a pass (traffic.ts). ≈ 0.85 for the best racer at difficulty 85, 0.3 for the midfield, 0.1 for the
+ * weakest.
+ */
+export function racecraftSkill(difficulty: number, racecraft: number, awareness: number): number {
+  const skill = clamp01((0.65 * fin(racecraft, 0.88) + 0.35 * fin(awareness, 0.88) - 0.83) / 0.14);
+  return skill * (0.35 + 0.65 * difficulty01(difficulty));
 }
 
 /**
@@ -47,18 +74,23 @@ export function paceParams(difficulty: number, driverPace: number): PaceParams {
  */
 export const RACE_FORM = 0.02;
 
-/** Share of RACE_FORM a driver of this volatility (0..1) can swing on the day: 0.45 (steady) … 1 (erratic). */
+/**
+ * Share of RACE_FORM a driver of this volatility (0..1) can swing on the day: 0.25 (steady) … 1 (erratic). (From
+ * 0.45, a steady star still lost ± 0.9 % on a bad day — as much as its edge on the next best driver.)
+ */
 export function raceFormRange(volatility: number): number {
-  return 0.45 + 0.55 * clamp01(fin(volatility, 0.4));
+  return 0.25 + 0.75 * clamp01(fin(volatility, 0.4));
 }
 
 /**
  * Driving-style multipliers on the capability (personality.ts), shared by the on-track AI and the qualifying
  * simulation: `low` on the speed-independent (mechanical) lateral grip, `high` on its aero (speed²) part — a
  * slow-corner specialist gains in hairpins what it gives away in fast sweepers — and `brake` on the braking factor
- * (a late braker gives a little mid-corner speed back). Each trait shifts the lap time by only a few tenths of a
- * percent; what changes is where on the lap a driver is quick, so cars close up in one sector and pull away in the
- * next instead of running in a fixed line.
+ * (a late braker gives a little mid-corner speed back). Both traits are lap-time neutral over a season (point-mass
+ * laps on 8 circuits: corners ±1 → ±0.003 %, braking ±1 → −0.01 / +0.03 %); what changes is where a driver is quick —
+ * a slow-corner specialist ±0.14 % at Monaco / Silverstone — so cars close up in one sector and pull away in the next.
+ * Mechanical grip is worth ≈ 2.7 × as much lap time per percent as aero grip, hence STYLE_HIGH = 2.7 × STYLE_LOW (an
+ * equal ±2 % made every slow-corner specialist 0.28 % quicker on every circuit, Monza included).
  */
 export interface StyleFactors {
   low: number;
@@ -66,33 +98,37 @@ export interface StyleFactors {
   brake: number;
 }
 
-const STYLE_CORNER = 0.02;
+const STYLE_LOW = 0.01;
+const STYLE_HIGH = 0.027;
 const STYLE_BRAKE = 0.04;
 const STYLE_BRAKE_LAT = 0.006;
-
-/**
- * A style's lateral-grip gain is taken only where the driver still has headroom: a factor above 1 is cut so its share
- * of the grip stays ≤ STYLE_LAT_CEIL (or its own share when that is higher). A driver already near the limit (top
- * skill, high difficulty) keeps just the weak side of its style — at 0.997 of the grip through Monaco's slow corners a
- * slow-corner specialist ran over the track limits on every lap.
- */
-const STYLE_LAT_CEIL = 0.98;
-
-/** A style grip factor (StyleFactors low / high) for a driver using `latFactor` of the grip. */
-export function styleGrip(factor: number, latFactor: number): number {
-  if (!(factor > 1)) return factor;
-  const lf = clamp(fin(latFactor, 0.9), 0.3, 1);
-  return Math.min(factor, Math.max(1, STYLE_LAT_CEIL / lf));
-}
 
 export function styleFactors(style: DriverStyle): StyleFactors {
   const c = clamp(fin(style.corners, 0), -1, 1);
   const b = clamp(fin(style.braking, 0), -1, 1);
   return {
-    low: 1 + STYLE_CORNER * c - STYLE_BRAKE_LAT * b,
-    high: 1 - STYLE_CORNER * c - STYLE_BRAKE_LAT * b,
+    low: 1 + STYLE_LOW * c - STYLE_BRAKE_LAT * b,
+    high: 1 - STYLE_HIGH * c - STYLE_BRAKE_LAT * b,
     brake: 1 + STYLE_BRAKE * b,
   };
+}
+
+/**
+ * A style's lateral-grip gain must keep the driver's share of the grip ≤ STYLE_LAT_CEIL (at 0.997 of the grip through
+ * Monaco's slow corners a slow-corner specialist ran over the track limits on every lap). Where the gain does not fit,
+ * the whole style shrinks with it — gain, loss and braking trade alike — so it stays neutral: a driver already at the
+ * limit (top skill, high difficulty) drives without one. (Cutting only the gain left the stars just the weak side of
+ * their style: Verstappen −1 % in slow corners, Antonelli 0.8 % slower at Monaco.)
+ */
+const STYLE_LAT_CEIL = 0.98;
+
+/** The style factors a driver using `latFactor` of the grip can carry (fitted to STYLE_LAT_CEIL). */
+export function fitStyle(sf: StyleFactors, latFactor: number): StyleFactors {
+  const lf = clamp(fin(latFactor, 0.9), 0.3, 1);
+  const gain = Math.max(sf.low - 1, sf.high - 1, 0);
+  const room = Math.max(0, STYLE_LAT_CEIL / lf - 1);
+  const k = gain > room ? room / gain : 1;
+  return { low: 1 + k * (sf.low - 1), high: 1 + k * (sf.high - 1), brake: 1 + k * (sf.brake - 1) };
 }
 
 /** Share of a team's aero / power / chassis gap to a rating of 1 that an AI-driven car keeps (closer field). */

@@ -11,7 +11,7 @@ import { AIR_DENSITY, angleDiff, clamp, clamp01, moveToward, nextRandom, worldTo
 import { isCarHeld, steerInputForAngle, tyreGrip } from '../physics/index';
 import { forwardDistance, inRangeS, pitLaneOffsetAt, pitRampLength, pitZoneLength, poseAt, sampleAt } from '../track/track';
 import { PACE_MODE_FACTOR, difficulty01, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
-import { brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
+import { REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
 import { aeroWake } from '../race/wake';
 import { EDGE_MARGIN, TRAIN_DRS_KEEP, planTraffic } from './traffic';
@@ -445,10 +445,10 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   cap.latB *= ai.gripHigh;
   // conserving: whether braking is due within LIFT_COAST s on the racing line (lift and coast, below) — read off this
   // plan when it is that plan (on the line, no cool-down scale), else from a scan of its own
-  const offNow = ai.offset + ai.lineNoise;
+  const offNow = ai.offsetHold > 0 ? ai.holdLateral - sampleAt(track, track.racingLine, p.s) : ai.offset + ai.lineNoise;
   const lift = paceMode === 'conserve' && !cooldown && !(Math.abs(offNow) > 0.3) ? LIFT_PROBE : undefined;
   if (lift) lift.ahead = v * (LIFT_COAST - h * 2);
-  let target = targetSpeedAt(track, cap, p.s + v * h * 2, v, cooldown ? 0.78 : 1, offNow, kerbUse, lift);
+  let target = targetSpeedAt(track, cap, p.s + v * h * 2, v, cooldown ? 0.78 : 1, offNow, kerbUse, lift, ai.offsetHold, ai.offsetHold > 0 && ai.holdLane);
   // a late-braking mistake: lift to gather the car up while running wide
   if (runWide) target *= 1 - LATE_BRAKE_LIFT;
 
@@ -489,17 +489,35 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   // a late-braking mistake on our own line: the line opens toward the outside of the corner (missed apex)
   const wide = runWide && desired === null && mistakeCorner ? -mistakeCorner.direction * LATE_BRAKE_WIDE : 0;
   const desiredOffset = desired === null ? wide : desired - lineAhead;
-  ai.offset = moveToward(ai.offset, desiredOffset, (desired === null ? 3 : traffic.rate) * h);
+  if (desired === null && wide === 0 && ai.offset !== 0) {
+    // rejoining the line: keep the lateral while the line sweeps across toward it (merging where it gets there) —
+    // the rest closes at REJOIN_RATE
+    const toward = (lineAhead - ai.lineNoise - kerbLineAt(track, sAhead - v * h, kerbUse)) * Math.sign(ai.offset);
+    if (toward > 0) ai.offset = Math.sign(ai.offset) * Math.max(0, Math.abs(ai.offset) - toward);
+  }
+  ai.offset = moveToward(ai.offset, desiredOffset, (desired === null ? REJOIN_RATE : traffic.rate) * h);
   let lateral = clamp(lineAhead + ai.offset, loAhead, hiAhead);
   // space keeping applies to where the car is now; blend toward the band
   const lo = traffic.lo;
   const hi = traffic.hi;
-  if (lateral < lo || lateral > hi) {
+  const kept = lateral < lo || lateral > hi;
+  if (kept) {
     const band = clamp(lateral, lo, hi);
     lateral = clamp(band, loAhead, hiAhead);
     ai.offset = lateral - lineAhead;
   }
   ai.targetLateral = lateral;
+  // the next speed plan (above) holds the lateral the car is placed at: a lane of its own (kept beside a car, a cover,
+  // giving way …) all the way — a cover up to the corner it is for, let go there; attacking (in the wake of the car,
+  // alongside it), placed by that car, which drives its own line, the offset steered (from the line at the look-ahead,
+  // where that car is), and so the wide line of a late-braking mistake; rejoining the line, nothing held. (A pass
+  // committed into Monza's first chicane held as a lane read the inside of it at R 15 m — the line R 27 m — and braked
+  // to 64 km/h where its plan on the line said 81.)
+  const placed = desired !== null || kept;
+  const cover = ai.mode === 'defend' && desired !== null && !kept ? track.corners[ai.defendCorner] : undefined;
+  ai.offsetHold = !placed && wide === 0 ? 0 : cover ? forwardDistance(track, p.s, cover.startS) : Infinity;
+  ai.holdLane = kept || (desired !== null && ai.mode !== 'attack');
+  ai.holdLateral = ai.holdLane ? lateral : sampleAt(track, track.racingLine, p.s) + ai.offset + ai.lineNoise;
 
   // off the road: slow down and come back
   const hwHere = sampleAt(track, track.halfWidth, p.s);
