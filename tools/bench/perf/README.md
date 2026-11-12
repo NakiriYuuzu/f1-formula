@@ -20,8 +20,8 @@ http://127.0.0.1:5173/?bench=1&quality=low&dpr=1,2&autorun=1     only low, at pi
 | `scale` | `1` | the resolution-scale setting (0.5 to 1) |
 | `frames`, `warmup` | `300`, `45` | timed frames and discarded frames per scenario |
 | `runs` | `1` | repeat the whole matrix |
-| `aa` | tier's own | `0` or `1` forces the canvas MSAA. By default the first tier in `quality` decides (`canvasMsaa` in `src/render/core/quality.ts`). It is fixed when the WebGL context is created, so one page measures one canvas MSAA setting: use one tier per page to compare tiers |
-| `tune` | | `field:value,...` overrides fields of the quality table (`src/render/core/quality.ts`) for a tuned variant, e.g. `tune=ibl:0,maxPixelRatio:2` |
+| `aa` | tier's own | `0` turns the canvas MSAA off. `1` is the same as leaving it out: a tier whose `canvasMsaa` is false (low) creates the context without it whatever is asked. By default the first tier in `quality` decides (`canvasMsaa` in `src/render/core/quality.ts`). It is fixed when the WebGL context is created, so one page measures one canvas MSAA setting: use one tier per page to compare tiers, and list a tier that has MSAA first (`quality=medium,low`) to see the low tier on a canvas with it |
+| `tune` | | `field:value,...` overrides fields of the quality table (`src/render/core/quality.ts`) for a tuned variant, e.g. `tune=ibl:1,hemiGain:1,maxPixelRatio:2` (the low tier with the environment map and the old pixel-ratio cap) |
 | `ab` | `0` | with `tune`, alternate the shipped table and the tuned one on every run (rows of the tuned variant carry `variant=tuned`) |
 | `runup` | scenario's own | seconds of play before the first timed frame of the running scenarios (the grid keeps 0). `scenario=stop-spa&hold=1` stops on the pit lane |
 | `hold` | `0` | load the first scenario, run its warm-up, then stop on the frame (for screenshots) |
