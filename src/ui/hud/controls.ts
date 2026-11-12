@@ -121,6 +121,7 @@ function keyboardSections(settings: BindingSettings, playerIndex: 0 | 1, split: 
       { label: 'MFD：ERS 模式', keys: [p2Pad ? '數字鍵盤 1–4' : '1–4'] },
       { label: 'MFD：換胎配方', keys: [p2Pad ? '數字鍵盤 5' : '5'] },
       { label: 'MFD：Box／取消', keys: [p2Pad ? '數字鍵盤 6' : '6'] },
+      { label: 'MFD：加油（耐力賽）', keys: [p2Pad ? '數字鍵盤 7' : '7'] },
       { label: '選單：選擇／調整', keys: ['↑ ↓', '← →'] },
       { label: '選單：確認', keys: ['Enter'] },
     ],

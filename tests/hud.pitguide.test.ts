@@ -1,7 +1,7 @@
 /**
  * Pit status pill (src/ui/hud/pitGuide.ts): what it says when, for a driver driving the visit and for an autopilot
  * car: the approach and its brake cue, the entry road, the speed against the limit in the lane, a missed entry, a
- * held stop before the tyre change.
+ * held stop before the tyre change, refuelling in an endurance race.
  */
 import { describe, expect, test } from 'bun:test';
 import {
@@ -35,6 +35,7 @@ function input(over: Partial<PitGuideInput> = {}): PitGuideInput {
     stopTotal: 0,
     hold: 0,
     repair: false,
+    fuel: 0,
     compound: 'hard',
     ...over,
   };
@@ -109,6 +110,19 @@ describe('pit guide: the visit', () => {
     expect(label({ phase: 'stopped', stopTotal: 8, hold: 5, timer: 7, repair: true })).toEqual({ text: '維修中 4.0 秒', state: 'hold' });
     expect(label({ phase: 'stopped', stopTotal: 8, hold: 5, timer: 2 })).toEqual({ text: '換胎中 2.0 秒', state: 'stop' });
     expect(label({ phase: 'stopped', stopTotal: 2.75, hold: 0, timer: 2.5 })).toEqual({ text: '換胎中 2.5 秒', state: 'stop' });
+  });
+
+  test('stopped, refuelling (endurance race): the penalty, then the fill, then the tyre change at its end', () => {
+    // 2 s penalty, a 7 s fill, a 3 s tyre change: 9 s, held 2 + 4 (the fill past the tyre change), the tyres in the last 3
+    const stop = { phase: 'stopped', stopTotal: 9, hold: 6, fuel: 7 } as const;
+    expect(label({ ...stop, timer: 8 })).toEqual({ text: '執行罰時 1.0 秒', state: 'hold' });
+    expect(label({ ...stop, timer: 6.5 })).toEqual({ text: '加油中 6.5 秒', state: 'stop' });
+    // the tyre change runs under the fill, which ends the stop
+    expect(label({ ...stop, timer: 2 })).toEqual({ text: '加油中 2.0 秒', state: 'stop' });
+    // a fill shorter than the tyre change (1.5 s of 3): the fill, then the rest of the tyre change
+    const short = { phase: 'stopped', stopTotal: 3, hold: 0, fuel: 1.5 } as const;
+    expect(label({ ...short, timer: 2.5 })).toEqual({ text: '加油中 1.0 秒', state: 'stop' });
+    expect(label({ ...short, timer: 1 })).toEqual({ text: '換胎中 1.0 秒', state: 'stop' });
   });
 
   test('a visit shows whatever the request and status (the pill follows the car out)', () => {

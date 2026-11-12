@@ -1,13 +1,14 @@
 /**
- * Multi-function display (pit strategy): next tyre compound, "Box 本圈" / cancel, ERS mode buttons, current tyre
- * summary and the estimated pit-stop time loss. Mouse, plus keyboard shortcuts while open
- * (1–4 ERS mode, 5 next compound, 6 box / cancel; split-screen: P1 top-row digits, P2 numpad digits); the player's
- * gamepad D-pad left/right steps the compound (see padStep).
+ * Multi-function display (pit strategy): next tyre compound, the fuel for the next stop (endurance race), "Box 本圈" /
+ * cancel, ERS mode buttons, current tyre summary and the estimated pit-stop time loss. Mouse, plus keyboard shortcuts
+ * while open (1–4 ERS mode, 5 next compound, 6 box / cancel, 7 fuel; split-screen: P1 top-row digits, P2 numpad
+ * digits); the player's gamepad D-pad left/right steps the compound (see padStep; the fuel stays on its choice).
  */
-import type { CarEntry, ErsMode, TireCompound, WorldState } from '../../core/types';
+import type { BuiltTrack, CarEntry, ErsMode, TireCompound, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { clamp01 } from '../../core/math';
-import { PIT_LOSS_FALLBACK } from '../../race/index';
+import { PIT_LOSS_FALLBACK, autoFuel, fuelTank } from '../../race/index';
+import { FUEL_CHOICES, fillLabel, fuelChoiceLabel, fuelChoiceTarget, type FuelChoice } from './endurance';
 import { AttrSlot, ShowSlot, TextSlot, clickable, el } from './dom';
 import { ALL_COMPOUNDS, ERS_LABEL, ERS_MODES, cycle, fin } from './labels';
 
@@ -20,7 +21,8 @@ function suggestCompound(car: CarEntry, world: WorldState): TireCompound {
 }
 
 export interface MfdActions {
-  requestPit(compound: TireCompound): void;
+  /** `fuel`: an endurance race's tank (kg) after the stop (undefined: the automatic fill) */
+  requestPit(compound: TireCompound, fuel?: number): void;
   cancelPit(): void;
   setErsMode(mode: ErsMode): void;
 }
@@ -31,6 +33,8 @@ interface MfdState {
   boxAllowed: boolean;
   pitAllowed: boolean;
   nextCompound: TireCompound;
+  /** an endurance race's tank (kg; 0 in any other race) */
+  tank: number;
 }
 
 export class MfdPanel {
@@ -46,10 +50,15 @@ export class MfdPanel {
   private readonly ersNote: ShowSlot;
   private readonly tyreInfo: TextSlot;
   private readonly lossInfo: TextSlot;
+  private readonly fuelRow: ShowSlot;
+  private readonly fuelLabel: TextSlot;
+  private readonly fuelHint: ShowSlot;
   private open = false;
   /** player's explicit compound pick (null = follow suggestion / active request) */
   private picked: TireCompound | null = null;
   private suggestion: TireCompound = 'medium';
+  /** fuel for the next stop (endurance race) */
+  private fuelPick: FuelChoice = null;
   private state: MfdState | null = null;
 
   /**
@@ -80,6 +89,14 @@ export class MfdPanel {
     this.cmpLabel = new TextSlot(el('span', 'nvh-mfd-cmp-label', cmp));
     clickable('nvh-arrow', cmp, '›', () => this.stepCompound(1));
 
+    const fuelRow = el('div', 'nvh-mfd-row', this.el);
+    this.fuelRow = new ShowSlot(fuelRow);
+    el('span', 'nvh-mfd-k', fuelRow, '加油');
+    const fuel = el('div', 'nvh-mfd-cmp', fuelRow);
+    clickable('nvh-arrow', fuel, '‹', () => this.stepFuel(-1));
+    this.fuelLabel = new TextSlot(el('span', 'nvh-mfd-cmp-label', fuel));
+    clickable('nvh-arrow', fuel, '›', () => this.stepFuel(1));
+
     const boxRow = el('div', 'nvh-mfd-row', this.el);
     this.pitRows.push(new ShowSlot(boxRow));
     el('span', 'nvh-mfd-k', boxRow, '進站');
@@ -102,7 +119,10 @@ export class MfdPanel {
     this.pitRows.push(new ShowSlot(loss));
     this.lossInfo = new TextSlot(loss);
     this.lossInfo.set(`預估進站損失 ≈ ${fin(pitLoss, PIT_LOSS_FALLBACK).toFixed(1)} 秒`);
-    el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方');
+    const hint = el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方');
+    this.fuelHint = new ShowSlot(el('span', '', hint, '　[7] 加油'));
+    this.fuelRow.set(false);
+    this.fuelHint.set(false);
   }
 
   isOpen(): boolean {
@@ -125,8 +145,14 @@ export class MfdPanel {
     return this.picked ?? this.suggestion;
   }
 
+  /** Fuel (kg in the tank after the stop) for a pit request right now: undefined for the automatic fill or outside an endurance race. */
+  selectedFuel(): number | undefined {
+    const tank = this.state?.tank ?? 0;
+    return tank > 0 ? fuelChoiceTarget(this.fuelPick, tank) : undefined;
+  }
+
   /** Per frame: keep the shortcut state fresh; DOM is refreshed only while open. */
-  sync(car: CarEntry, world: WorldState): void {
+  sync(car: CarEntry, world: WorldState, track: BuiltTrack): void {
     const pit = car.pit;
     const active = car.status !== 'finished' && car.status !== 'retired';
     const pitAllowed = world.session.kind !== 'timeTrial';
@@ -136,10 +162,19 @@ export class MfdPanel {
       boxAllowed: pitAllowed && active && pit.phase === 'none',
       pitAllowed,
       nextCompound: pit.nextCompound,
+      tank: world.session.endurance ? fuelTank(car.spec, track) : 0,
     };
     if (!this.open) return;
 
     for (const row of this.pitRows) row.set(pitAllowed);
+    const tank = this.state.tank;
+    this.fuelRow.set(tank > 0);
+    this.fuelHint.set(tank > 0);
+    if (tank > 0) {
+      // (the automatic fill as it stands now: decided when the car stops)
+      const target = this.selectedFuel() ?? autoFuel(world, track, car);
+      this.fuelLabel.set(`${fuelChoiceLabel(this.fuelPick)} · ${fillLabel(target, car.phys.fuelKg, tank)}`);
+    }
     const compound = this.selectedCompound();
     const info = COMPOUND_INFO[compound] ?? COMPOUND_INFO.medium;
     this.cmpBadge.set(info.letter);
@@ -166,13 +201,15 @@ export class MfdPanel {
   /** Keyboard shortcuts while open. Returns true when the key was consumed. */
   handleKey(code: string): boolean {
     if (!this.open) return false;
-    const digit = /^(Digit|Numpad)([1-6])$/.exec(code);
+    const digit = /^(Digit|Numpad)([1-7])$/.exec(code);
     if (!digit) return false;
     if ((this.keys === 'digit' && digit[1] !== 'Digit') || (this.keys === 'numpad' && digit[1] !== 'Numpad')) return false;
     const n = Number(digit[2]);
+    if (n === 7 && !(this.state && this.state.tank > 0)) return false;
     if (n <= 4) this.actions.setErsMode(ERS_MODES[n - 1]);
     else if (n === 5) this.stepCompound(1);
-    else this.toggleBox();
+    else if (n === 6) this.toggleBox();
+    else this.stepFuel(1);
     return true;
   }
 
@@ -189,9 +226,16 @@ export class MfdPanel {
     const next = cycle(ALL_COMPOUNDS, this.selectedCompound(), step);
     this.picked = next;
     if (st.requested && st.boxAllowed) {
-      this.actions.requestPit(next);
+      this.actions.requestPit(next, this.selectedFuel());
       st.nextCompound = next;
     }
+  }
+
+  private stepFuel(step: 1 | -1): void {
+    const st = this.state;
+    if (!st?.pitAllowed || !(st.tank > 0)) return;
+    this.fuelPick = cycle(FUEL_CHOICES, this.fuelPick, step);
+    if (st.requested && st.boxAllowed) this.actions.requestPit(st.nextCompound, this.selectedFuel());
   }
 
   private toggleBox(): void {
@@ -202,7 +246,7 @@ export class MfdPanel {
       st.requested = false;
     } else {
       const compound = this.picked ?? this.suggestion;
-      this.actions.requestPit(compound);
+      this.actions.requestPit(compound, this.selectedFuel());
       st.requested = true;
       st.nextCompound = compound;
     }

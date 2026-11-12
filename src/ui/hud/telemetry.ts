@@ -3,12 +3,16 @@
  * centre, the gear in a disc, throttle / brake / ERS arcs, and under it the overtake, DRS / 2026 straight-line mode,
  * limiter and aero-wake (tow / dirty air) pills; beside it a card: the tyre (compound, wear, temperature) on top, the
  * damage silhouette in the middle with a "—o" callout per part (its damage %), fuel and its bar (what is left of the
- * starting load) at the bottom. Arcs are SVG paths with pathLength 100, filled through stroke-dashoffset.
+ * starting load; of the tank in an endurance race, where the margin over the flag gives way to by when to box) at the
+ * bottom. Arcs are SVG paths with pathLength 100, filled through stroke-dashoffset.
  */
-import type { AeroWake, CarEntry, DamageState, SpeedUnit, WorldState } from '../../core/types';
+import type { AeroWake, BuiltTrack, CarEntry, DamageState, SpeedUnit, WorldState } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { clamp01 } from '../../core/math';
 import { fuelPerKm } from '../../physics/index';
+import { fuelTank, lapsToGo } from '../../race/index';
+import { forwardDistance } from '../../track/loop';
+import { enduranceFuelCall } from './endurance';
 import { AttrSlot, DashSlot, ScaleSlot, ShowSlot, TextSlot, el, svgEl } from './dom';
 import { DAMAGE_PART_LABEL, ERS_LABEL, damageBand, displaySpeed, fin, gearLabel, tempBand, unitLabel } from './labels';
 import { tyreWindow } from './tyreWindow';
@@ -266,7 +270,8 @@ export class TelemetryPanel {
     return prev;
   }
 
-  update(car: CarEntry, world: WorldState, units: SpeedUnit, trackLength: number): void {
+  update(car: CarEntry, world: WorldState, units: SpeedUnit, track: BuiltTrack): void {
+    const trackLength = track.length;
     const p = car.phys;
     const spec = car.spec;
     const reg2026 = world.config.regulation === '2026';
@@ -336,12 +341,20 @@ export class TelemetryPanel {
     const inPit = car.pit.phase !== 'none';
     this.fuelEst.sample(fuel, car.timing.progress, inPit);
     this.fuelKg.set(`${fuel.toFixed(1)} kg`);
-    this.fuelFill.set(this.fuelEst.level(fuel));
+    // an endurance race refuels: the bar is the tank
+    const tank = world.session.endurance ? fuelTank(car.spec, track) : 0;
+    this.fuelFill.set(tank > 0 ? clamp01(fuel / tank) : this.fuelEst.level(fuel));
     const perLap = this.fuelEst.rate(world.config.rules.fuel, fuelPerKm(car.spec) / 1000) * trackLength;
     if (perLap > 1e-6 && Number.isFinite(perLap)) {
       const laps = fuel / perLap;
       this.fuelLaps.set(`可跑 ${laps.toFixed(1)} 圈`);
-      if (world.session.kind === 'race' && trackLength > 0 && car.status !== 'finished' && car.status !== 'retired') {
+      if (tank > 0 && trackLength > 0 && car.status !== 'finished' && car.status !== 'retired') {
+        // the flag, or by when to box (nothing in the pit lane: the fill is coming)
+        const call = car.pit.phase === 'none' ? enduranceFuelCall(laps, lapsToGo(world, track, car), forwardDistance(track, car.phys.s, track.pit.entry) / trackLength) : null;
+        this.fuelMargin.set(call?.text ?? '');
+        this.fuelMarginState.set(call?.state ?? null);
+        this.fuelBarState.set(call?.state ?? null);
+      } else if (world.session.kind === 'race' && trackLength > 0 && car.status !== 'finished' && car.status !== 'retired') {
         const remainDist = Math.max(0, world.session.totalLaps * trackLength - fin(car.timing.progress));
         const margin = laps - remainDist / trackLength;
         const state = margin < 0 ? 'short' : margin < 0.3 ? 'tight' : 'ok';

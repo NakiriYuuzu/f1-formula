@@ -10,6 +10,7 @@ import { classifySector, fin, formatClock, formatDelta, formatSectorTime, format
 import type { SectorState } from './labels';
 import { controlOf, sectorFlagLabel, sectorFlagLevels } from './raceControl';
 import { pitGuideLabel, type PitGuide } from './pitGuide';
+import { enduranceCounter } from './endurance';
 
 /** How long the previous lap's sectors stay on screen after crossing the line (s). */
 const LAST_LAP_HOLD = 4;
@@ -146,7 +147,14 @@ export class TimingPanel {
     }
 
     // Lap counter / time remaining.
-    if (s.kind === 'race') {
+    const clock = s.kind === 'race' ? enduranceCounter(world, lap) : null;
+    if (clock) {
+      // an endurance race: the time left in place of the laps
+      const over = disqualified ? '取消資格' : finished ? '完賽' : retired ? '退賽' : null;
+      this.lapLabel.set('剩餘時間');
+      this.lapValue.set(over ?? clock.value);
+      this.lapSub.set(over ? '' : clock.sub);
+    } else if (s.kind === 'race') {
       const total = Math.max(1, Math.round(fin(s.totalLaps, 1)));
       // an elimination race has no lap target: the lap alone
       const elim = s.elimination;
