@@ -2,8 +2,8 @@
  * Endurance race (race/endurance.ts), headless with the real track, physics, race runtime and AI: a 20-car race to its
  * end (refuelled, nobody dry, classified by laps then time, the same for a seed), the finish rule (the leader's next
  * crossing after the time is up, a lapped car and a car in the pit lane at their own next one), the fill (limited by the
- * tank, the stop the longer of the tyre change and the fill), the driver's fuel choice, and the clock under the safety
- * car (it runs) and the red flag (it stops).
+ * tank, the stop the longer of the tyre change and the fill), the driver's fuel choice (gone with a cancelled request),
+ * the leader retiring as the time runs out, and the clock under the safety car (it runs) and the red flag (it stops).
  */
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/core/defaults';
@@ -15,6 +15,7 @@ import { forwardDistance } from '../src/track/track';
 import {
   autoFuel,
   buildSessionResult,
+  cancelPit,
   createWorld,
   enduranceFormat,
   enduranceLeft,
@@ -24,6 +25,7 @@ import {
   getPlayerCarId,
   isSessionOver,
   requestPit,
+  retireCar,
   stepWorld,
 } from '../src/race/index';
 
@@ -223,6 +225,32 @@ describe('the finish rule', () => {
     expect(w.cars[called]!.pit.stops).toBe(1);
     classifiedByLapsThenTime(r);
   }, 120_000);
+
+  test('the leader retiring as the time runs out: the car leading on the road takes the flag at its next crossing', () => {
+    const r = start({ cars: 6, minutes: 20 });
+    const w = r.world;
+    // the leader has just started a lap the car second on the road has not reached yet
+    let next = -1;
+    run(r, 1100, (x) => {
+      const lead = x.cars[x.race.order[0]!]!;
+      const second = x.cars[x.race.order[1]!]!;
+      if (lead.timing.lap >= 6 && second.timing.lap < lead.timing.lap) next = second.id;
+      return next >= 0;
+    });
+    expect(next).toBeGreaterThanOrEqual(0);
+    const retired = w.race.order[0]!;
+    retireCar(w, retired, 'test');
+    // and the time runs out a moment later (a race whose duration ends there)
+    w.session.endurance!.dueAt = w.time + 0.2;
+    const lap = w.cars[next]!.timing.lap;
+    run(r, 600);
+    expect(isSessionOver(w)).toBe(true);
+    // the leader on the road then took the flag at its next crossing: no lap more
+    const winner = w.cars[buildSessionResult(w).rows[0]!.carId]!;
+    expect(winner.id).not.toBe(retired);
+    expect(winner.timing.lapsCompleted).toBe(lap);
+    expect(w.session.chequeredAt! - r.timeUp!).toBeLessThan(winner.race.lastCleanLap);
+  }, 120_000);
 });
 
 describe('refuelling', () => {
@@ -308,6 +336,30 @@ describe('refuelling', () => {
     const sstop = ofType(s, 'pitStop')[0]!.e;
     expect(sstop.fuel).toBeUndefined();
     expect(scar.phys.fuelKg).toBeLessThanOrEqual(at);
+  }, 120_000);
+
+  test('a cancelled request takes its fill with it: a stop the driver did not ask for fills automatically', () => {
+    const r = start({ cars: 4, minutes: 20, player: true });
+    const w = r.world;
+    const me = getPlayerCarId(w, 0);
+    const car = w.cars[me]!;
+    const drive = (x: WorldState): (ControlInput | null)[] => [computeAIInput(x, x.cars[me]!, r.track, SIM_DT)];
+    run(r, 600, (x) => x.session.phase === 'running' && car.timing.lap === 2, drive);
+    // no fuel asked for, then the request cancelled
+    requestPit(w, me, 'medium', 0);
+    cancelPit(w, me);
+    expect(car.pit.fuelTarget).toBeUndefined();
+    // lap 4: the black-and-orange flag (a front wing hanging off) calls the car in
+    run(r, 600, () => car.timing.lap >= 4, drive);
+    car.phys.damage.frontWing = 0.7;
+    let had = NaN;
+    run(r, 600, () => {
+      if (car.pit.phase === 'stopped' && Number.isNaN(had)) had = car.phys.fuelKg;
+      return car.pit.stops > 0;
+    }, drive);
+    const stop = ofType(r, 'pitStop').find((x) => x.e.carId === me)!.e;
+    expect(stop.fuel!).toBeGreaterThan(0);
+    expect(car.phys.fuelKg).toBeGreaterThan(had);
   }, 120_000);
 });
 

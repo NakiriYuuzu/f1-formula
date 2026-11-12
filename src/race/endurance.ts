@@ -63,8 +63,11 @@ export function stepEndurance(world: WorldState, track: BuiltTrack): void {
   if (!c || s.phase === 'chequered' || s.phase === 'finished') return;
   runClock(c, world.time, s.phase === 'running' && s.control.mode !== 'red');
   const left = clockLeft(c, world.time);
+  // the leader on the road (session.leaderLap only rises: it stays with a leader that retired)
+  const leader = world.cars[world.race.order[0] ?? -1];
+  const leaderLap = leader && leader.status !== 'retired' ? leader.timing.lap : s.leaderLap;
   if (s.phase === 'running' && left <= 0) {
-    s.totalLaps = s.leaderLap;
+    s.totalLaps = leaderLap;
     if (!world.race.finalLapAnnounced) {
       world.race.finalLapAnnounced = true;
       emit(world, { type: 'finalLap' });
@@ -72,12 +75,11 @@ export function stepEndurance(world: WorldState, track: BuiltTrack): void {
     }
     return;
   }
-  const leader = world.cars[world.race.order[0] ?? -1];
   // the leader's latest clean lap (the better of its last two reads 3–4 % quick: a race a lap too long near the end)
   const clean = leader ? leader.race.lastCleanLap : 0;
   const lap = clean > 0 ? clean : track.referenceLapTime * RACE_PACE;
-  const into = leader && s.leaderLap >= 1 ? Math.max(0, leader.timing.progress / track.length - (s.leaderLap - 1)) : 0;
-  s.totalLaps = Math.max(s.leaderLap, lapsAhead(s.leaderLap, left + into * lap, lap));
+  const into = leader && leaderLap >= 1 ? Math.max(0, leader.timing.progress / track.length - (leaderLap - 1)) : 0;
+  s.totalLaps = Math.max(s.leaderLap, lapsAhead(leaderLap, left + into * lap, lap));
 }
 
 /** Fuel (kg) a full tank holds. */

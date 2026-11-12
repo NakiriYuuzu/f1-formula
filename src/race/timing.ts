@@ -150,8 +150,8 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
   radioLap(world, car, lapTime, valid, overallBest);
 
   if (s.kind === 'race') {
-    // (an endurance race's laps are a projection until its clock has run out: endurance.ts)
-    if (s.phase === 'running' && t.lapsCompleted >= s.totalLaps && !(s.endurance && clockLeft(s.endurance, world.time) > 0)) {
+    // (an endurance race's laps are a projection until its clock has run out at the crossing: endurance.ts)
+    if (s.phase === 'running' && t.lapsCompleted >= s.totalLaps && !(s.endurance && clockLeft(s.endurance, time) > 0)) {
       chequer(world);
       finishCar(world, car, time);
       return true;

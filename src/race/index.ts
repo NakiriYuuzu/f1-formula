@@ -73,10 +73,13 @@ export function requestPit(world: WorldState, carId: number, compound: TireCompo
   if (car) queuePit(world, car, compound, fuel);
 }
 
-/** Cancel a pit request that has not reached the pit entry yet. */
+/** Cancel a pit request that has not reached the pit entry yet (and the fill asked for with it). */
 export function cancelPit(world: WorldState, carId: number): void {
   const car = carById(world, carId);
-  if (car && car.pit.phase === 'none') car.pit.requested = false;
+  if (car && car.pit.phase === 'none') {
+    car.pit.requested = false;
+    delete car.pit.fuelTarget;
+  }
 }
 
 /** Select an ERS mode (physics overrides it every step while the car's ersAssist is on). */
