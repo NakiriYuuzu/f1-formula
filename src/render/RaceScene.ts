@@ -48,6 +48,7 @@ import { STATIC_SHADOW_LAYER, farCascadeStale, type CascadeFocus } from './core/
 import { Environment, IncrementalProbe, buildEnvironmentMap, type SceneProbe } from './environment';
 import { probeRefreshDue, type ProbeSignature } from './core/probeRefresh';
 import { LAMP_LIGHT, pickLampLights, type LampSlot } from './core/lampLights';
+import type { PostPipeline } from './core/postPipeline';
 import { CarEffects } from './fx/carEffects';
 import { ContactShadows } from './fx/contactShadows';
 import { DebrisFx } from './fx/debris';
@@ -144,6 +145,9 @@ export class RaceScene {
   /** spot lights lent to the lamps nearest each view (QualityProfile.lampLights at dusk / night; none by day) */
   private readonly lampLights: THREE.SpotLight[] = [];
   private readonly lampSlots: LampSlot[] = [];
+  /** every light of the scene graph (frame-cost counters) */
+  private readonly sceneLights: THREE.Light[] = [];
+  private shadowRenders = 0;
   private readonly lampScratch: number[] = [];
   private readonly lampColors = { tower: new THREE.Color(LAMP_LIGHT.tower.color), post: new THREE.Color(LAMP_LIGHT.post.color) };
   private probeAt: THREE.Vector3 | null = null;
@@ -734,6 +738,7 @@ export class RaceScene {
     this.lastCamPos.length = list.length;
     r.setScissorTest(false);
     r.setViewport(0, 0, this.gr.width, this.gr.height);
+    this.writeFrameCost(post);
   }
 
   /** Shadow focus of a view: ahead of its target car (on the car for tv cameras), else its camera (written into this.focus). */
@@ -775,6 +780,7 @@ export class RaceScene {
       r.shadowMap.needsUpdate = pending;
     }
     this.farCentre = { x: focus.x, z: focus.z };
+    this.shadowRenders++;
   }
 
   /** Hand the pooled lamp lights to the lamps nearest `focus` (pickLampLights), at the environment's lamp level. */
@@ -803,9 +809,34 @@ export class RaceScene {
 
   /** Put every light of the scene on STATIC_SHADOW_LAYER as well (see renderFarCascade). */
   private tagLights(): void {
+    this.sceneLights.length = 0;
     this.scene.traverse((o) => {
-      if ((o as THREE.Light).isLight) o.layers.enable(STATIC_SHADOW_LAYER);
+      if (!(o as THREE.Light).isLight) return;
+      o.layers.enable(STATIC_SHADOW_LAYER);
+      this.sceneLights.push(o as THREE.Light);
     });
+  }
+
+  /** Lights, IBL, shadow renders and post passes of the frame just drawn, for GameRenderer.frameCost. */
+  private writeFrameCost(post: PostPipeline | null): void {
+    const c = this.gr.frameCost;
+    const shadows = this.gr.renderer.shadowMap.enabled;
+    let lights = 0;
+    let shadowLights = 0;
+    for (const l of this.sceneLights) {
+      if (!l.visible) continue;
+      lights++;
+      if (shadows && l.castShadow) shadowLights++;
+    }
+    c.lights = lights;
+    c.shadowLights = shadowLights;
+    c.ibl = this.scene.environment !== null;
+    c.shadowRenders = this.shadowRenders;
+    this.shadowRenders = 0;
+    const pc = post ? post.cost() : null;
+    c.fullscreenPasses = pc ? pc.passes : 0;
+    c.postFillPixels = pc ? pc.fillPixels : 0;
+    c.sceneSamples = pc ? pc.sceneSamples : this.gr.canvasSamples;
   }
 
   /** Centre the near shadow cascade ahead of the view's target; re-render it unless the previous view's map covers it. */
@@ -815,6 +846,7 @@ export class RaceScene {
     this.shadowFocus.copy(this.focus);
     this.env.placeSun(this.focus, this.shadowSize);
     this.gr.renderer.shadowMap.needsUpdate = true;
+    this.shadowRenders++;
   }
 
   /** The rect fills the whole canvas (the post chain always draws full screen). */

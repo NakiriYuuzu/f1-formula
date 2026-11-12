@@ -168,7 +168,24 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
   },
 };
 
+/** Per-level overrides of the table above, set only by the benchmark mode (src/app/bench) to compare one field at a time. */
+const TUNED = new Map<QualityLevel, QualityProfile>();
+
 export function qualityProfile(level: QualityLevel): QualityProfile {
+  return TUNED.get(level) ?? PROFILES[level] ?? PROFILES.high;
+}
+
+/** Benchmark A/B: override fields of one level (callers re-apply the settings so scenes pick it up). */
+export function tuneQuality(level: QualityLevel, patch: Partial<QualityProfile>): void {
+  TUNED.set(level, { ...qualityProfile(level), ...patch, level });
+}
+
+export function resetQualityTuning(): void {
+  TUNED.clear();
+}
+
+/** The untuned profile of a level (the shipped table), for benchmark parameter validation. */
+export function baseQualityProfile(level: QualityLevel): QualityProfile {
   return PROFILES[level] ?? PROFILES.high;
 }
 

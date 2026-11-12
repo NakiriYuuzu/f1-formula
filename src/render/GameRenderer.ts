@@ -14,6 +14,32 @@ import { AdaptiveResolution, POST_MSAA_SAMPLES } from './core/post';
 import { PostPipeline } from './core/postPipeline';
 import { qualityProfile, shadowSizeFor, type QualityProfile } from './core/quality';
 
+/** What the last race frame cost, written by the scene for the benchmark panel (window.render_debug_info users too). */
+export interface FrameCost {
+  /** lights in the scene graph (each adds a loop pass to every lit material, intensity 0 or not) */
+  lights: number;
+  /** lights currently rendering a shadow map */
+  shadowLights: number;
+  /** scene.environment is set: every PBR material samples the PMREM */
+  ibl: boolean;
+  /** shadow-map renders triggered this frame (near cascade + far cascade) */
+  shadowRenders: number;
+  /** enabled post passes after the scene pass (0 = direct render) */
+  fullscreenPasses: number;
+  /** pixels the post passes write per frame, summed over passes (0 = direct render) */
+  postFillPixels: number;
+  /** MSAA samples of the target the scene is drawn into (canvas or HDR target) */
+  sceneSamples: number;
+}
+
+/** A fixed canvas for the benchmark: CSS size and device pixel ratio instead of the window's. */
+export interface BenchView {
+  width: number;
+  height: number;
+  /** null = the display's devicePixelRatio */
+  dpr: number | null;
+}
+
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly canvas: HTMLCanvasElement;
@@ -25,6 +51,10 @@ export class GameRenderer {
   sizeVersion = 0;
   /** incremented on every WebGL context restore (render-target contents are lost and must be rebuilt) */
   contextVersion = 0;
+  readonly frameCost: FrameCost = { lights: 0, shadowLights: 0, ibl: false, shadowRenders: 0, fullscreenPasses: 0, postFillPixels: 0, sceneSamples: 0 };
+  private benchView: BenchView | null = null;
+  /** MSAA samples of the canvas's own framebuffer (0 = none), read once while the default framebuffer is bound */
+  readonly canvasSamples: number;
   private contextLost = false;
   private disposed = false;
   private widthCss = 1;
@@ -73,6 +103,8 @@ export class GameRenderer {
       throw err;
     }
     const r = this.renderer;
+    const gl = r.getContext();
+    this.canvasSamples = gl.getContextAttributes()?.antialias ? Number(gl.getParameter(gl.SAMPLES)) || 0 : 0;
     r.outputColorSpace = THREE.SRGBColorSpace;
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1;
@@ -105,10 +137,11 @@ export class GameRenderer {
    */
   resize(): void {
     if (this.disposed) return;
-    const w = Math.max(1, Math.floor(window.innerWidth || this.canvas.clientWidth || 1));
-    const h = Math.max(1, Math.floor(window.innerHeight || this.canvas.clientHeight || 1));
+    const bv = this.benchView;
+    const w = bv ? bv.width : Math.max(1, Math.floor(window.innerWidth || this.canvas.clientWidth || 1));
+    const h = bv ? bv.height : Math.max(1, Math.floor(window.innerHeight || this.canvas.clientHeight || 1));
     const scale = clamp(Number.isFinite(this.settings.resolutionScale) ? this.settings.resolutionScale : 1, 0.5, 1);
-    const pr = Math.min(window.devicePixelRatio || 1, 2) * scale * this.adaptive.scale;
+    const pr = Math.min(bv?.dpr ?? (window.devicePixelRatio || 1), 2) * scale * this.adaptive.scale;
     if (w === this.widthCss && h === this.heightCss && Math.abs(this.renderer.getPixelRatio() - pr) < 1e-6 && this.sizeVersion > 0) return;
     this.widthCss = w;
     this.heightCss = h;
@@ -123,7 +156,7 @@ export class GameRenderer {
    * between 60 % and 100 % of the user's choice. Menus pass false and always render at the user's choice.
    */
   beginFrame(adaptive: boolean): void {
-    if (this.disposed) return;
+    if (this.disposed || this.benchView) return;
     const now = performance.now();
     const frameSec = (now - this.lastFrameAt) / 1000;
     this.lastFrameAt = now;
@@ -133,6 +166,14 @@ export class GameRenderer {
       return;
     }
     if (adaptive && this.adaptive.sample(frameSec)) this.resize();
+  }
+
+  /** Benchmark mode: a fixed canvas size / pixel ratio, adaptive resolution held at 100 % (null = back to the window). */
+  setBenchView(view: BenchView | null): void {
+    if (this.disposed) return;
+    this.benchView = view;
+    this.adaptive.reset();
+    this.resize();
   }
 
   /** Back to the user's full resolution with fresh frame-time windows (e.g. a new race scene). */

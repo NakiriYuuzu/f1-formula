@@ -17,9 +17,14 @@ import type { SessionContext } from '../meta/context';
 import { loadSettings } from '../meta/save';
 import { buildQuickStart } from '../meta/sessionBuilder';
 import { GameRenderer } from '../render/GameRenderer';
+import { resetQualityTuning, tuneQuality } from '../render/core/quality';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
 import { BackgroundTicker } from './backgroundTicker';
+import { BenchPanel } from './bench/benchPanel';
+import { runBench, type BenchHost } from './bench/benchRunner';
+import { buildBenchSession } from './bench/benchSession';
+import { BENCH_FRAME_MS, parseBench, type BenchParams, type BenchResult, type BenchScenario } from './bench/benchSpec';
 import { FpsMeter, MAX_FRAME_DT, clampFrameDt } from './clock';
 import { reportError } from './errorOverlay';
 import { parseQuickStart } from './quickStart';
@@ -41,6 +46,8 @@ declare global {
     debug_force_incident?: (kind: 'yellow' | 'vsc' | 'sc' | 'red') => boolean;
     /** Test hook: renderer statistics of the last rendered frame (performance measurement). */
     render_debug_info?: () => { fps: number; calls: number; triangles: number; geometries: number; textures: number; programs: number };
+    /** Benchmark mode (?bench=1): the rows measured so far, final once `done` is true. */
+    __benchResult?: BenchResult;
   }
 }
 
@@ -94,6 +101,8 @@ export class App {
   /** online host with its page hidden: frames from a worker timer instead of animation frames (see backgroundTicker) */
   private readonly background = new BackgroundTicker(() => this.backgroundFrame());
   private errorStreak = 0;
+  /** benchmark mode (?bench=1): the page runs the scenarios instead of the menus; no auto-pause, no animation loop */
+  private readonly bench: BenchParams | null;
   private started = false;
   private destroyed = false;
 
@@ -106,7 +115,10 @@ export class App {
 
   /** Throws if WebGL 2 is unavailable (GameRenderer). */
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
+    this.bench = parseBench(window.location.search);
     this.settings = loadSettings();
+    // the benchmark never reads the player's quality and never saves what it sets
+    if (this.bench) this.settings = { ...this.settings, antialias: this.bench.antialias, resolutionScale: this.bench.scale };
     this.gr = new GameRenderer(canvas, this.settings);
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.settings);
@@ -177,6 +189,10 @@ export class App {
       };
     };
 
+    if (this.bench) {
+      this.startBench(this.bench);
+      return;
+    }
     const quick = parseQuickStart(window.location.search, hasLayout);
     let quickStarted = false;
     if (quick) {
@@ -358,6 +374,55 @@ export class App {
     else this.tick(dt, null);
   }
 
+  // ───────────────────────────── benchmark ─────────────────────────────
+
+  /** ?bench=1: run the scenarios on this page and show the result (see app/bench). */
+  private startBench(p: BenchParams): void {
+    this.started = true;
+    const panel = new BenchPanel(document.body, p, () => void run(), () => window.__benchResult ?? null);
+    const host: BenchHost = {
+      gr: this.gr,
+      setQuality: (level, tune) => {
+        resetQualityTuning();
+        tuneQuality(level, tune);
+        this.applySettings({ ...this.settings, quality: level });
+      },
+      load: (scenario) => this.benchLoad(scenario),
+      runUp: (seconds) => this.advanceTime(seconds * 1000),
+      frame: () => this.advanceTime(BENCH_FRAME_MS),
+      phase: () => this.session?.world.session.phase ?? 'none',
+      unload: () => this.disposeActive(),
+    };
+    const run = async (): Promise<void> => {
+      try {
+        const result = await runBench(host, p, {
+          progress: (m) => panel.setStatus(m),
+          row: (r) => {
+            window.__benchResult = r;
+            panel.update(r, false);
+          },
+        });
+        window.__benchResult = result;
+        panel.update(result, true);
+        if (p.hold) panel.hide();
+      } catch (err) {
+        reportError(err, '效能測試');
+        panel.setStatus(`測試中斷：${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    if (p.autorun || p.hold) void run();
+  }
+
+  private async benchLoad(sc: BenchScenario): Promise<void> {
+    const { config, ctx } = buildBenchSession(sc);
+    this.startSession(config, ctx);
+    const deadline = performance.now() + 60000;
+    while (!(this.state === 'session' && this.session)) {
+      if (this.state === 'menu' || performance.now() > deadline) throw new Error(`session ${sc.id} did not start`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
   // ───────────────────────────── sessions ─────────────────────────────
 
   private startSession(config: SessionConfig, ctx: SessionContext): void {
@@ -442,7 +507,7 @@ export class App {
       const track = getLayout(config.layoutId);
       session = new SessionRuntime(this.sessionDeps, config, ctx, track, makeNet(track));
       created?.(session);
-      session.autopilot = new URLSearchParams(window.location.search).get('autopilot') === '1';
+      session.autopilot = this.bench !== null || new URLSearchParams(window.location.search).get('autopilot') === '1';
     } catch (err) {
       reportError(err, '載入節次');
       // an online guest's link goes back to the lobby
@@ -463,7 +528,7 @@ export class App {
     this.menus.hide();
     // the tab was hidden / the window lost focus while loading: start paused like a running session would be
     // (online the race runs for everyone regardless)
-    if (!session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
+    if (!this.bench && !session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
     this.syncAway();
   }
 
@@ -704,6 +769,7 @@ export class App {
 
   /** Tab hidden or window blurred: pause the running session / replay (an online race runs on for everyone). */
   private autoPause(): void {
+    if (this.bench) return;
     if (this.state === 'session' && this.session && !this.session.fastForwarding && !this.session.onlineRole) this.session.setPaused(true);
     else if (this.state === 'replay') this.replay?.pause();
   }
