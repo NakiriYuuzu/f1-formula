@@ -104,7 +104,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     maxPixelRatio: 1,
     canvasMsaa: false,
     ibl: true,
-    adaptiveMinScale: 0.6,
+    adaptiveMinScale: 0.5,
   },
   medium: {
     level: 'medium',

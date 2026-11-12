@@ -56,6 +56,11 @@ describe('pixel-ratio cap and canvas MSAA by tier', () => {
     for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).maxPixelRatio).toBe(2);
   });
 
+  test('the low tier lets the adaptive resolution go to half the pixel ratio; the others stop at the default 60 %', () => {
+    expect(qualityProfile('low').adaptiveMinScale).toBe(0.5);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).adaptiveMinScale).toBe(ADAPTIVE_MIN_SCALE);
+  });
+
   test('only the low tier goes without MSAA on the canvas itself (the post chain of the others antialiases its own target)', () => {
     expect(qualityProfile('low').canvasMsaa).toBe(false);
     for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).canvasMsaa).toBe(true);
