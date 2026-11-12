@@ -96,7 +96,7 @@ export class BenchPanel {
   update(result: BenchResult, done: boolean): void {
     this.renderInfo(result);
     this.renderTable(result);
-    this.text.textContent = rowsToText(result);
+    this.text.replaceChildren(...rowsToText(result).split('\n').map((line) => Object.assign(document.createElement('div'), { textContent: line })));
     document.title = titleLine(result, done);
     this.copy.disabled = false;
     if (done) {

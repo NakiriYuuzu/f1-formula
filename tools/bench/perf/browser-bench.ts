@@ -9,6 +9,11 @@ import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 const SESSION = 'f1bench';
 const STATE = '/tmp/f1bench-state.json';
 const SOFT_PROFILE = '/tmp/f1-swift-profile';
+/** Column names of the panel's raw rows (benchPanel.ts COLUMNS), tab-separated. */
+const HEADER = [
+  'run', 'variant', 'quality', 'dpr', 'pixelRatio', 'scenario', 'frames', 'medianMs', 'p95Ms', 'p99Ms', 'meanMs', 'cpuMedianMs', 'gpuWaitMedianMs',
+  'drawCalls', 'triangles', 'programs', 'canvasPixels', 'canvasSamples', 'sceneSamples', 'fullscreenPasses', 'postFillMpx', 'shadowRenders', 'lights', 'shadowLights', 'ibl', 'phaseEnd', 'errors',
+].join('\t');
 
 function cua(tool: string, args: Record<string, unknown>): any {
   const r = Bun.spawnSync(['cua-driver', tool, JSON.stringify(args)], { stdout: 'pipe', stderr: 'pipe' });
@@ -31,21 +36,16 @@ function prepare(): void {
   console.log('prepared', readFileSync(STATE, 'utf8'));
 }
 
-/** The panel's raw rows (tab-separated in the page, flattened to spaces by the accessibility tree). */
-function rowsFromOutline(outline: string): string[][] | null {
-  const m = /statictext "(run variant quality[^"]*)"/.exec(outline);
-  if (!m) return null;
-  const tokens = (m[1] ?? '').trim().split(/\s+/);
-  const width = tokens.indexOf('errors') + 1;
-  const header = tokens.slice(0, width);
-  const rows: string[][] = [header];
-  const body = tokens.slice(width);
-  for (let i = 0; i + width <= body.length; i += width) rows.push(body.slice(i, i + width));
+/** The panel's raw rows: one text node per row, tab-separated in the page and flattened to spaces by the outline. */
+function rowsFromOutline(outline: string): string[][] {
+  const rows: string[][] = [];
+  for (const m of outline.matchAll(/statictext "((?:run variant|\d+ (?:base|tuned) )[^"]*)"/g)) rows.push((m[1] ?? '').trim().split(/\s+/));
   return rows;
 }
 
 async function gpu(url: string, out: string): Promise<void> {
   const s = JSON.parse(readFileSync(STATE, 'utf8'));
+  cua('browser_navigate', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, url: 'about:blank' });
   cua('browser_navigate', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, url });
   const deadline = Date.now() + 25 * 60 * 1000;
   while (Date.now() < deadline) {
@@ -53,9 +53,10 @@ async function gpu(url: string, out: string): Promise<void> {
     const snap = cua('get_browser_state', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, snapshot_format: 'semantic_v2' });
     const outline: string = snap.outline ?? '';
     if (outline.includes('測試中斷')) throw new Error('bench aborted: ' + /測試中斷[^"]*/.exec(outline)?.[0]);
-    if (/statictext "完成：/.test(outline)) {
+    const done = /statictext "完成：(\d+) 筆/.exec(outline);
+    if (done) {
       const rows = rowsFromOutline(outline);
-      if (!rows) throw new Error('no rows in the panel');
+      if (rows.length - 1 !== Number(done[1])) continue;
       writeFileSync(out, rows.map((r) => r.join('\t')).join('\n') + '\n');
       console.log(`${out}: ${rows.length - 1} rows`);
       return;
@@ -88,11 +89,11 @@ async function soft(url: string, out: string): Promise<void> {
       const title: string = cua('list_windows', { pid }).windows?.[0]?.title ?? '';
       if (!title.startsWith('NB DONE')) continue;
       for (let tries = 0; tries < 6; tries++) {
-        const ws = cua('get_window_state', { pid, window_id: windowId, session: SESSION, include_screenshot: false, query: 'variant' });
-        const m = /= "(run\tvariant[\s\S]*?)"\n/.exec(String(ws.tree_markdown ?? ''));
-        if (m) {
-          writeFileSync(out, `${m[1]}\n`);
-          console.log(`${out}: ${(m[1] ?? '').split('\n').length - 1} rows`);
+        const ws = cua('get_window_state', { pid, window_id: windowId, session: SESSION, include_screenshot: false, query: 'base' });
+        const lines = [...String(ws.tree_markdown ?? '').matchAll(/AXStaticText = "(\d+\t(?:base|tuned)\t[^"]*)"/g)].map((m) => m[1] ?? '');
+        if (lines.length > 0) {
+          writeFileSync(out, `${HEADER}\n${lines.join('\n')}\n`);
+          console.log(`${out}: ${lines.length} rows`);
           return;
         }
         await sleep(2000);
