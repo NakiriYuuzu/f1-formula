@@ -63,10 +63,11 @@ describe('the other cars as the guest draws them', () => {
     60_000,
   );
 
-  test.failing(
+  test(
     'after a link outage longer than a fix is carried, every car is put where the host has it once, none slides back',
     () => {
-      // e48caa8: every car slides back over a second (up to 2.2 m a frame), at 1.6 s one is put and ten slide
+      // e48caa8: every car slides back over a second (up to 2.2 m a frame), at 1.6 s one is put and ten slide.
+      // 9c3e7ea: at 1.0 s every car slides (44 frames over 0.5 m), at 1.6 and 1.9 s each is put once (10, 11)
       for (const ms of [1000, 1600, 1900]) {
         const r = outage(ms, 9);
         expect(r.carsSlid).toBe(0);

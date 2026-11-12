@@ -118,8 +118,10 @@ export class Follower {
   take(fix: Fix, view: number): void {
     const dt = fix.time - this.fix.time;
     if (!(dt > 0)) return;
-    const expected = carry(this.fix, Math.min(dt, MAX_CARRY));
-    const put = Math.hypot(fix.x - expected.x, fix.z - expected.z) > TELEPORT + 0.5 * MAX_ACCEL * dt * dt;
+    // (a view past the held fix's reach drew the car standing there: nothing to fade from)
+    const stood = view - this.fix.time > MAX_CARRY;
+    const expected = carry(this.fix, dt);
+    const put = stood || Math.hypot(fix.x - expected.x, fix.z - expected.z) > TELEPORT + 0.5 * MAX_ACCEL * dt * dt;
     const was = this.at;
     this.fix = fix;
     this.at = this.carryTo(view);
