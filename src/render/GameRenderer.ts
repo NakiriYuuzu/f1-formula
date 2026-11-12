@@ -67,7 +67,7 @@ export class GameRenderer {
   /** sizeVersion the current chain was sized for */
   private postSizeVersion = -1;
   private readonly bufferSize = new THREE.Vector2();
-  private readonly adaptive = new AdaptiveResolution();
+  private readonly adaptive: AdaptiveResolution;
   /** whether the last beginFrame() asked for adaptive resolution (race) or the user's fixed choice (menus) */
   private adaptiveActive = false;
   private lastFrameAt = Number.NaN;
@@ -85,13 +85,14 @@ export class GameRenderer {
     this.canvas = canvas;
     this.settings = settings;
     this.quality = qualityProfile(settings.quality);
+    this.adaptive = new AdaptiveResolution(this.quality.adaptiveMinScale);
     // listeners first so a loss during creation is tracked
     canvas.addEventListener('webglcontextlost', this.onLost, false);
     canvas.addEventListener('webglcontextrestored', this.onRestored, false);
     try {
       this.renderer = new THREE.WebGLRenderer({
         canvas,
-        antialias: settings.antialias !== false,
+        antialias: settings.antialias !== false && this.quality.canvasMsaa,
         alpha: false,
         stencil: false,
         powerPreference: 'high-performance',
@@ -125,6 +126,7 @@ export class GameRenderer {
     if (this.disposed) return;
     this.settings = settings;
     this.quality = qualityProfile(settings.quality);
+    this.adaptive.minScale = this.quality.adaptiveMinScale;
     this.renderer.shadowMap.enabled = shadowSizeFor(settings) > 0;
     if (!this.postEnabled) this.releasePost();
     this.settingsVersion++;
@@ -141,7 +143,7 @@ export class GameRenderer {
     const w = bv ? bv.width : Math.max(1, Math.floor(window.innerWidth || this.canvas.clientWidth || 1));
     const h = bv ? bv.height : Math.max(1, Math.floor(window.innerHeight || this.canvas.clientHeight || 1));
     const scale = clamp(Number.isFinite(this.settings.resolutionScale) ? this.settings.resolutionScale : 1, 0.5, 1);
-    const pr = Math.min(bv?.dpr ?? (window.devicePixelRatio || 1), 2) * scale * this.adaptive.scale;
+    const pr = Math.min(bv?.dpr ?? (window.devicePixelRatio || 1), this.quality.maxPixelRatio) * scale * this.adaptive.scale;
     if (w === this.widthCss && h === this.heightCss && Math.abs(this.renderer.getPixelRatio() - pr) < 1e-6 && this.sizeVersion > 0) return;
     this.widthCss = w;
     this.heightCss = h;

@@ -486,6 +486,9 @@ export class AdaptiveResolution {
   private sinceUpSec = Number.POSITIVE_INFINITY;
   private settle = false;
 
+  /** `minScale`: the floor, from the quality tier (QualityProfile.adaptiveMinScale). */
+  constructor(public minScale = ADAPTIVE_MIN_SCALE) {}
+
   /** Feed one frame duration (s). Returns true when `scale` changed. */
   sample(frameSec: number): boolean {
     if (!Number.isFinite(frameSec) || frameSec <= 0 || frameSec > ADAPTIVE_MAX_SAMPLE_SEC) return false;
@@ -505,7 +508,7 @@ export class AdaptiveResolution {
     }
     if (avgMs > ADAPTIVE_SLOW_MS) {
       this.fastSec = 0;
-      if (this.scale <= ADAPTIVE_MIN_SCALE + 1e-6) return false;
+      if (this.scale <= this.minScale + 1e-6) return false;
       if (this.sinceUpSec < ADAPTIVE_FLAP_SEC) this.upHoldSec = Math.min(ADAPTIVE_MAX_UP_SEC, this.upHoldSec * 2);
       return this.setScale(this.scale - ADAPTIVE_STEP);
     }
@@ -533,7 +536,7 @@ export class AdaptiveResolution {
   }
 
   private setScale(v: number): boolean {
-    const next = clamp(Math.round(v * 100) / 100, ADAPTIVE_MIN_SCALE, 1);
+    const next = clamp(Math.round(v * 100) / 100, this.minScale, 1);
     if (next === this.scale) return false;
     this.scale = next;
     this.settle = true;

@@ -63,6 +63,17 @@ export interface QualityProfile {
    * per scene, so no shader recompiles); 0 = the lamps only glow and paint their pools
    */
   lampLights: number;
+  /** cap of the device pixel ratio the canvas draws at (drawing buffer = CSS size × min(DPR, cap) × resolution scale) */
+  maxPixelRatio: number;
+  /**
+   * MSAA of the canvas's own framebuffer, fixed when the WebGL context is created (the post chain's scene target has its
+   * own samples). It only matters for direct rendering: the low tier and split-screen.
+   */
+  canvasMsaa: boolean;
+  /** scene.environment: the PMREM every PBR material samples for ambient light and reflections */
+  ibl: boolean;
+  /** lowest fraction of the pixel ratio the adaptive resolution may drop to */
+  adaptiveMinScale: number;
 }
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
@@ -90,6 +101,10 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     smaa: false,
     wetReflections: false,
     lampLights: 0,
+    maxPixelRatio: 2,
+    canvasMsaa: true,
+    ibl: true,
+    adaptiveMinScale: 0.6,
   },
   medium: {
     level: 'medium',
@@ -115,6 +130,10 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     smaa: false,
     wetReflections: false,
     lampLights: 0,
+    maxPixelRatio: 2,
+    canvasMsaa: true,
+    ibl: true,
+    adaptiveMinScale: 0.6,
   },
   high: {
     level: 'high',
@@ -140,6 +159,10 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     smaa: true,
     wetReflections: false,
     lampLights: 4,
+    maxPixelRatio: 2,
+    canvasMsaa: true,
+    ibl: true,
+    adaptiveMinScale: 0.6,
   },
   ultra: {
     level: 'ultra',
@@ -165,6 +188,10 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     smaa: true,
     wetReflections: true,
     lampLights: 6,
+    maxPixelRatio: 2,
+    canvasMsaa: true,
+    ibl: true,
+    adaptiveMinScale: 0.6,
   },
 };
 

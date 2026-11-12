@@ -236,7 +236,7 @@ export class RaceScene {
       cloudOffset: [0, 0],
     };
     this.envContext = gr.contextVersion;
-    this.envTarget = buildEnvironmentMap(gr.renderer, this.env);
+    this.envTarget = this.quality.ibl ? buildEnvironmentMap(gr.renderer, this.env) : null;
     if (this.envTarget) this.scene.environment = this.envTarget.texture;
     this.scene.environmentIntensity = this.env.envIntensity;
 
@@ -354,7 +354,7 @@ export class RaceScene {
     this.tagLights();
     this.applyShadows();
     this.precompile();
-    if (this.quality.sceneProbe) this.captureReflections();
+    if (this.probeOn) this.captureReflections();
     this.probeSig = this.probeSignature();
     // every race scene starts at the user's full resolution
     gr.resetAdaptiveResolution();
@@ -406,6 +406,7 @@ export class RaceScene {
   applySettings(settings: Settings): void {
     if (this.disposed) return;
     const prevQuality = this.quality.level;
+    const prevIbl = this.quality.ibl;
     this.settings = settings;
     this.quality = qualityProfile(settings.quality);
     this.rigCtx.settings = settings;
@@ -419,6 +420,7 @@ export class RaceScene {
       this.rain = new RainFx(this.quality.rainStreaks, this.ctx.seed);
       this.scene.add(this.rain.lines);
     }
+    if (prevIbl !== this.quality.ibl) this.rebuildEnvironmentMap();
     this.applyShadows();
   }
 
@@ -463,11 +465,16 @@ export class RaceScene {
     this.farCentre = null;
     this.probeJob?.cancel();
     this.envTarget?.dispose();
-    this.envTarget = buildEnvironmentMap(this.gr.renderer, this.env);
+    this.envTarget = this.quality.ibl ? buildEnvironmentMap(this.gr.renderer, this.env) : null;
     this.scene.environment = this.envTarget ? this.envTarget.texture : null;
-    if (this.quality.sceneProbe) this.captureReflections();
+    if (this.probeOn) this.captureReflections();
     this.probeSig = this.probeSignature();
     this.probeAge = 0;
+  }
+
+  /** The scene probe (the circuit in the reflections) rides on the environment map: no map, no probe. */
+  private get probeOn(): boolean {
+    return this.quality.ibl && this.quality.sceneProbe;
   }
 
   private probeSignature(): ProbeSignature {
@@ -495,7 +502,7 @@ export class RaceScene {
   private refreshReflections(dt: number): void {
     this.probeAge += dt;
     const r = this.gr.renderer;
-    if (this.gr.isContextLost()) return;
+    if (!this.quality.ibl || this.gr.isContextLost()) return;
     if (this.probeJob?.running) {
       this.applyLamps(1);
       const probe: SceneProbe = { scene: this.scene, position: this.probeAt ?? this.probePosition(), hide: this.probeHidden(), shadowMapSize: this.shadowSize };
@@ -507,7 +514,7 @@ export class RaceScene {
     if (!probeRefreshDue(this.probeSig, sig, this.probeAge)) return;
     this.probeSig = sig;
     this.probeAge = 0;
-    if (this.quality.sceneProbe) {
+    if (this.probeOn) {
       this.probeJob ??= new IncrementalProbe(r);
       this.probeAt ??= this.probePosition();
       this.probeJob.start(this.probeAt);
