@@ -1,0 +1,136 @@
+# AI racecraft baseline at 9c3e7ea (before ai/racecraft work). 12 laps, reverse grid, safety car off, seeds 1-8, 20 cars.
+# races:  sh tools/bench/ai/sweep.sh $PWD <outDir> b0 monza,suzuka 1,2,3,4,5,6,7,8 reverse 90 12   (b110: difficulty 110)
+# seat:   SEAT_ROOT=<frozen 9c3e7ea export> sh tools/bench/ai/sweep.sh $PWD <outDir> seatS monza,suzuka 1,2,3,4,5,6,7,8 reverse 90 12 slow 1   (seatF: ... fast 0)
+# tables: bun run tools/bench/ai/{predicate,bound,passq,seat-report}.ts <outDir> <prefix>...
+
+## predicate rows (bf5 = mean finish of the five fastest cars, who start 16-20; pace alone says 3.0)
+group                              n  bf5   held%  med1s   sp     pass repass  coll heavy ret  fastest  clean%  | back-five per seed
+b0 monza reverse d90               8  10.3     65   0.38  0.503  117.5   23%  17.4   1.8 0.0    87.52   1.62  | s1:10.8 s2:7.8 s3:11.6 s4:8.8 s5:11.0 s6:9.2 s7:10.0 s8:13.0
+b0 suzuka reverse d90              8  11.4     73   0.81  0.478   43.8    1%  14.9   0.0 0.0    96.36   2.86  | s1:9.6 s2:10.4 s3:11.2 s4:12.0 s5:12.0 s6:10.8 s7:10.8 s8:14.6
+b110 monza reverse d110            8  11.1     67   0.43  0.470  102.1   23%  28.3   2.0 0.0    86.90   1.54  | s1:11.2 s2:10.8 s3:12.4 s4:11.0 s5:8.6 s6:11.4 s7:10.6 s8:12.8
+b110 suzuka reverse d110           8  11.8     76   0.83  0.429   41.4    3%  17.3   0.0 0.0    95.48   2.64  | s1:14.2 s2:10.4 s3:11.0 s4:12.4 s5:9.4 s6:12.4 s7:12.8 s8:11.4
+
+## zero-friction bound (end-of-lap-1 times, then every car alone at its pace) and the lap-by-lap trajectory
+monza d90 b0                 n=8 bound 6.60  actual 10.28  after lap 1 16.07
+suzuka d90 b0                n=8 bound 6.22  actual 11.42  after lap 1 17.65
+monza d110 b110              n=8 bound 6.92  actual 11.10  after lap 1 16.72
+suzuka d110 b110             n=8 bound 6.05  actual 11.75  after lap 1 17.23
+monza d90 b0: by lap bound  16.1 14.5 12.9 11.4 10.2 9.4 8.7 8.2 7.7 7.3 6.9 6.6
+              actual 16.1 15.6 14.8 14.1 13.3 12.8 12.3 11.8 11.3 11.0 10.7 10.3
+suzuka d90 b0: by lap bound  17.7 15.8 13.5 11.3 10.3 9.2 8.4 8.1 7.5 7.1 6.7 6.2
+               actual 17.7 17.2 16.6 15.8 15.1 14.5 14.0 13.5 12.9 12.3 11.8 11.4
+monza d110 b110: by lap bound  16.7 15.3 13.6 11.9 10.7 9.7 8.9 8.2 7.9 7.6 7.2 6.9
+                 actual 16.7 16.3 15.5 14.8 14.3 13.7 13.3 12.6 12.3 11.9 11.5 11.1
+suzuka d110 b110: by lap bound  17.2 15.5 13.2 11.3 9.8 9.1 8.5 7.9 7.3 6.8 6.5 6.0
+                  actual 17.2 16.8 16.1 15.6 14.9 14.2 13.8 13.3 12.9 12.4 12.1 11.8
+
+## who passes whom
+
+=== b0 monza d90 (8 races) ===
+  passer slower >0.3%        24.9 a race ( 21%) | undone within 20 s 36%
+  passer slower 0-0.3%       13.1 a race ( 11%) | undone within 20 s 26%
+  passer faster 0-0.3%       15.8 a race ( 13%) | undone within 20 s 19%
+  passer faster 0.3-0.8%     20.5 a race ( 17%) | undone within 20 s 21%
+  passer faster >0.8%        43.3 a race ( 37%) | undone within 20 s 17%
+
+=== b0 suzuka d90 (8 races) ===
+  passer slower >0.3%         1.1 a race (  3%) | undone within 20 s 0%
+  passer slower 0-0.3%        1.3 a race (  3%) | undone within 20 s 0%
+  passer faster 0-0.3%        1.9 a race (  4%) | undone within 20 s 7%
+  passer faster 0.3-0.8%      5.3 a race ( 12%) | undone within 20 s 5%
+  passer faster >0.8%        34.3 a race ( 78%) | undone within 20 s 0%
+
+=== b110 monza d110 (8 races) ===
+  passer slower >0.3%        18.5 a race ( 18%) | undone within 20 s 33%
+  passer slower 0-0.3%       13.6 a race ( 13%) | undone within 20 s 25%
+  passer faster 0-0.3%       14.9 a race ( 15%) | undone within 20 s 24%
+  passer faster 0.3-0.8%     13.8 a race ( 13%) | undone within 20 s 18%
+  passer faster >0.8%        41.4 a race ( 41%) | undone within 20 s 18%
+
+=== b110 suzuka d110 (8 races) ===
+  passer slower >0.3%         2.5 a race (  6%) | undone within 20 s 5%
+  passer slower 0-0.3%        0.6 a race (  2%) | undone within 20 s 0%
+  passer faster 0-0.3%        0.8 a race (  2%) | undone within 20 s 0%
+  passer faster 0.3-0.8%      3.8 a race (  9%) | undone within 20 s 7%
+  passer faster >0.8%        33.8 a race ( 82%) | undone within 20 s 3%
+
+## car in the player's seat (SEAT_SLOT 9 = P10, the AI controller of 9c3e7ea, scripted lifts and brake stabs when a car is 0.2-1 s behind)
+
+=== seatF monza fast d90 reverse (8 races, seeds 1,2,3,4,5,6,7,8) ===
+seat pace vs field median: -0.56% (-0.83..-0.28) | seat finishes 6,6,5,9,10,3,11,4 (mean 6.8) retired 0
+  cars behind the seat, by how much faster than the seat they are
+    <=0 (slower/equal)   n= 97 passRate= 16% | within 1 s before the pass: median 0.14 laps p90 0.61 | all stints mean 0.61 laps
+    0-0.3%               n= 17 passRate= 73% | within 1 s before the pass: median 0.17 laps p90 0.41 | all stints mean 0.54 laps
+    0.3-0.8%             n= 22 passRate= 41% | within 1 s before the pass: median 0.82 laps p90 1.24 | all stints mean 0.51 laps
+    >0.8%                n=  2 passRate= 50% | within 1 s before the pass: median 0.21 laps p90 0.21 | all stints mean 0.12 laps
+    FAST (>0.3%): ended 24, passed 10 (42%), median time within 1 s before the pass 0.82 laps
+  seat behind an AI car, by how much faster than it the seat is (the AI defends)
+    <=0 (slower/equal)   n= 36 passRate= 41% | within 1 s before the pass: median 0.22 laps p90 1.00 | all stints mean 0.51 laps
+    0-0.3%               n=  9 passRate= 25% | within 1 s before the pass: median 1.02 laps p90 1.02 | all stints mean 0.76 laps
+    0.3-0.8%             n= 22 passRate= 71% | within 1 s before the pass: median 0.98 laps p90 2.44 | all stints mean 0.93 laps
+    >0.8%                n= 37 passRate= 65% | within 1 s before the pass: median 0.30 laps p90 1.08 | all stints mean 0.49 laps
+    FAST (>0.3%): ended 58, passed 39 (67%), median time within 1 s before the pass 0.62 laps
+  contacts involving the seat: 2.38 a race (heavy 0.13) | other car behind 10 ahead 8 beside 1 | during a scripted mistake 0 | AI collision events per car and race 1.02
+
+=== seatF suzuka fast d90 reverse (8 races, seeds 1,2,3,4,5,6,7,8) ===
+seat pace vs field median: -0.73% (-0.88..-0.54) | seat finishes 6,8,6,7,10,7,7,7 (mean 7.3) retired 0
+  cars behind the seat, by how much faster than the seat they are
+    <=0 (slower/equal)   n= 31 passRate=  3% | within 1 s before the pass: median 0.03 laps p90 0.03 | all stints mean 0.99 laps
+    0-0.3%               n=  1 passRate= n/a | within 1 s before the pass: median n/a laps p90 n/a | all stints mean 0.85 laps
+    0.3-0.8%             n=  3 passRate= 50% | within 1 s before the pass: median 6.37 laps p90 6.37 | all stints mean 3.12 laps
+    FAST (>0.3%): ended 2, passed 1 (50%), median time within 1 s before the pass 6.37 laps
+  seat behind an AI car, by how much faster than it the seat is (the AI defends)
+    <=0 (slower/equal)   n=  1 passRate= n/a | within 1 s before the pass: median n/a laps p90 n/a | all stints mean 0.84 laps
+    0-0.3%               n=  1 passRate= n/a | within 1 s before the pass: median n/a laps p90 n/a | all stints mean 5.70 laps
+    0.3-0.8%             n=  6 passRate=  0% | within 1 s before the pass: median n/a laps p90 n/a | all stints mean 5.61 laps
+    >0.8%                n= 22 passRate= 86% | within 1 s before the pass: median 0.90 laps p90 2.11 | all stints mean 1.24 laps
+    FAST (>0.3%): ended 26, passed 19 (73%), median time within 1 s before the pass 0.90 laps
+  contacts involving the seat: 0.50 a race (heavy 0.00) | other car behind 2 ahead 2 beside 0 | during a scripted mistake 0 | AI collision events per car and race 0.51
+
+=== seatS monza slow+mistakes d90 reverse (8 races, seeds 1,2,3,4,5,6,7,8) ===
+seat pace vs field median: 0.28% (0.06..0.55) | seat finishes 16,15,15,16,17,17,19,17 (mean 16.5) retired 0
+  cars behind the seat, by how much faster than the seat they are
+    <=0 (slower/equal)   n= 64 passRate= 45% | within 1 s before the pass: median 0.57 laps p90 1.62 | all stints mean 0.70 laps
+    0-0.3%               n= 16 passRate= 56% | within 1 s before the pass: median 1.09 laps p90 2.04 | all stints mean 0.73 laps
+    0.3-0.8%             n=  3 passRate= 33% | within 1 s before the pass: median 1.10 laps p90 1.10 | all stints mean 0.90 laps
+    >0.8%                n= 47 passRate= 81% | within 1 s before the pass: median 0.49 laps p90 0.82 | all stints mean 0.39 laps
+    FAST (>0.3%): ended 50, passed 39 (78%), median time within 1 s before the pass 0.49 laps
+  seat behind an AI car, by how much faster than it the seat is (the AI defends)
+    <=0 (slower/equal)   n= 61 passRate= 14% | within 1 s before the pass: median 0.47 laps p90 1.54 | all stints mean 0.42 laps
+    0-0.3%               n= 23 passRate= 27% | within 1 s before the pass: median 0.05 laps p90 1.92 | all stints mean 0.45 laps
+    0.3-0.8%             n= 17 passRate= 40% | within 1 s before the pass: median 0.24 laps p90 0.43 | all stints mean 0.49 laps
+    >0.8%                n=  8 passRate= 38% | within 1 s before the pass: median 0.24 laps p90 0.78 | all stints mean 0.80 laps
+    FAST (>0.3%): ended 23, passed 9 (39%), median time within 1 s before the pass 0.24 laps
+  scripted mistakes (window 15 s from the error):
+    all                        windows 152 | taken  39 (26%) after 1.0 s | closest gap median 0.31 s (at start 0.48 s)
+    lift                       windows  77 | taken  14 (18%) after 10.6 s | closest gap median 0.44 s (at start 0.48 s)
+    brake                      windows  75 | taken  25 (33%) after 0.8 s | closest gap median 0.29 s (at start 0.46 s)
+    behind faster (>0.15%)     windows  60 | taken  25 (42%) after 0.8 s | closest gap median 0.26 s (at start 0.40 s)
+    behind similar             windows  25 | taken   4 (16%) after 11.7 s | closest gap median 0.29 s (at start 0.44 s)
+    behind slower (<-0.15%)    windows  67 | taken  10 (15%) after 2.6 s | closest gap median 0.35 s (at start 0.57 s)
+    gap at arm <= 0.5 s        windows  84 | taken  33 (39%) after 1.0 s | closest gap median 0.21 s (at start 0.33 s)
+  contacts involving the seat: 0.50 a race (heavy 0.00) | other car behind 2 ahead 2 beside 0 | during a scripted mistake 0 | AI collision events per car and race 0.80
+
+=== seatS suzuka slow+mistakes d90 reverse (8 races, seeds 1,2,3,4,5,6,7,8) ===
+seat pace vs field median: 0.32% (0.21..0.51) | seat finishes 16,15,17,11,18,16,15,17 (mean 15.6) retired 0
+  cars behind the seat, by how much faster than the seat they are
+    <=0 (slower/equal)   n= 44 passRate= 38% | within 1 s before the pass: median 0.87 laps p90 3.71 | all stints mean 1.01 laps
+    0-0.3%               n=  4 passRate= 75% | within 1 s before the pass: median 0.69 laps p90 0.83 | all stints mean 0.52 laps
+    0.3-0.8%             n=  5 passRate=100% | within 1 s before the pass: median 0.52 laps p90 1.64 | all stints mean 0.78 laps
+    >0.8%                n= 37 passRate= 78% | within 1 s before the pass: median 0.41 laps p90 0.85 | all stints mean 0.37 laps
+    FAST (>0.3%): ended 42, passed 34 (81%), median time within 1 s before the pass 0.42 laps
+  seat behind an AI car, by how much faster than it the seat is (the AI defends)
+    <=0 (slower/equal)   n= 44 passRate=  2% | within 1 s before the pass: median 0.04 laps p90 0.04 | all stints mean 0.29 laps
+    0-0.3%               n= 11 passRate= 36% | within 1 s before the pass: median 0.42 laps p90 2.72 | all stints mean 0.56 laps
+    0.3-0.8%             n= 11 passRate= 11% | within 1 s before the pass: median 0.39 laps p90 0.39 | all stints mean 0.42 laps
+    >0.8%                n=  3 passRate=  0% | within 1 s before the pass: median n/a laps p90 n/a | all stints mean 0.48 laps
+    FAST (>0.3%): ended 12, passed 1 (8%), median time within 1 s before the pass 0.39 laps
+  scripted mistakes (window 15 s from the error):
+    all                        windows 148 | taken  26 (18%) after 6.1 s | closest gap median 0.32 s (at start 0.64 s)
+    lift                       windows  79 | taken   7 (9%) after 9.2 s | closest gap median 0.45 s (at start 0.62 s)
+    brake                      windows  69 | taken  19 (28%) after 5.5 s | closest gap median 0.26 s (at start 0.65 s)
+    behind faster (>0.15%)     windows  44 | taken  16 (36%) after 6.1 s | closest gap median 0.24 s (at start 0.47 s)
+    behind similar             windows   9 | taken   1 (11%) after 6.3 s | closest gap median 0.23 s (at start 0.66 s)
+    behind slower (<-0.15%)    windows  95 | taken   9 (9%) after 4.9 s | closest gap median 0.37 s (at start 0.68 s)
+    gap at arm <= 0.5 s        windows  49 | taken  16 (33%) after 5.5 s | closest gap median 0.24 s (at start 0.41 s)
+  contacts involving the seat: 1.63 a race (heavy 0.00) | other car behind 9 ahead 3 beside 1 | during a scripted mistake 6 | AI collision events per car and race 0.64

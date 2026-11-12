@@ -1,0 +1,126 @@
+--- a/src/ai/traffic.ts
++++ b/src/ai/traffic.ts
+@@ -474,9 +474,9 @@
+     const cornerOk = Math.abs(kBrake) < ATTACK_CORNER || aheadGap < 2 || stopped || lunge;
+     // a stopped / crawling car may be passed under any flag (legality.ts treats it as legal too)
+     const mayPass = !ctx.noOvertake || owed || stopped;
+-    if (!mayPass && committed) ai.attackTimer = 0;
++    if (!mayPass && committed) { ai.attackTimer = 0; (ai as any).dbgEnd = 'calloff-nopass'; }
+     // into a train / on a team-mate holding position: a move not yet alongside is called off
+-    if ((train || hold) && committed && aheadGap > 2) ai.attackTimer = 0;
++    if ((train || hold) && committed && aheadGap > 2) { ai.attackTimer = 0; (ai as any).dbgEnd = 'calloff-train'; }
+     const ready = ai.attackCooldown <= 0 || stopped || pass;
+     if (mayPass && !committed && ready && advantage && cornerOk && aheadGap < ATTACK_RANGE && ai.mode !== 'recover') {
+       // passing back a car that moves away from us (see owedTo below): stay on our side of it
+@@ -489,6 +489,7 @@
+         ai.attackPhase = 'stalk';
+         ai.phaseTimer = 0;
+         ai.switchCorner = -1;
++        (ai as any).dbgEnd = '';
+       }
+     }
+     attacking = ai.attackTarget === ahead.id && ai.attackTimer > 0;
+@@ -507,7 +508,27 @@
+       env.forced = stopped || pass;
+       attacking = runAttack(track, car, env, plan, ctx);
+     }
++    (ai as any).dbgGate = attacking
++      ? 'atk-' + ai.attackPhase
++      : ai.mode === 'recover'
++        ? 'recover'
++        : !mayPass
++          ? 'banned'
++          : hold
++            ? 'hold'
++            : train
++              ? 'train'
++              : !advantage
++                ? 'noAdv'
++                : aheadGap >= ATTACK_RANGE
++                  ? 'far'
++                  : !cornerOk
++                    ? 'corner'
++                    : !ready
++                      ? 'cooldown'
++                      : 'noSide';
+   } else {
++    (ai as any).dbgGate = 'free';
+     ai.gapCar = -1;
+     ai.closing = damp(ai.closing, 0, 2, ctx.dt);
+     ai.followTimer = Math.max(0, ai.followTimer - ctx.dt);
+@@ -532,6 +553,7 @@
+     if (stopped && stalking && pathGap > 1.2 && vP < 2) plan.speedLimit = Math.max(plan.speedLimit, 4);
+   }
+   if (ai.attackTimer <= 0 && ai.mode === 'attack') ai.mode = 'race';
++  if (ai.attackTimer <= 0 && ai.attackPhase !== 'none' && !String((ai as any).dbgEnd ?? '').startsWith('calloff') && !String((ai as any).dbgEnd ?? '').startsWith('end:')) (ai as any).dbgEnd = 'timer';
+   if (ai.attackTimer <= 0 && ai.attackPhase !== 'none') {
+     ai.attackPhase = 'none';
+     ai.switchCorner = -1;
+@@ -591,6 +613,11 @@
+     if (outside) ai.defendTimer = 0;
+     else plan.lateral = clamp(ai.defendOffset, -edge, edge);
+   }
++  (ai as any).dbgLimited = plan.speedLimit < ctx.trackSpeed - 0.3 ? 1 : 0;
++  (ai as any).dbgDefend = ai.mode === 'defend' ? 1 : 0;
++  (ai as any).dbgSpeedLimit = plan.speedLimit;
++  (ai as any).dbgTrackSpeed = ctx.trackSpeed;
++  (ai as any).dbgAheadGap = ahead ? aheadGap : -1;
+   return plan;
+ }
+ 
+@@ -739,7 +766,8 @@
+ }
+ 
+ /** The attack is over (given up / timed out): back to following, no new one for `cooldown` s. */
+-function endAttack(ai: AIState, cooldown: number): false {
++function endAttack(ai: AIState, cooldown: number, tag = ''): false {
++  (ai as any).dbgEnd = 'end:' + tag;
+   ai.attackTimer = 0;
+   ai.attackPhase = 'none';
+   ai.phaseTimer = 0;
+@@ -810,7 +838,8 @@
+     // no room on that side any more (covered): cut back under it on the corner exit, or give up and follow — a new
+     // move on the open side may start at once (no cool-down: that is not dithering)
+     if (startSwitchback(track, car, a, ctx, true)) return switchback(track, car, a, plan, ctx);
+-    return endAttack(ai, 0);
++    (ai as any).dbgRoom = [a.ahead.phys.lateral.toFixed(1), a.edge.toFixed(1), ai.attackSide, a.gap.toFixed(0), a.kAhead.toFixed(4)].join('/');
++    return endAttack(ai, 0, 'noRoom');
+   }
+   const pullOut = 8 + 0.08 * a.vMe;
+   if (a.gap > pullOut && !a.forced) {
+@@ -820,7 +849,7 @@
+       ai.attackPhase = 'stalk';
+       ai.phaseTimer = 0;
+     }
+-    if (ai.phaseTimer > STALK_TIMEOUT && ai.closing < STALK_LOSING) return endAttack(ai, ATTACK_COOLDOWN);
++    if (ai.phaseTimer > STALK_TIMEOUT && ai.closing < STALK_LOSING) return endAttack(ai, ATTACK_COOLDOWN, 'stalkTimeout');
+     if (Math.abs(car.phys.lateral - op.lateral) < a.widthSum + 0.3) {
+       plan.lateral = op.lateral;
+       plan.rate = 2.2;
+@@ -869,7 +898,7 @@
+     }
+   }
+   // commit: alongside on the attack side
+-  if (ai.phaseTimer > COMMIT_MAX) return endAttack(ai, ATTACK_COOLDOWN);
++  if (ai.phaseTimer > COMMIT_MAX) return endAttack(ai, ATTACK_COOLDOWN, 'commitMax');
+   if (startSwitchback(track, car, a, ctx, false)) return switchback(track, car, a, plan, ctx);
+   plan.lateral = sideTarget(a, ai.attackSide);
+   plan.rate = 2.8;
+@@ -916,7 +945,7 @@
+ function switchback(track: BuiltTrack, car: CarEntry, a: AttackEnv, plan: TrafficPlan, ctx: TrafficContext): boolean {
+   const ai = car.ai;
+   const corner = track.corners[ai.switchCorner];
+-  if (!corner || ai.phaseTimer > SWITCHBACK_TIME || a.gap > 30) return endAttack(ai, ATTACK_COOLDOWN);
++  if (!corner || ai.phaseTimer > SWITCHBACK_TIME || a.gap > 30) return endAttack(ai, ATTACK_COOLDOWN, 'sbEnd');
+   const s = car.phys.s;
+   ai.attackTimer = Math.max(ai.attackTimer, 1);
+   if (inRangeS(track, s, corner.apexS, corner.endS + 80)) {
+@@ -933,7 +962,7 @@
+     }
+     return true;
+   }
+-  if (!inRangeS(track, s, corner.startS - a.brakeRange - 60, corner.apexS)) return endAttack(ai, ATTACK_COOLDOWN);
++  if (!inRangeS(track, s, corner.startS - a.brakeRange - 60, corner.apexS)) return endAttack(ai, ATTACK_COOLDOWN, 'sbOut');
+   // into the corner: never closer than SWITCHBACK_GAP to it (whatever the line) — still alongside or that close,
+   // a little off the throttle early to drop in behind it
+   const gMin = SWITCHBACK_GAP + 0.03 * a.vMe;
