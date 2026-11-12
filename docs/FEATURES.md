@@ -107,6 +107,7 @@
 開機（src/main.ts）
 ├─ 不支援 WebGL 2 → 全畫面提示「您的瀏覽器不支援 WebGL 2」（可重新載入）
 ├─ URL 帶 ?quick=… → 直接開始節次（見 README；另可加 `autopilot=1`：玩家車由 AI 控制器駕駛，供自動化測試／觀戰）
+├─ URL 帶 ?bench=1 → 效能測試頁（不進選單，見附錄「畫質、效能與操控優化」）
 └─ 標題畫面 TitleScreen（展示車 + 遊戲標誌，「按任意鍵」）
    └─ 主選單 MainMenuScreen（四個分頁的色塊磚：比賽／生涯／多人／個人，Q／E 或 LB／RB 切換，換頁後焦點落在第一塊；右上角戰績卡：完賽／勝場／頒獎台／桿位／成就）
       ├─ 快速比賽（一按開賽：沿用上次大獎賽的賽道、車隊、車手、圈數、天氣與規則，只跑正賽、跳過簡報直接載入；車隊或車手不在目前名單時改用名單第一隊；完賽後回主選單，`src/meta/quickRace.ts`）
@@ -684,7 +685,7 @@ LOD 切換：高／極致畫質在每個切換距離 ±8% 的範圍內同時畫�
 | 維修區 | 維修牆 + 防護網、三層玻璃帷幕維修大樓含 11 個隊色捲門與屋簷；銀石為波浪屋頂的「機翼」造型大樓；車庫深度會依可用空間縮小（摩納哥最淺 16 m），不壓到其他路段的護欄 | `pitComplex.ts` |
 | 起跑燈架 | 橫跨賽道的門架與 5 組燈，依 `RenderFrame.startLights` 亮起與熄滅 | `pitComplex.ts` |
 | 看台與觀眾 | 主看台在起跑線附近維修道對面（長 60–180 m、14 排、有屋頂）；另在煞車最重的 4 個彎設彎道看台（40–80 m、10 排）；觀眾為 instanced 低面數人形（隨機衣服、膚色、髮色／帽子、褲色與體型）；中畫質起在頂點著色器依 instance 編號與賽道時間做搖晃與轉頭，高／極致畫質另加手臂與雙腿：車子經過附近（`CROWD_CARS`，由 `PitCrew.update` 每幀傳入最近 4 台車）或看台區塊輪流歡呼時，部分觀眾會站起來、舉手揮動；低畫質維持靜態 12 三角形版本（`CROWD_DETAIL`／`CROWD_MOTION`） | `trackside.ts`、`crowdMotion.ts`、`sceneryMaterials.ts`（`patchCrowd`） |
-| 維修人員 | 每個車庫 16 人（4 輪各槍手／拆輪／裝輪、前後千斤頂、2 名穩定員），隊色連身服、頭盔、手套、靴子；中畫質起為關節骨架（`pitCrewPose.ts` 雙骨 IK + `pitCrewRig.ts` 10 個 instanced 肢段）：跑步步態（腿與手臂擺動）、站／單膝跪／蹲姿之間平滑轉換、手實際扶著輪胎／輪胎槍／千斤頂握把、待命時重心轉移與轉頭、體型差異；低畫質為三種剛體姿勢。編排狀態機見 `pitCrewMath.ts` | `pitCrew.ts`、`pitCrewPose.ts`、`pitCrewRig.ts`、`pitCrewMath.ts` |
+| 維修人員 | 每個車庫 16 人（4 輪各槍手／拆輪／裝輪、前後千斤頂、2 名穩定員），隊色連身服、頭盔、手套、靴子；中畫質起為關節骨架（`pitCrewPose.ts` 雙骨 IK + `pitCrewRig.ts` 10 個 instanced 肢段）：跑步步態（腿與手臂擺動）、站／單膝跪／蹲姿之間平滑轉換、手實際扶著輪胎／輪胎槍／千斤頂握把、待命時重心轉移與轉頭、體型差異；肢段的邊數依畫質（低／中／高／極致 4／6／8／10）；低畫質為三種剛體姿勢，等待中的車庫組員只在鏡頭 90 m 內繪製（作業中的一律繪製）。編排狀態機見 `pitCrewMath.ts` | `pitCrew.ts`、`pitCrewPose.ts`、`pitCrewRig.ts`、`pitCrewMath.ts` |
 | 轉播鏡頭位 | 鷹架塔上的攝影位置，同時是電視轉播鏡頭的機位 | `trackside.ts` |
 | 其他結構 | 賽道工作人員崗亭；黃昏或街道賽沿賽道每 50 m 設 10 m 路燈（燈頭以橫臂接在燈桿上，不投射孤立陰影），夜間改為 22 m 泛光燈塔（3×3 燈板，塔腳下有加色路面光斑） | `trackside.ts`、`props.ts` |
 | 地標 | 依 `TrackDef.real.features` 建置（正反向自動換算）：隧道（照明燈帶、入口淡出、內部不受日光）、行人天橋、LED 網殼飯店橋、翼形主看台、傾斜橢圓高架橋與舊賽道、港灣遊艇碼頭、摩天輪、觀景塔、控制塔、天際線、三塔空中花園飯店、巨型 LED 球體、噴泉湖、湖泊、游泳池、賭場廣場、山坡住宅、森林帶、命名看台；放不下時先縮小、再沿賽道滑動、最後換邊，所有地標都有測試保證會建出且不碰到路面、護欄與維修區 | `landmarks.ts`、`landmarkArch.ts`、`features.ts` |
@@ -1085,7 +1086,10 @@ for (const l of LAYOUTS) {
 | 天空與地表 | 程式生成雲層、修剪草紋與地表細節、塗裝柏油緩衝區 | `src/render/environment.ts`、`src/render/track/sceneryMaterials.ts` |
 | 看台 | 有頂棚與後牆的看台、低多邊形坐姿觀眾（隊色球迷） | `src/render/track/trackside.ts` |
 | 車輛 LOD | 三級細節模型（約 60 m / 180 m 切換），高/極致畫質使用亮光漆材質 | `src/render/car/` |
-| 自動解析度 | 依實際幀時間自動降低/恢復解析度（最低為設定值 60%） | `src/render/GameRenderer.ts` |
+| 自動解析度 | 依實際幀時間自動降低/恢復解析度（最低為設定值 60%，低畫質 50%） | `src/render/GameRenderer.ts` |
+| 低畫質的成本 | 像素比上限 1（中畫質以上為 2，高解析螢幕不再以 2 倍繪製）；畫布不用 MSAA；不用環境貼圖，改由半球光 ×2.5 補環境光（夜間隨泛光燈淡出；看台玻璃與車漆不反射天空）；維修人員見 4.2 節 | `src/render/core/quality.ts`、`src/render/RaceScene.ts`、`src/render/environment.ts` |
+| 自動畫質 | 設定「自動畫質」開啟時由遊戲決定畫質等級（新存檔預設開啟；之前的存檔維持原本的等級、自動畫質關閉），「畫質等級」不能手動選。第一次依顯示卡名稱選：Apple 晶片與多數獨立顯卡為高，入門或較舊的獨立顯卡、近幾代內顯與無法辨識的為中，較舊的 Intel 內顯、手機 GPU 與軟體繪製為低；同一張顯卡之後沿用記下的等級。比賽在最低解析度仍連續 3 個取樣窗太慢，或連續 6 個畫格超過 0.1 秒時降一級並通知（「已自動調降畫質」），不會自動調高；降到不用畫布 MSAA 的等級時通知會說明重新整理頁面後才關閉畫面邊緣的抗鋸齒 | `src/render/core/autoQuality.ts`、`src/app/App.ts`、`src/ui/menus/screens/settings.ts` |
+| 效能測試頁 | 網址加 `?bench=1`：不進選單，在固定的畫布尺寸與像素比下以固定種子跑固定情境（Monza 發車格、Spa 車群、Spa 大雨、新加坡夜間；`scenario=stop-spa` 為全場進站），玩家車由 AI 駕駛；列出每個畫質、情境與像素比的畫格時間（中位數、p95、p99）、繪製呼叫與三角形，可複製成 JSON（`window.__benchResult`）；`tune=欄位:值` 與 `ab=1` 可把畫質表的單一欄位與預設交替比較。參數見 `tools/bench/perf/README.md` | `src/app/bench/*` |
 | 鏡頭手感 | 追焦鏡頭彈性、彎道前瞻、側向 G 傾斜；座艙頭部晃動 | `src/render/cameras.ts` |
 | 鍵盤轉向 | 依車速調整轉向斜率（低速靈敏、高速平穩） | `src/input/` |
 | 操作說明 | 暫停選單 → 操作說明（鍵盤/手把頁，顯示目前按鍵）；前 3 場比賽顯示按鍵提示列 | `src/ui/hud/controlsHelp.ts`、`controls.ts` |
@@ -1122,7 +1126,7 @@ for (const l of LAYOUTS) {
 | LOD 交叉淡化 | 硬切換 | 硬切換 | ✅ | ✅ | `car/carMaterials.ts`（`applyLodFade`）、`car/carModel.ts` |
 | 夜間真實燈光（黃昏／夜間） | — | — | 4 盞 | 6 盞 | `core/lampLights.ts`、`RaceScene.ts` |
 | 每時段 3D LUT 調色（取代色差、顆粒、暗角） | 無後製 | ✅ | ✅ | ✅ | `core/lutGrade.ts`、`core/postPipeline.ts`（`GradedOutputPass`） |
-| 維修員（10 段骨架、跑步步態、姿勢平滑過渡、手握輪胎／槍／千斤頂、待命時重心與轉頭） | 原本 3 種固定姿勢 | ✅ | ✅ | ✅ | `track/pitCrewRig.ts`、`track/pitCrewPose.ts`、`track/pitCrew.ts` |
+| 維修員（10 段骨架、跑步步態、姿勢平滑過渡、手握輪胎／槍／千斤頂、待命時重心與轉頭） | 3 種固定姿勢（4 邊形肢段；等待中的車庫組員只在鏡頭 90 m 內繪製） | ✅ | ✅ | ✅ | `track/pitCrewRig.ts`、`track/pitCrewPose.ts`、`track/pitCrew.ts` |
 | 看台觀眾（頭髮／帽子、衣褲配色、搖擺與轉頭；車經過或看台歡呼時站起揮手） | 靜態 | 搖擺、轉頭 | ✅ | ✅ | `track/trackside.ts`、`track/sceneryMaterials.ts`、`track/crowdMotion.ts` |
 
 - 兩段式陰影：近景盒 ±50 m（原本單一盒 ±70 m，近處更清晰），遠景盒 ±320 m 只畫靜態場景、快取在自己的貼圖裡，焦點移動超過 112 m（半寬的 35%）或太陽轉動才重畫（5 km 一圈約 45 次，每次只畫靜態物件）；兩張貼圖在近景邊緣 22% 範圍內平滑銜接。
