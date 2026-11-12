@@ -11,6 +11,7 @@ import { buildSessionConfig, validateSessionConfig, type SessionRequest } from '
 import { h } from '../dom';
 import {
   difficultyLabel,
+  eliminationLabel,
   kindLabel,
   KIND_LABEL,
   minutesLabel,
@@ -134,7 +135,8 @@ export class BriefingScreen extends Screen {
     const lines: HTMLElement[] = [];
     lines.push(infoLine('天氣', this.request.weather === 'dynamic' ? `動態天氣（起始：${weatherLabel(config.weather)}）` : weatherLabel(config.weather)));
     lines.push(infoLine('時段', timeLabel(config.timeOfDay)));
-    if (config.kind === 'race') lines.push(infoLine('比賽長度', config.sprint ? `${config.laps} 圈（衝刺賽，無強制進站）` : `${config.laps} 圈`));
+    if (config.raceFormat?.kind === 'elimination') lines.push(infoLine('比賽形式', `${eliminationLabel(config.raceFormat.interval)}（安全車期間倒數暫停）`));
+    else if (config.kind === 'race') lines.push(infoLine('比賽長度', config.sprint ? `${config.laps} 圈（衝刺賽，無強制進站）` : `${config.laps} 圈`));
     else if (config.kind === 'qualifying' && config.timeLimit !== null) {
       lines.push(infoLine('排位形式', `${minutesLabel(config.timeLimit)}・最多 ${config.qualifyingLaps} 個計時圈`));
     } else if (config.timeLimit !== null) lines.push(infoLine('時間', minutesLabel(config.timeLimit)));

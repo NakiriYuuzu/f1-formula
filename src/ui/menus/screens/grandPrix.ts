@@ -1,9 +1,9 @@
 /**
- * Grand Prix setup: track → team & driver → event options (distance, AI, weather, time, regulation, weekend
- * format, qualifying type), rules and assists → weekend briefing. Choices persist in the profile.
+ * Grand Prix setup: track → team & driver → event options (race format: standard over a distance or elimination
+ * with its interval, AI, weather, time, regulation, weekend format, qualifying type), rules and assists → weekend briefing. Choices persist in the profile.
  */
 import type { SessionRequest } from '../../../meta/sessionBuilder';
-import { findLayout, listLayouts, resolveLaps, weekendSessions } from '../../../meta/options';
+import { findLayout, listLayouts, raceFormatFor, resolveLaps, weekendSessions } from '../../../meta/options';
 import { standardRoster, driverName, identColor } from '../../../meta/roster';
 import { loadProfile, loadSetup, saveProfile } from '../../../meta/save';
 import type { ProfileSave } from '../../../meta/prefs';
@@ -74,7 +74,17 @@ export class GrandPrixOptionsScreen extends Screen {
     const persist = (): void => saveProfile(this.profile);
     this.startBtn = button({ label: '開始週末', variant: 'primary', onClick: () => this.start() });
     const race = raceOptionsEditor(
-      { laps: gp.laps, aiDifficulty: gp.aiDifficulty, weather: gp.weather, timeOfDay: gp.timeOfDay, regulation: gp.regulation, format: gp.format, qualifying: gp.qualifying },
+      {
+        laps: gp.laps,
+        aiDifficulty: gp.aiDifficulty,
+        weather: gp.weather,
+        timeOfDay: gp.timeOfDay,
+        regulation: gp.regulation,
+        format: gp.format,
+        qualifying: gp.qualifying,
+        raceFormat: gp.raceFormat,
+        eliminationInterval: gp.eliminationInterval,
+      },
       layout ? layout.fullLaps : null,
       (v) => {
         Object.assign(this.profile.gp, v);
@@ -134,6 +144,7 @@ export class GrandPrixOptionsScreen extends Screen {
       this.host.toast('賽道資料尚未載入', 'bad');
       return;
     }
+    const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval);
     const base: SessionRequest = {
       mode: 'grandPrix',
       kind: 'race',
@@ -162,6 +173,7 @@ export class GrandPrixOptionsScreen extends Screen {
       playerStartPosition: null,
       ghost: null,
       objective: null,
+      ...(raceFormat ? { raceFormat } : {}),
     };
     launchWeekend(this.host, base, weekendSessions(gp.format), { returnTo: 'grandPrix', round: null, storyId: null });
   }

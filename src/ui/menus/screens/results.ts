@@ -1,5 +1,6 @@
 /**
- * Session results: full classification (race: laps, time / gap, best lap, stops, penalties, points; timed
+ * Session results: full classification (race: laps, time / gap, best lap, stops, penalties, points; an elimination
+ * race names its format and places its eliminated cars, 淘汰; timed
  * sessions: best lap & gap incl. simulated AI qualifying times), fastest lap, objective outcome, progress notes,
  * podium in the 3D background for races, and next steps (next session / replay / continue).
  */
@@ -58,7 +59,8 @@ export class ResultsScreen extends Screen {
     const race = d.result.kind === 'race';
     super(host, { layout: race ? 'showroom' : 'panel', className: `nvm-results${race ? ' nvm-results--race' : ''}` });
     const { result, world, ctx, outcome } = d;
-    this.title = `${kindLabel(result.kind, result.sprint)}成績`;
+    const elimination = result.kind === 'race' && world.config.raceFormat?.kind === 'elimination';
+    this.title = `${elimination ? '淘汰賽' : kindLabel(result.kind, result.sprint)}成績`;
     const layout = findLayout(result.layoutId);
     this.podiumCars = race ? this.buildPodium() : [];
 
@@ -124,7 +126,7 @@ export class ResultsScreen extends Screen {
 
   private buildPodium(): ShowroomCar[] {
     return [...this.d.result.rows]
-      .filter((r) => r.status !== 'retired' && r.disqualified !== true && r.position >= 1)
+      .filter((r) => (r.status !== 'retired' || r.eliminated === true) && r.disqualified !== true && r.position >= 1)
       .sort((a, b) => a.position - b.position)
       .slice(0, 3)
       .map((r) => {
@@ -144,7 +146,8 @@ export class ResultsScreen extends Screen {
           const timeText = r.position === 1 && r.time !== null && r.status !== 'retired' ? formatLapTime(r.time) : r.gapText || STATUS_TEXT[r.status] || '—';
           const pts = pointsForRow(r, result.sprint === true);
           return {
-            position: r.disqualified === true ? 'DSQ' : r.status === 'retired' ? 'DNF' : String(r.position),
+            // an eliminated car is classified at its place
+            position: r.disqualified === true ? 'DSQ' : r.status === 'retired' && r.eliminated !== true ? 'DNF' : String(r.position),
             driverId: r.driverId,
             teamId: r.teamId,
             carId: r.carId,
