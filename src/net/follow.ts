@@ -2,8 +2,8 @@
  * How a guest shows what the host drives (docs/plans/phase3-online.md §2): the other cars, the safety car, and its own
  * car while the host has it (pit lane, formation, parking). Each is a Follower:
  * - the newest Fix the host sent of it (pose, speed and how both were changing), carried along its arc — speed
- *   changing at `accel`, heading at `turn` — to the time on screen. One fix is enough, so a lost snapshot only makes
- *   the next one older;
+ *   changing at `accel`, course at `turn` — to the time on screen, its yaw turning at `spin` (a sliding or spinning
+ *   car does not point where it goes). One fix is enough, so a lost snapshot only makes the next one older;
  * - an offset from that arc to what is drawn. A newer fix moves the arc; what was drawn stays where it was and the
  *   offset fades out (RATE), so a correction shows as a drift of a fraction of a second, never as a jump. Only a car
  *   the host put somewhere else (further than it could have driven since the last fix), or a view time that was set
@@ -24,9 +24,10 @@ export interface Fix {
   speed: number;
   /** direction of travel (rad, as yaw) */
   course: number;
-  /** change of speed (m/s²) and of heading (rad/s) */
+  /** change of speed (m/s²), of course and of yaw (rad/s) */
   accel: number;
   turn: number;
+  spin: number;
   /** height gained per metre travelled (the road's grade) */
   climb: number;
 }
@@ -51,10 +52,19 @@ const TELEPORT = 3;
 const MAX_ACCEL = 60;
 /** Below this turn rate (rad/s) the arc is taken as a straight with a slight bend (its closed form divides by the rate). */
 const STRAIGHT = 1e-4;
+/** A car whose course is further than this (rad) off its yaw is sliding. */
+export const SLIDE = 0.15;
+/** A sliding car slowing to this speed (m/s) stops sliding and spinning: the physics drives it kinematically below it. */
+const GRIPS = 3;
 
-/** A fix carried `t` s along its arc (t < 0: back). A braking car stops, it never reverses. */
+/**
+ * A fix carried `t` s along its arc (t < 0: back). A braking car stops, it never reverses; a braking car that slides
+ * stops turning on the spot once it is slow enough to grip.
+ */
 export function carry(f: Fix, t: number): Pose {
   const tt = f.accel < 0 && t > 0 ? Math.min(t, f.speed / -f.accel) : t;
+  const sliding = Math.abs(angleDiff(f.yaw, f.course)) > SLIDE && f.speed > GRIPS && f.accel < 0;
+  const spun = sliding && t > 0 ? Math.min(tt, (f.speed - GRIPS) / -f.accel) : tt;
   const v = Math.max(0, f.speed + f.accel * tt);
   const dist = f.speed * tt + 0.5 * f.accel * tt * tt;
   const sin0 = Math.sin(f.course);
@@ -74,7 +84,7 @@ export function carry(f: Fix, t: number): Pose {
     dx = (f.speed * cos0 - v1 * cos1) / w + (f.accel * (sin1 - sin0)) / (w * w);
     dz = (v1 * sin1 - f.speed * sin0) / w + (f.accel * (cos1 - cos0)) / (w * w);
   }
-  return { x: f.x + dx, y: f.y + f.climb * dist, z: f.z + dz, yaw: wrapAngle(f.yaw + f.turn * tt), speed: v };
+  return { x: f.x + dx, y: f.y + f.climb * dist, z: f.z + dz, yaw: wrapAngle(f.yaw + f.spin * spun), speed: v };
 }
 
 /** The host time a fix of `time` is shown at when the view time is `view` (within what it is carried). */

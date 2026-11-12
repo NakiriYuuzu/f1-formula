@@ -187,7 +187,8 @@ describe('snapshots', () => {
   };
 
   /** A motion per car of a frame (told apart by the car's place). */
-  const motions = (cars: number): Motion[] => Array.from({ length: cars }, (_, i) => ({ course: 0.3 * i - 2, accel: 4.5 * i - 20, turn: 0.25 * i - 1 }));
+  const motions = (cars: number): Motion[] =>
+    Array.from({ length: cars }, (_, i) => ({ course: 0.3 * i - 2, accel: 4.5 * i - 20, turn: 0.25 * i - 1, spin: 0.37 * i - 2.2 }));
 
   test('round trip: every field of every car as replay packs it, within its quantisation step; seq, tick, marshal panels', () => {
     const { world, track } = raceWorld();
@@ -226,10 +227,12 @@ describe('snapshots', () => {
         else expect(g).toEqual(w);
       }
       expect(Math.abs((s.frame.cars[i]!.groundPitch ?? 0) - (frame.cars[i]!.groundPitch ?? 0))).toBeLessThan(TOLERANCE.groundPitch!);
-      // how the car is moving: its course as a heading, its acceleration in 0.5 m/s² steps, its turn rate in 0.2 mrad/s steps
+      // how the car is moving: its course as a heading, its acceleration in 0.5 m/s² steps, its turn rate in 0.2 mrad/s
+      // steps, its yaw rate in 0.05 rad/s steps
       expect(Math.abs(angleDiff(motion[i]!.course, s.motion[i]!.course))).toBeLessThan(1e-4);
       expect(Math.abs(s.motion[i]!.accel - motion[i]!.accel)).toBeLessThanOrEqual(0.25);
       expect(Math.abs(s.motion[i]!.turn - motion[i]!.turn)).toBeLessThanOrEqual(1e-4);
+      expect(Math.abs(s.motion[i]!.spin - motion[i]!.spin)).toBeLessThanOrEqual(0.025);
     }
     expect(s.frame.raceControl?.mode).toBe(frame.raceControl?.mode ?? 'green');
     expect(s.frame.safetyCar).toBeNull();
@@ -240,11 +243,11 @@ describe('snapshots', () => {
     const { world, track } = raceWorld(22);
     expect(world.cars.length).toBe(22);
     const frame = { ...buildRenderFrame(world, track), safetyCar: { x: 1, y: 2, z: 3, yaw: 0.5, pitch: 0.01, speed: 40, wheelSpin: 3, lightsOn: true } };
-    const snap = encodeSnapshot({ seq: 1, tick: world.tick, time: world.time, frame, motion: motions(22), safetyCarMotion: { course: 0.5, accel: -2, turn: 0.1 } });
+    const snap = encodeSnapshot({ seq: 1, tick: world.tick, time: world.time, frame, motion: motions(22), safetyCarMotion: { course: 0.5, accel: -2, turn: 0.1, spin: 0.1 } });
     const own = encodeOwnState({ seq: 1, ack: 7, carId: 1, time: world.time, phys: world.cars[1]!.phys });
-    // 30 bytes to spare in the frame: each car's motion (5 bytes) is paid for by its wheel spin in one byte and its impact
-    // in two, not four each; the safety car's motion adds 12
-    expect(snap.byteLength).toBe(1120);
+    // 14 bytes to spare in the frame: each car's motion (6 bytes) is paid for by its wheel spin in one byte and its impact
+    // in two, not four each; the safety car's motion is a car's (6)
+    expect(snap.byteLength).toBe(1136);
     expect(own.byteLength).toBe(466);
     expect(snap.byteLength).toBeLessThanOrEqual(ONE_PACKET_BYTES);
     expect(own.byteLength).toBeLessThanOrEqual(ONE_PACKET_BYTES);
@@ -255,9 +258,10 @@ describe('snapshots', () => {
   test('a safety car pose survives; truncated / corrupted / foreign snapshots are dropped', () => {
     const { world, track } = raceWorld();
     const frame = { ...buildRenderFrame(world, track), safetyCar: { x: 1, y: 2, z: 3, yaw: 0.5, pitch: 0.01, speed: 40, wheelSpin: 3, lightsOn: true } };
-    const buf = encodeSnapshot({ seq: 9, tick: 9, time: 10, frame, motion: motions(frame.cars.length), safetyCarMotion: { course: 0.5, accel: -2, turn: 0.125 } });
+    const buf = encodeSnapshot({ seq: 9, tick: 9, time: 10, frame, motion: motions(frame.cars.length), safetyCarMotion: { course: 0.5, accel: -2, turn: 0.125, spin: -0.4 } });
     expect(decodeSnapshot(buf)!.frame.safetyCar).toMatchObject({ x: 1, y: 2, z: 3, speed: 40, lightsOn: true });
-    expect(decodeSnapshot(buf)!.safetyCarMotion).toEqual({ course: 0.5, accel: -2, turn: 0.125 });
+    expect(decodeSnapshot(buf)!.safetyCarMotion).toMatchObject({ accel: -2, turn: 0.125, spin: -0.4 });
+    expect(decodeSnapshot(buf)!.safetyCarMotion!.course).toBeCloseTo(0.5, 4);
     expect(decodeSnapshot(buf.slice(0, buf.byteLength - 3))).toBeNull();
     expect(decodeSnapshot(buf.slice(0, 10))).toBeNull();
     expect(decodeSnapshot('x')).toBeNull();

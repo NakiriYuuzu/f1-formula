@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { height, outage, spin, wall } from '../tools/bench/net/pose';
 
 describe('the other cars as the guest draws them', () => {
-  test.failing(
+  test(
     "a spinning car's nose turns with the host's, and a slow car barely turning is drawn barely turning",
     () => {
       // five random-crash spins on one link and one on another. 9c3e7ea, which drew no yaw rate: 0.29–0.41 rad off

@@ -55,6 +55,7 @@ import {
   type Motion,
   type NetMessage,
 } from './protocol';
+import { SLIDE } from './follow';
 import { decodeProbe, encodeProbe } from './probe';
 import { StatWindow, byteSize, type HostLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
@@ -100,10 +101,8 @@ const LINK_BACKLOG = 1024;
 const MIRROR_MAX_WAIT = 60;
 /** Below this speed (m/s) a car's velocity has no direction worth sending: its heading stands for its course. */
 const MOVING = 0.5;
-/** A car whose velocity is further than this (rad) off its heading is sliding. */
-const SLIDE = 0.15;
 /**
- * Rate (1/s) at which the safety car's turn rate follows its steps. The road is straight between its samples and bends
+ * Rate (1/s) at which the safety car's turn and yaw rates follow its steps. The road is straight between its samples and bends
  * at each, so one step turns by nothing or by a whole bend: averaged, it is the bend of the road it is on.
  */
 const SC_TURN_RATE = 8;
@@ -829,22 +828,25 @@ function openRoad(world: WorldState, car: CarEntry): boolean {
 }
 
 /**
- * How a car is moving, as its physics (or the autopilot driving it) left it after the step. A car that grips goes
- * where it points: its path turns as it yaws. One that slides (its velocity more than SLIDE off its heading) spins
- * on a path that only its tyres' push bends: the acceleration the physics keeps, taken along and across the velocity.
+ * How a car is moving, as its physics (or the autopilot driving it) left it after the step. Its yaw turns at its yaw
+ * rate. A car that grips goes where it points: its path turns with it. One that slides (its velocity more than SLIDE
+ * off its heading) goes on a path that only its tyres' push bends: the acceleration the physics keeps, taken along and
+ * across the velocity.
  */
 function carMotion(p: CarPhysicsState): Motion {
-  if (!(p.speed > MOVING)) return { course: p.yaw, accel: p.internal.accelLong, turn: p.yawRate };
+  const spin = p.yawRate;
+  if (!(p.speed > MOVING)) return { course: p.yaw, accel: p.internal.accelLong, turn: spin, spin };
   const course = Math.atan2(p.vx, p.vz);
-  if (Math.abs(angleDiff(p.yaw, course)) < SLIDE) return { course, accel: p.internal.accelLong, turn: p.yawRate };
+  if (Math.abs(angleDiff(p.yaw, course)) < SLIDE) return { course, accel: p.internal.accelLong, turn: spin, spin };
   const ax = p.internal.accelLong * forwardX(p.yaw) + p.internal.accelLat * rightX(p.yaw);
   const az = p.internal.accelLong * forwardZ(p.yaw) + p.internal.accelLat * rightZ(p.yaw);
-  return { course, accel: (p.vx * ax + p.vz * az) / p.speed, turn: (p.vz * ax - p.vx * az) / (p.speed * p.speed) };
+  return { course, accel: (p.vx * ax + p.vz * az) / p.speed, turn: (p.vz * ax - p.vx * az) / (p.speed * p.speed), spin };
 }
 
 interface SafetyCarStep {
   x: number;
   z: number;
+  yaw: number;
   speed: number;
   motion: Motion;
 }
@@ -855,12 +857,13 @@ interface SafetyCarStep {
  */
 function safetyCarStep(sc: SafetyCarState, prev: SafetyCarStep | null): SafetyCarStep | null {
   if (!sc.onTrack) return null;
-  if (!prev) return { x: sc.x, z: sc.z, speed: sc.speed, motion: { course: sc.yaw, accel: 0, turn: 0 } };
+  if (!prev) return { x: sc.x, z: sc.z, yaw: sc.yaw, speed: sc.speed, motion: { course: sc.yaw, accel: 0, turn: 0, spin: 0 } };
   const dx = sc.x - prev.x;
   const dz = sc.z - prev.z;
   const course = Math.hypot(dx, dz) > MOVING * SIM_DT ? Math.atan2(dx, dz) : sc.yaw;
   const turn = damp(prev.motion.turn, angleDiff(prev.motion.course, course) / SIM_DT, SC_TURN_RATE, SIM_DT);
-  return { x: sc.x, z: sc.z, speed: sc.speed, motion: { course, accel: (sc.speed - prev.speed) / SIM_DT, turn } };
+  const spin = damp(prev.motion.spin, angleDiff(prev.yaw, sc.yaw) / SIM_DT, SC_TURN_RATE, SIM_DT);
+  return { x: sc.x, z: sc.z, yaw: sc.yaw, speed: sc.speed, motion: { course, accel: (sc.speed - prev.speed) / SIM_DT, turn, spin } };
 }
 
 type RaceOwned = { eligible: boolean; available: boolean; overtake: boolean };

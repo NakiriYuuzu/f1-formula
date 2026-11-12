@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test';
 import { SIM_DT } from '../src/core/defaults';
 import { Follower, MAX_CARRY, carry, type Fix } from '../src/net/follow';
 
-const fix = (o: Partial<Fix> = {}): Fix => ({ time: 10, x: 100, y: 5, z: -40, yaw: 0.4, speed: 60, course: 0.42, accel: 0, turn: 0, climb: 0, ...o });
+const fix = (o: Partial<Fix> = {}): Fix => ({ time: 10, x: 100, y: 5, z: -40, yaw: 0.4, speed: 60, course: 0.42, accel: 0, turn: 0, spin: 0, climb: 0, ...o });
 
 /** The same motion taken in small steps: speed changing at `accel`, the course turning at `turn`. */
 function stepped(f: Fix, t: number): { x: number; z: number; speed: number } {
@@ -25,16 +25,25 @@ function stepped(f: Fix, t: number): { x: number; z: number; speed: number } {
 const dist = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z);
 
 describe('carrying a fix', () => {
-  test('a turning, braking car is where its speed and course take it; so is one going back in time', () => {
-    for (const f of [fix({ accel: -30, turn: 0.9 }), fix({ accel: 12, turn: -0.6 }), fix({ turn: 1e-6, accel: 8 }), fix({ turn: 2e-4, accel: -8 })]) {
+  test('a turning, braking car is where its speed and course take it, pointing where its yaw rate turns it; so is one going back in time', () => {
+    for (const f of [fix({ accel: -30, turn: 0.9, spin: 0.9 }), fix({ accel: 12, turn: -0.6, spin: 1.4 }), fix({ turn: 1e-6, accel: 8 }), fix({ turn: 2e-4, accel: -8, spin: -2 })]) {
       for (const t of [0.05, 0.2, 0.4, -0.1]) {
         const p = carry(f, t);
         const want = stepped(f, t);
         expect(dist(p, want)).toBeLessThan(1e-4);
         expect(p.speed).toBeCloseTo(want.speed, 9);
-        expect(p.yaw).toBeCloseTo(f.yaw + f.turn * t, 9);
+        expect(p.yaw).toBeCloseTo(f.yaw + f.spin * t, 9);
       }
     }
+  });
+
+  test('a car sliding to a halt stops turning on the spot once it is slow enough to grip', () => {
+    // 1.2 rad off its course at 4 m/s, braking at 10 m/s² and spinning at 2 rad/s: it grips at 3 m/s, 0.1 s on
+    const f = fix({ yaw: 0.42 - 1.2, speed: 4, accel: -10, spin: 2 });
+    expect(carry(f, 0.05).yaw).toBeCloseTo(f.yaw + 0.1, 9);
+    expect(carry(f, 0.3).yaw).toBeCloseTo(f.yaw + 0.2, 9);
+    // one going where it points keeps turning as it slows (a car parking, the pit lane)
+    expect(carry(fix({ speed: 4, accel: -10, spin: 0.5 }), 0.3).yaw).toBeCloseTo(0.4 + 0.15, 9);
   });
 
   test('a braking car stops where its speed runs out and stays there', () => {

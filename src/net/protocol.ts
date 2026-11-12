@@ -29,7 +29,7 @@ import type {
 import { FRAME_LAYOUT, decodeFrame, encodeFrame } from '../app/replay';
 import { TAU, wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -159,8 +159,8 @@ const MODES: readonly RaceControlMode[] = ['green', 'formation', 'vsc', 'vscEndi
 /** type, flags, seq, tick, time, cars, fields per car */
 const SNAP_HEADER = 1 + 1 + 2 + 4 + 8 + 1 + 1;
 const FLAG_SC = 1;
-/** pose (8) and motion (3) */
-const SC_FIELDS = 11;
+/** its pose (float32), then its motion (as a car's) */
+const SC_FIELDS = 8;
 
 /** How a car (or the safety car) is moving at a snapshot's time. */
 export interface Motion {
@@ -168,8 +168,10 @@ export interface Motion {
   course: number;
   /** change of speed (m/s²) */
   accel: number;
-  /** change of heading (rad/s) */
+  /** change of course (rad/s) */
   turn: number;
+  /** change of yaw (rad/s): a car sliding or spinning does not point where it goes */
+  spin: number;
 }
 
 /**
@@ -229,11 +231,29 @@ const SPIN: FieldCodec = {
 };
 /** collision impulse (N·s) in steps of 2, up to 131 kN·s (effects and sound start in the thousands) */
 const IMPULSE: FieldCodec = { bytes: 2, put: (v, o, x) => v.setUint16(o, clampInt(x / 2, 0, 0xffff)), get: (v, o) => v.getUint16(o) * 2 };
-/** a car's motion: course as a heading, acceleration in 0.5 m/s² steps (± 63), turn rate in 0.2 mrad/s steps (± 6.5 rad/s) */
+/**
+ * A car's motion: course as a heading, acceleration in 0.5 m/s² steps (± 63), turn rate in 0.2 mrad/s steps (± 6.5
+ * rad/s), yaw rate in 0.05 rad/s steps (± 6.35: the physics holds it within ± 6)
+ */
 const ACCEL: FieldCodec = { bytes: 1, put: (v, o, x) => v.setInt8(o, clampInt(x * 2, -127, 127)), get: (v, o) => v.getInt8(o) / 2 };
 const TURN = i16(5000);
-const MOTION_BYTES = HEADING.bytes + ACCEL.bytes + TURN.bytes;
-const STILL: Motion = { course: 0, accel: 0, turn: 0 };
+const YAW_RATE: FieldCodec = { bytes: 1, put: (v, o, x) => v.setInt8(o, clampInt(x * 20, -127, 127)), get: (v, o) => v.getInt8(o) / 20 };
+const MOTION_BYTES = HEADING.bytes + ACCEL.bytes + TURN.bytes + YAW_RATE.bytes;
+const STILL: Motion = { course: 0, accel: 0, turn: 0, spin: 0 };
+
+function putMotion(v: DataView, o: number, m: Motion): void {
+  HEADING.put(v, o, m.course);
+  ACCEL.put(v, (o += HEADING.bytes), m.accel);
+  TURN.put(v, (o += ACCEL.bytes), m.turn);
+  YAW_RATE.put(v, o + TURN.bytes, m.spin);
+}
+
+function getMotion(v: DataView, o: number): Motion {
+  const course = HEADING.get(v, o);
+  const accel = ACCEL.get(v, (o += HEADING.bytes));
+  const turn = TURN.get(v, (o += ACCEL.bytes));
+  return { course, accel, turn, spin: YAW_RATE.get(v, o + TURN.bytes) };
+}
 
 /**
  * Where replay packs the wheel spin and the impact of a car: FRAME_LAYOUT names neither, so a car holding nothing but
@@ -282,7 +302,8 @@ const CAR_BYTES = CAR_CODECS.reduce((n, c) => n + c.bytes, 0) + ANGLE.bytes + MO
 
 const finiteOr = (v: number, d = 0): number => (Number.isFinite(v) ? v : d);
 
-const snapshotBytes = (cars: number, sc: boolean): number => SNAP_HEADER + FRAME_LAYOUT.header * 4 + cars * CAR_BYTES + (sc ? SC_FIELDS * 4 : 0) + 4;
+const snapshotBytes = (cars: number, sc: boolean): number =>
+  SNAP_HEADER + FRAME_LAYOUT.header * 4 + cars * CAR_BYTES + (sc ? SC_FIELDS * 4 + MOTION_BYTES : 0) + 4;
 
 export function encodeSnapshot(s: Snapshot): ArrayBuffer {
   const L = FRAME_LAYOUT;
@@ -314,18 +335,16 @@ export function encodeSnapshot(s: Snapshot): ArrayBuffer {
     }
     ANGLE.put(v, o, finiteOr(cars[i]?.groundPitch ?? 0));
     o += ANGLE.bytes;
-    const m = s.motion[i] ?? STILL;
-    HEADING.put(v, o, m.course);
-    ACCEL.put(v, o + HEADING.bytes, m.accel);
-    TURN.put(v, o + HEADING.bytes + ACCEL.bytes, m.turn);
+    putMotion(v, o, s.motion[i] ?? STILL);
     o += MOTION_BYTES;
   }
   if (sc) {
-    const m = s.safetyCarMotion ?? STILL;
-    for (const x of [sc.x, sc.y, sc.z, sc.yaw, sc.pitch ?? 0, sc.speed, sc.wheelSpin, sc.lightsOn ? 1 : 0, m.course, m.accel, m.turn]) {
+    for (const x of [sc.x, sc.y, sc.z, sc.yaw, sc.pitch ?? 0, sc.speed, sc.wheelSpin, sc.lightsOn ? 1 : 0]) {
       v.setFloat32(o, finiteOr(x));
       o += 4;
     }
+    putMotion(v, o, s.safetyCarMotion ?? STILL);
+    o += MOTION_BYTES;
   }
   v.setUint8(o++, rc ? Math.max(0, MODES.indexOf(rc.mode)) : 0);
   for (let k = 0; k < 3; k++) v.setUint8(o++, Math.max(0, Math.min(2, Math.round(rc?.sectorFlags[k] ?? 0))));
@@ -361,7 +380,7 @@ export function decodeSnapshot(data: unknown): Snapshot | null {
     }
     groundPitch.push(ANGLE.get(v, o));
     o += ANGLE.bytes;
-    motion.push({ course: HEADING.get(v, o), accel: ACCEL.get(v, o + HEADING.bytes), turn: TURN.get(v, o + HEADING.bytes + ACCEL.bytes) });
+    motion.push(getMotion(v, o));
     o += MOTION_BYTES;
   }
   for (const x of packed) if (!Number.isFinite(x)) return null;
@@ -373,7 +392,8 @@ export function decodeSnapshot(data: unknown): Snapshot | null {
     for (let k = 0; k < SC_FIELDS; k++, o += 4) f.push(v.getFloat32(o));
     if (f.some((x) => !Number.isFinite(x))) return null;
     frame.safetyCar = { x: f[0]!, y: f[1]!, z: f[2]!, yaw: f[3]!, pitch: f[4]!, speed: f[5]!, wheelSpin: f[6]!, lightsOn: f[7]! > 0.5 };
-    safetyCarMotion = { course: f[8]!, accel: f[9]!, turn: f[10]! };
+    safetyCarMotion = getMotion(v, o);
+    o += MOTION_BYTES;
   } else frame.safetyCar = null;
   const mode = MODES[v.getUint8(o++)] ?? 'green';
   const sectorFlags = [v.getUint8(o++), v.getUint8(o++), v.getUint8(o++)].map((x) => Math.min(2, x));
