@@ -341,6 +341,75 @@ describe('C2 undercut / overcut / cover', () => {
     expect(covers.ai.paceMode).toBe('push');
     expect(run(false).ai.pitCall).toBe('none');
   });
+
+  /**
+   * A quicker car (varga) held 0.6 s behind a slower one (marchand) on the same worn mediums; a third car (okafor) `back`
+   * s behind it on `thirdWear`. `human` puts the human in that seat. `held`: it was 0.6 s behind the same car at the
+   * last evaluation too.
+   */
+  function heldPair(o: { back?: number; thirdWear?: number; held?: boolean; human?: 'ahead' | 'behind' } = {}) {
+    const { world, track } = frozenRace('silverstone', 30, [
+      { driver: 'marchand', human: o.human === 'ahead' },
+      { driver: 'varga', human: o.human === 'behind' },
+      { driver: 'okafor' },
+    ]);
+    const [a, b, c] = world.cars;
+    setup(world, track, a, { lap: 11, wear: 0.5, rate: 0.03, position: 1, interval: 0, compound: 'medium' });
+    setup(world, track, b, { lap: 11, wear: 0.5, rate: 0.03, position: 2, interval: 0.6, compound: 'medium' });
+    setup(world, track, c, { lap: 11, wear: o.thirdWear ?? 0.5, rate: 0.03, position: 3, interval: o.back ?? 40, compound: 'medium' });
+    if (o.held ?? true) {
+      b.ai.aheadId = a.id;
+      b.ai.aheadGap = 0.6;
+    }
+    return { world, track, a, b, c };
+  }
+
+  test('held: a lap within 1 s of a slower car → undercut it, when it comes out in clean air', () => {
+    const loss = estimatePitLoss(getLayout('silverstone'));
+    const clear = heldPair();
+    expect(clear.b.ai.paceTime).toBeLessThan(clear.a.ai.paceTime);
+    expect(decide(clear.world, clear.track, clear.b)).not.toBeNull();
+    expect(clear.b.ai.pitCall).toBe('undercut');
+    expect(clear.b.ai.planStay).toBeGreaterThan(0);
+
+    // just arrived behind it (not held yet: it may still get by on the road) → no stop
+    const arrived = heldPair({ held: false });
+    expect(decide(arrived.world, arrived.track, arrived.b)).toBeNull();
+    // a lap behind a car no slower than it: not held up, just following → no stop
+    const following = heldPair();
+    following.b.ai.paceTime = following.a.ai.paceTime;
+    expect(decide(following.world, following.track, following.b)).toBeNull();
+    // the same held car would come out right behind a car on older tyres → no stop
+    const traffic = heldPair({ back: loss - 0.3, thirdWear: 0.65 });
+    expect(decide(traffic.world, traffic.track, traffic.b)).toBeNull();
+    expect(traffic.b.ai.pitCall).toBe('none');
+    // that car boxing this lap is no traffic
+    const boxing = heldPair({ back: loss - 0.3, thirdWear: 0.65 });
+    boxing.c.pit.requested = true;
+    expect(decide(boxing.world, boxing.track, boxing.b)).not.toBeNull();
+    expect(boxing.b.ai.pitCall).toBe('undercut');
+  });
+
+  test('the car ahead covers the held car on the next lap; the human player is undercut and covered the same way', () => {
+    const covered = (human: boolean): CarEntry => {
+      const { world, track, a, b } = heldPair({ human: human ? 'behind' : undefined });
+      a.ai.behindId = b.id;
+      a.ai.behindStops = 0;
+      a.ai.behindGap = 0.6;
+      b.pit.stops = 1;
+      setup(world, track, b, { lap: 11, wear: 0.02, rate: 0.03, position: 2, interval: 0.6 + estimatePitLoss(track) - 2, compound: 'hard' });
+      decide(world, track, a);
+      return a;
+    };
+    expect(covered(false).ai.pitCall).toBe('cover');
+    expect(covered(true).ai.pitCall).toBe('cover');
+
+    // an AI held behind the human
+    const behindHuman = heldPair({ human: 'ahead' });
+    expect(behindHuman.a.playerIndex).toBe(0);
+    expect(decide(behindHuman.world, behindHuman.track, behindHuman.b)).not.toBeNull();
+    expect(behindHuman.b.ai.pitCall).toBe('undercut');
+  });
 });
 
 describe('C3 safety car / VSC', () => {
