@@ -695,9 +695,10 @@ function evaluate(
   ai.planStay = plan.best && plan.best.stints.length > 0 ? plan.best.stay : -1;
   const pick = (r: PlanResult): TireCompound => r.now?.stints[0] ?? chooseDryCompound(car, track, after, exclude);
 
-  // backstops of the fixed rules: never into the cliff; the mandatory stop with two laps to go at the latest
+  // backstops of the fixed rules: never into the cliff (the wear at the flag counted from the end of this lap, as
+  // planRace counts it); the mandatory stop with two laps to go at the latest
   const wear = p.tire.wear;
-  if (wear + rate * (after + 1) > FINISH_WEAR && wear + rate > PIT_WEAR) {
+  if (ev.wearEnd + rate * after > FINISH_WEAR && wear + rate > PIT_WEAR) {
     if (busy && wear + rate < CLIFF_WEAR) return ev;
     return stop(pick(plan), 'wear');
   }

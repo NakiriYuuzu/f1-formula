@@ -865,6 +865,21 @@ describe('review fixes', () => {
     expect(down.ai.pitCall).toBe('mandatory');
   });
 
+  test('wear backstop: a last stint that reaches the flag under FINISH_WEAR is not cut short a lap from the end', () => {
+    const lastLap = (wear: number): CarEntry => {
+      const { world, track } = frozenRace('silverstone', 25, [{ driver: 'varga' }, { driver: 'marchand' }]);
+      const [a, b] = world.cars;
+      setup(world, track, a, { lap: 24, wear, rate: 0.055, position: 1, interval: 0, compound: 'soft' });
+      setup(world, track, b, { lap: 24, wear: 0.3, rate: 0.03, position: 2, interval: 30, compound: 'medium' });
+      decide(world, track, a);
+      return a;
+    };
+    // 0.715 now, one lap and the end of this one to go at 0.055 a lap: about 0.775 at the flag
+    expect(lastLap(0.715).ai.pitCall).toBe('none');
+    // about 0.85 at the flag: still boxes
+    expect(lastLap(0.79).ai.pitCall).toBe('wear');
+  });
+
   test('cover: not after a car that has already passed us', () => {
     const { world, track } = frozenRace('silverstone', 30, [{ driver: 'varga' }, { driver: 'marchand' }, { driver: 'okafor' }]);
     const [a, b, c] = world.cars;
