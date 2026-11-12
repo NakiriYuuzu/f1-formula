@@ -54,6 +54,7 @@ function run(label: string, link: any, o: { seed?: number; cars?: number; warm?:
 
   const history: { x: number; z: number }[][] = []; // by step index n (after step n, time = n*SIM_DT)
   const pendingDrawn: { t: number; cars: { id: number; x: number; z: number }[] }[] = [];
+  const gapFrames: { step: number; cars: { id: number; x: number; z: number }[] }[] = [];
   const hostAtIdx = (t: number, id: number) => { const x = t / SIM_DT; const i = Math.floor(x); const a = history[i - 1], b = history[i]; if (!a || !b) return null; const fr = x - i; return { x: a[id]!.x + (b[id]!.x - a[id]!.x) * fr, z: a[id]!.z + (b[id]!.z - a[id]!.z) * fr }; };
   // history index: history[n-1] is state after step n? we push after each step, so history[k] = after step k+1, time (k+1)*SIM_DT
   const hostPos = (t: number, id: number) => { const x = t / SIM_DT - 1; const i = Math.floor(x); const a = history[i], b = history[i + 1]; if (!a || !b) return null; const fr = x - i; return { x: a[id]!.x + (b[id]!.x - a[id]!.x) * fr, z: a[id]!.z + (b[id]!.z - a[id]!.z) * fr }; };
@@ -130,6 +131,7 @@ function run(label: string, link: any, o: { seed?: number; cars?: number; warm?:
           if (hn && hp && cc.speed > 20) { const vx = hn.x - hp.x, vz = hn.z - hp.z, vm = Math.hypot(vx, vz); lagMs.push((((hn.x - cc.x) * vx + (hn.z - cc.z) * vz) / vm / cc.speed) * 1000); }
         }
         pendingDrawn.push({ t: fr.time, cars: drawn });
+        gapFrames.push({ step, cars: drawn });
         for (const cc of hf.cars) {
           if (!cc.visible) continue;
           if (cc.carId === gid) { hostGuestPath.add(cc.x, cc.z); const pv0 = prevHG; if (pv0) hostGuestJump.push(Math.abs(Math.hypot(cc.x - pv0.x, cc.z - pv0.z) - ((cc.speed + pv0.v) / 2) * dtR)); prevHG = { x: cc.x, z: cc.z, v: cc.speed }; continue; }
@@ -153,6 +155,28 @@ function run(label: string, link: any, o: { seed?: number; cars?: number; warm?:
       if (hk !== gk) mismatchSteps++;
     }
   }
+  // Gap error at the guest's own-car time. The host time is recovered from where the drawn own car sits on the host's path of that car, never from frame.time, so a display model cannot move the reference.
+  const gapNear: number[] = [], gapClose: number[] = []; let overlapFrames = 0;
+  const hostAt = (u: number, id: number) => { const i = Math.floor(u); const a = history[i - 1], b = history[i]; if (!a || !b) return null; const fr = u - i; return { x: a[id]!.x + (b[id]!.x - a[id]!.x) * fr, z: a[id]!.z + (b[id]!.z - a[id]!.z) * fr }; };
+  for (const gf of gapFrames) {
+    const own = gf.cars.find((cc) => cc.id === gid); if (!own || gf.step > step - 90) continue;
+    let bi = -1, bd = Infinity;
+    for (let i = Math.max(1, gf.step - 12); i <= gf.step + 60; i++) { const h = history[i - 1]; if (!h) break; const d = Math.hypot(h[gid]!.x - own.x, h[gid]!.z - own.z); if (d < bd) { bd = d; bi = i; } }
+    if (bi < 2) continue;
+    let u = NaN;
+    for (const i of [bi - 1, bi]) { const a = history[i - 1]?.[gid], b = history[i]?.[gid]; if (!a || !b) continue; const dx = b.x - a.x, dz = b.z - a.z, l2 = dx * dx + dz * dz; if (l2 < (20 * SIM_DT) ** 2) continue; const t = ((own.x - a.x) * dx + (own.z - a.z) * dz) / l2; if (t >= 0 && t <= 1) { u = i + t; break; } }
+    if (!Number.isFinite(u)) continue;
+    const ho = hostAt(u, gid); if (!ho) continue;
+    let overlap = false;
+    for (const rc of gf.cars) {
+      if (rc.id === gid) continue;
+      const dOwn = Math.hypot(rc.x - own.x, rc.z - own.z); if (dOwn > 30) continue;
+      const hr = hostAt(u, rc.id); if (!hr) continue;
+      const e = Math.hypot(rc.x - own.x - (hr.x - ho.x), rc.z - own.z - (hr.z - ho.z));
+      gapNear.push(e); if (dOwn <= 8) gapClose.push(e); if (dOwn < 1.6) overlap = true;
+    }
+    if (overlap) overlapFrames++;
+  }
   const sdG = [...pathsG.values()].flatMap((p) => p.sd), sdH = [...pathsH.values()].flatMap((p) => p.sd);
   const out = {
     label, link, seed: o.seed ?? 9, cars, renderEvery, frames, snapshots: snapN,
@@ -170,6 +194,7 @@ function run(label: string, link: any, o: { seed?: number; cars?: number; warm?:
     ownJumpInPitOrHandoff: stat(ownJumpPit), ownJumpDriving: stat(ownJumpDrive), pitsDone: world.cars[gid]!.timing ? (world.cars[gid] as any).race.usedCompounds : null,
     frameTimeBackSteps: backSteps, frameTimeBack_gt50ms: backBig, maxFrameTimeBack_s: maxBack,
     guestStatus: world.cars[gid]!.status,
+    gapErrNear_m: stat(gapNear), gapErrClose_m: stat(gapClose), overlapFrames,
   };
   return out;
 }
@@ -188,6 +213,7 @@ function show(r: any) {
   console.log(`view time - host time s : ${fs(r.viewMinusHostTime_s)}`);
   console.log(`remote lag vs host present ms (+ = behind): ${fs(r.remoteLagVsHostPresent_ms, 1)}`);
   console.log(`remote pos err vs host @shown time m      : ${fs(r.remotePosErrVsHostAtShownTime_m)}`);
+  console.log(`gap err vs host truth at own-car time m   : cars within 30 m ${fs(r.gapErrNear_m)} | within 8 m ${fs(r.gapErrClose_m)} | frames with a drawn car centre under 1.6 m from own: ${r.overlapFrames}`);
   console.log(`own drawn lead over host's own-car state ms: ${fs(r.ownLeadVsHostPresent_ms, 1)}`);
   console.log(`host input delay ms     : ${fs(r.hostInputDelay_ms, 1)} changes=${r.delayChanges} guessSteps=${r.guessSteps} ghostSteps=${r.ghostSteps} replayed=${r.replayedSteps}`);
   console.log(`HOST's drawn guest car |dP|-v*dt: ${fs(r.hostDrawsGuest_jump)}  2nd-diff: ${fs(r.hostDrawsGuest_secondDiff)}`);
@@ -222,7 +248,7 @@ for (const k of list) {
   if (k === 'wander') { for (const sd of [9, 10]) show(run(label, link, { seed: sd, wander: true })); continue; }
   if (k === 'pit') { for (const sd of [9, 10]) show(run(label, link, { seed: sd, warm: 12, measure: 110, pit: 15 })); continue; }
   if (k === 'spike') { for (const s of [9, 10]) show(run(label, link, { seed: s, spike: true })); continue; }
-  if (k === 'ram') { for (const sign of [1, -1]) { show(run(label + ' sign ' + sign, link, { seed: 9, warm: 15, measure: 25, ram: 15, ramSign: sign } as any)); } continue; }
+  if (k === 'ram') { for (const sd of [9, 10, 11]) for (const sign of [1, -1]) { show(run(label + ' sign ' + sign, link, { seed: sd, warm: 15, measure: 25, ram: 15, ramSign: sign } as any)); } continue; }
   for (const s of seeds) { const r = run(label, link, { seed: s }); show(r); }
   if (k === 'full') { show(run(label + ' [render every step, repo-comparable]', link, { seed: 9, renderEvery: 1 })); }
 }

@@ -13,6 +13,7 @@ extrapolation horizon s : n=6600 mean=0.058 p50=0.067 p99=0.067 max=0.067
 view time - host time s : n=6600 mean=0.033 p50=0.033 p99=0.033 max=0.033
 remote lag vs host present ms (+ = behind): n=33898 mean=-33.2 p50=-33.3 p99=-29.5 max=-23.2
 remote pos err vs host @shown time m      : n=72567 mean=0.046 p50=0.021 p99=0.369 max=0.826
+gap err vs host truth at own-car time m   : cars within 30 m n=6290 mean=0.411 p50=0.418 p99=0.707 max=0.827 | within 8 m n=517 mean=0.417 p50=0.438 p99=0.657 max=0.734 | frames with a drawn car centre under 1.6 m from own: 0
 own drawn lead over host's own-car state ms: n=2955 mean=25 p50=25 p99=25.1 max=25.2
 host input delay ms     : n=13200 mean=25 p50=25 p99=25 max=25 changes=1 guessSteps=0 ghostSteps=0 replayed=0
 HOST's drawn guest car |dP|-v*dt: n=6599 mean=0.001 p50=0.001 p99=0.004 max=0.017  2nd-diff: n=6598 mean=0.004 p50=0.003 p99=0.012 max=0.016
@@ -21,4 +22,4 @@ own drawn jump while not predicting/in pit: n=816 mean=0.009 p50=0.001 p99=0.076
 frame.time went backwards: 0 frames (>50 ms: 0, max 0 s)
 collisions all=0 involving guest=0 guest status=pitting
 
-wall 2.348s
+wall 2.416s

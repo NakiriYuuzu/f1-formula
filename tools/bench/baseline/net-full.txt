@@ -12,6 +12,7 @@ extrapolation horizon s : n=1800 mean=0.167 p50=0.167 p99=0.2 max=0.217
 view time - host time s : n=1800 mean=0.083 p50=0.083 p99=0.083 max=0.083
 remote lag vs host present ms (+ = behind): n=16549 mean=-83.2 p50=-83.1 p99=-75.6 max=-54.3
 remote pos err vs host @shown time m      : n=19745 mean=0.145 p50=0.099 p99=0.736 max=1.165
+gap err vs host truth at own-car time m   : cars within 30 m n=2697 mean=0.481 p50=0.491 p99=1.085 max=1.686 | within 8 m n=180 mean=0.399 p50=0.303 p99=1.633 max=1.686 | frames with a drawn car centre under 1.6 m from own: 0
 own drawn lead over host's own-car state ms: n=1520 mean=74.9 p50=74.8 p99=76.8 max=77.2
 host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1083 ghostSteps=0 replayed=1059
 HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0 p99=0.005 max=0.009  2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.011 max=0.018
@@ -33,6 +34,7 @@ extrapolation horizon s : n=1800 mean=0.167 p50=0.167 p99=0.2 max=0.217
 view time - host time s : n=1800 mean=0.083 p50=0.083 p99=0.083 max=0.083
 remote lag vs host present ms (+ = behind): n=16728 mean=-83.2 p50=-83.1 p99=-74.8 max=-32.2
 remote pos err vs host @shown time m      : n=19745 mean=0.141 p50=0.096 p99=0.716 max=1.069
+gap err vs host truth at own-car time m   : cars within 30 m n=3523 mean=0.439 p50=0.426 p99=1.043 max=1.553 | within 8 m n=192 mean=0.375 p50=0.318 p99=1.486 max=1.524 | frames with a drawn car centre under 1.6 m from own: 0
 own drawn lead over host's own-car state ms: n=1491 mean=74.9 p50=74.8 p99=77 max=80.7
 host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1094 ghostSteps=1 replayed=987
 HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.009  2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.01 max=0.02
@@ -54,6 +56,7 @@ extrapolation horizon s : n=1800 mean=0.167 p50=0.167 p99=0.2 max=0.217
 view time - host time s : n=1800 mean=0.083 p50=0.083 p99=0.083 max=0.083
 remote lag vs host present ms (+ = behind): n=16178 mean=-83.1 p50=-83.1 p99=-76.1 max=-34.7
 remote pos err vs host @shown time m      : n=19745 mean=0.141 p50=0.098 p99=0.697 max=1.266
+gap err vs host truth at own-car time m   : cars within 30 m n=2985 mean=0.443 p50=0.43 p99=1.028 max=1.373 | within 8 m n=152 mean=0.402 p50=0.35 p99=1.324 max=1.356 | frames with a drawn car centre under 1.6 m from own: 0
 own drawn lead over host's own-car state ms: n=1476 mean=74.9 p50=74.8 p99=77 max=77.9
 host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1061 ghostSteps=0 replayed=874
 HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.018  2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.01 max=0.027
@@ -75,6 +78,7 @@ extrapolation horizon s : n=3601 mean=0.167 p50=0.167 p99=0.208 max=0.225
 view time - host time s : n=3601 mean=0.083 p50=0.083 p99=0.083 max=0.083
 remote lag vs host present ms (+ = behind): n=33109 mean=-83.2 p50=-83.1 p99=-75.5 max=-52.7
 remote pos err vs host @shown time m      : n=39490 mean=0.145 p50=0.099 p99=0.737 max=1.172
+gap err vs host truth at own-car time m   : cars within 30 m n=5396 mean=0.48 p50=0.491 p99=1.085 max=1.686 | within 8 m n=359 mean=0.399 p50=0.305 p99=1.633 max=1.686 | frames with a drawn car centre under 1.6 m from own: 0
 own drawn lead over host's own-car state ms: n=3041 mean=74.9 p50=74.8 p99=76.8 max=77.2
 host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1083 ghostSteps=0 replayed=1059
 HOST's drawn guest car |dP|-v*dt: n=3600 mean=0 p50=0 p99=0.003 max=0.011  2nd-diff: n=3599 mean=0.001 p50=0.001 p99=0.005 max=0.014
@@ -83,5 +87,4 @@ own drawn jump while not predicting/in pit: n=0 mean=NaN p50=NaN p99=NaN max=NaN
 frame.time went backwards: 0 frames (>50 ms: 0, max 0 s)
 collisions all=0 involving guest=0 guest status=running
 
-wall 3.25s
-bun run $B/net/probe.ts full  4.64s user 0.19s system 147% cpu 3.283 total
+wall 3.412s
