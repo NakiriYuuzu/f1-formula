@@ -881,3 +881,25 @@ describe('review fixes', () => {
     expect(a.ai.pitCall).not.toBe('cover');
   });
 });
+
+describe('fuel (endurance race)', () => {
+  // sets that would run the whole race: only the fuel limits the stints
+  const base: PlanInput = { laps: 30, base: 90, compound: 'hard', wear: 0.02, rate: 0.005, pitLoss: 20, mandatory: false, used: ['hard'] };
+
+  test('no stint longer than a tank, the current set no further than the fuel in it', () => {
+    expect(planRace(base).best!.stints.length).toBeLessThan(2);
+    const res = planRace({ ...base, fuelStay: 5, tankLaps: 8 });
+    for (const plan of [res.best, res.now, res.later]) {
+      expect(plan).not.toBeNull();
+      expect(plan!.stay).toBeLessThanOrEqual(5);
+      expect(plan!.stintLaps.every((n) => n <= 8)).toBe(true);
+      expect(plan!.stay + plan!.stintLaps.reduce((a, b) => a + b, 0)).toBe(30);
+    }
+    // 25+ laps after the current set's 5 in stints of 8: four stops
+    expect(res.best!.stints).toHaveLength(4);
+    // no fuel for another lap: stop now
+    const dry = planRace({ ...base, fuelStay: 0, tankLaps: 8 });
+    expect(dry.best!.stay).toBe(0);
+    expect(dry.later).toBeNull();
+  });
+});
