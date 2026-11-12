@@ -143,6 +143,24 @@ export const CROWN_UNDERSIDE = 0.24;
 export const CROWN_CARDS_PER_CLUMP = 2.6;
 export const CROWN_CARD_SCALE = 2.3;
 
+/** Opaque lobes of a crown (lite, full build), their size (centre lobe, side lobes) and offset from the centre (share of the radii). */
+export const CROWN_LOBES: readonly [number, number] = [2, 4];
+export const CROWN_LOBE_SIZE: readonly [number, number] = [0.6, 0.5];
+export const CROWN_LOBE_SPREAD = 0.42;
+/** Random push of each lobe corner in or out (share of the lobe radius). */
+export const CROWN_LOBE_BUMP = 0.34;
+/** Share of the leaf cards the lite build keeps. */
+export const CROWN_LITE_CARDS = 0.3;
+
+/** Branch points per conifer tier in the lite build (the far / low-quality spruce keeps its tiers, with a simpler star). */
+export const CONIFER_LITE_POINTS = 5;
+
+/** Hash of a lobe corner (−1..1 coordinates) to 0..1. */
+function hash3d(x: number, y: number, z: number, seed: number): number {
+  const h = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed * 0.123) * 43758.5453;
+  return h - Math.floor(h);
+}
+
 /** A crown: leaf cards (`clumps` × CROWN_CARDS_PER_CLUMP, edge from `size`) in an ellipsoid at `c` with radii `r`. */
 export interface CrownShape {
   c: readonly [number, number, number];
@@ -167,30 +185,41 @@ function solidUv(g: GeoBuilder, start: number): void {
 }
 
 /**
- * Crown of alpha-tested leaf cards around a small dense core (napali's broadleaf crowns: lobed envelopes of leaf
+ * Crown of alpha-tested leaf cards around a dense core of lumpy lobes (napali's broadleaf crowns: lobed envelopes of leaf
  * clusters with gaps between them). Every normal is the envelope's outward normal, so the crown lights as one soft
  * volume (patchFoliage keeps it on both card sides); vertex colours bake the interior and underside occlusion.
- * Lite (low quality) builds half the cards.
+ * Lite (low quality, far plants) builds fewer lobes and CROWN_LITE_CARDS of the cards.
  */
 export function addCrown(b: TintBuilder, s: CrownShape): void {
   const rng = new Rng(s.seed);
   const g = b.geo;
   const start = g.vertexCount;
   g.setColor(_col.set('#ffffff'));
-  // dense core: the middle of the crown is never see-through
-  const cores = b.lite ? 1 : 3;
-  for (let i = 0; i < cores; i++) {
+  // dense core of lumpy lobes, one in the middle and the rest round it: the crown is never see-through and its
+  // silhouette is a cloud of bumps instead of one faceted ball
+  const lobes = b.lite ? CROWN_LOBES[0] : CROWN_LOBES[1];
+  const turn = rng.range(0, Math.PI * 2);
+  for (let i = 0; i < lobes; i++) {
     const core = new THREE.IcosahedronGeometry(1, 0);
-    _v.set(s.c[0] + rng.range(-0.25, 0.25) * s.r[0], s.c[1] + rng.range(-0.15, 0.2) * s.r[1], s.c[2] + rng.range(-0.25, 0.25) * s.r[2]);
+    const pos = core.getAttribute('position');
+    for (let k = 0; k < pos.count; k++) {
+      // the same corner moves the same way on every face that shares it (no cracks)
+      const bump = 1 + CROWN_LOBE_BUMP * (hash3d(pos.getX(k), pos.getY(k), pos.getZ(k), s.seed + i) - 0.5);
+      pos.setXYZ(k, pos.getX(k) * bump, pos.getY(k) * bump, pos.getZ(k) * bump);
+    }
+    const a = turn + (i / Math.max(1, lobes - 1)) * Math.PI * 2 + rng.range(-0.35, 0.35);
+    const off = i === 0 ? 0 : CROWN_LOBE_SPREAD;
+    _v.set(s.c[0] + Math.cos(a) * off * s.r[0], s.c[1] + (i === 0 ? 0.05 : rng.range(-0.3, 0.2)) * s.r[1], s.c[2] + Math.sin(a) * off * s.r[2]);
     _q.setFromEuler(_e.set(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3)));
-    _m.compose(_v, _q, _s.set(s.r[0] * 0.6, s.r[1] * 0.6 * (s.flat ?? 1), s.r[2] * 0.6));
+    const k = (i === 0 ? CROWN_LOBE_SIZE[0] : CROWN_LOBE_SIZE[1]) * rng.range(0.9, 1.08);
+    _m.compose(_v, _q, _s.set(s.r[0] * k, s.r[1] * k * (s.flat ?? 1), s.r[2] * k));
     addGeometry(g, core, _m);
     core.dispose();
   }
   solidUv(g, start);
   const cell = s.cell === 'needle' ? FOLIAGE_UV.needle : FOLIAGE_UV.leaf;
   const aspect = s.cell === 'needle' ? 2.3 : 1;
-  const n = Math.max(4, Math.round(s.clumps * CROWN_CARDS_PER_CLUMP * (b.lite ? 0.5 : 1)));
+  const n = Math.max(4, Math.round(s.clumps * CROWN_CARDS_PER_CLUMP * (b.lite ? CROWN_LITE_CARDS : 1)));
   for (let i = 0; i < n; i++) {
     const u = Math.max(rng.range(-1, 1), -(s.under ?? 0.75));
     const th = rng.range(0, Math.PI * 2);
@@ -271,7 +300,7 @@ export function addConiferTiers(b: TintBuilder, y0: number, top: number, r0: num
     const apex = g.vertex(0, base + h, 0, 0, 1, 0, FOLIAGE_UV.solid[0], FOLIAGE_UV.solid[1]);
     g.colors[apex * 3] = g.colors[apex * 3 + 1] = g.colors[apex * 3 + 2] = 0.62;
     const ring: number[] = [];
-    const m = points * 2;
+    const m = (b.lite ? Math.min(points, CONIFER_LITE_POINTS) : points) * 2;
     for (let i = 0; i < m; i++) {
       const tip = i % 2 === 0;
       const a = rot + (i / m) * Math.PI * 2 + rng.range(-0.08, 0.08);
@@ -473,9 +502,9 @@ function pine(crown: readonly string[], weight: number, cluster: number): Specie
     shadow: true,
     build: (b) => {
       // tall bare trunk, a high tufted crown of flattened needle clumps (Scots / maritime pine)
-      b.add(cyl(0.13, 0.24, 6.2, 6), '#6a4a34', 0, 0, 3.1, 0);
-      addLimbs(b, '#5e4330', 4.4, 6.6, 1.6, 4, 31);
-      addCrown(b, { c: [0, 7.0, 0], r: [2.7, 1.6, 2.7], clumps: 20, size: [0.42, 0.6], under: 0.45, flat: 0.8, cell: 'needle', seed: 32 });
+      b.add(cyl(0.14, 0.26, 5.8, 6), '#6a4a34', 0, 0, 2.9, 0);
+      addLimbs(b, '#5e4330', 4.0, 6.4, 1.8, 4, 31);
+      addCrown(b, { c: [0, 6.8, 0], r: [3.0, 2.1, 3.0], clumps: 20, size: [0.42, 0.6], under: 0.45, flat: 0.8, cell: 'needle', seed: 32 });
     },
   };
 }
@@ -506,9 +535,9 @@ function broadleaf(name: string, crown: readonly string[], weight: number, clust
     clearance: 5,
     shadow: true,
     build: (b) => {
-      b.add(cyl(0.18, 0.32, 3.4, 6), TRUNK, 0, 0, 1.7, 0);
-      addLimbs(b, '#4f3826', 2.8, 5.2, 2.0, 4, hashName(name));
-      addCrown(b, { c: [0, 5.4, 0], r: [3.0, 2.5, 3.0], clumps: 18, size: [0.9, 1.45], under: 0.6, seed: hashName(name) + 1 });
+      b.add(cyl(0.2, 0.34, 3.2, 6), TRUNK, 0, 0, 1.6, 0);
+      addLimbs(b, '#4f3826', 2.6, 5.0, 2.4, 4, hashName(name));
+      addCrown(b, { c: [0, 5.1, 0], r: [3.6, 2.8, 3.6], clumps: 18, size: [0.9, 1.45], under: 0.6, seed: hashName(name) + 1 });
     },
   };
 }

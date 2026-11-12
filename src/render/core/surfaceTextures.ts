@@ -635,20 +635,21 @@ export function foliageAtlasTexture(anisotropy: number, seed = 141): THREE.DataT
     const v = rng.range(lo, hi);
     return `rgb(${Math.round(v * rng.range(0.9, 1.02))},${Math.round(v)},${Math.round(v * rng.range(0.72, 0.9))})`;
   };
-  // broadleaf cluster (512 × 512): twigs, then ~420 leaves densest at the centre
+  // broadleaf cluster (512 × 512): short twigs that stay inside the leaves (bare twigs reaching past them read as dark spikes
+  // round every crown once the small leaves fade in the mips), then leaves filling a ragged disc, densest at the centre
   g.lineCap = 'round';
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 16; i++) {
     const a = rng.range(0, Math.PI * 2);
-    const r = rng.range(60, 200);
+    const r = rng.range(40, 120);
     g.strokeStyle = `rgb(${Math.round(rng.range(70, 95))},${Math.round(rng.range(60, 80))},${Math.round(rng.range(45, 60))})`;
-    g.lineWidth = rng.range(1.5, 3.5);
+    g.lineWidth = rng.range(1.2, 2.6);
     g.beginPath();
     g.moveTo(256, 256);
     g.quadraticCurveTo(256 + Math.cos(a + 0.4) * r * 0.5, 256 + Math.sin(a + 0.4) * r * 0.5, 256 + Math.cos(a) * r, 256 + Math.sin(a) * r);
     g.stroke();
   }
-  for (let i = 0; i < 640; i++) {
-    const rr = Math.min(1, Math.abs(rng.range(-1, 1) * rng.range(0.35, 1)) + 0.04) * 218;
+  for (let i = 0; i < 960; i++) {
+    const rr = Math.min(1, Math.sqrt(rng.next()) * 0.86 + rng.range(0, 0.14)) * 218;
     const a = rng.range(0, Math.PI * 2);
     const x = 256 + Math.cos(a) * rr;
     const y = 256 + Math.sin(a) * rr;
