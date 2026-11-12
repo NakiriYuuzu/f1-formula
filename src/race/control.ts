@@ -578,13 +578,20 @@ function progressIncident(world: WorldState, track: BuiltTrack, inc: Incident): 
       inc.onSurface &&
       car.race.stopTime >= STRANDED_SEC &&
       world.session.phase === 'running' &&
-      world.session.control.mode === 'green'
+      world.session.control.mode === 'green' &&
+      !world.session.elimination
     ) {
-      // stranded on the racing surface: a virtual safety car until it gets going again
+      // stranded on the racing surface: a virtual safety car until it gets going again (not in an elimination race:
+      // its countdown waits for the green flag, and it is the countdown that takes a standing car out)
       inc.response = 'vsc';
       deployVsc(world, incidentText(track, inc));
     }
     if (inc.resolved || inc.recoverAt === null) return;
+  }
+  // a car that stood on the road and has left the race there (retired from the menu, eliminated) is no longer in the way
+  if (car && car.status === 'retired' && !car.race.hazard && inc.recoverAt === null && inc.forced === null && (inc.response === 'yellow' || inc.response === 'vsc')) {
+    inc.resolved = true;
+    return;
   }
   if (inc.recoverAt !== null && now >= inc.recoverAt) {
     if (car && car.status !== 'retired' && car.ai.failing) retireAsHazard(world, car, failReason(car));

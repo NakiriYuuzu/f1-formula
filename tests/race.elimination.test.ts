@@ -306,6 +306,23 @@ describe('elimination rules', () => {
     expect(mine).toMatchObject({ position: 6, gapText: '淘汰', eliminated: true, status: 'retired', playerIndex: 0 });
   }, 60_000);
 
+  test('the player standing on the grid with the safety car rules on: no VSC stops the countdown for it, it is out, and its yellow goes with it', () => {
+    const r = start({ cars: 6, interval: 30, player: true, safetyCar: 'standard' });
+    const me = getPlayerCarId(r.world, 0);
+    let vscForMe = false;
+    run(r, 200, (w) => {
+      if (w.race.incidents.some((i) => !i.resolved && i.carId === me && i.response === 'vsc')) vscForMe = true;
+      return r.outs.length > 0;
+    });
+    expect(vscForMe).toBe(false);
+    expect(r.outs[0]).toMatchObject({ carId: me, position: 6 });
+    run(r, 5);
+    expect(r.world.race.incidents.filter((i) => !i.resolved && i.carId === me)).toHaveLength(0);
+    // and the race runs to its end
+    run(r, 1500);
+    expect(isSessionOver(r.world)).toBe(true);
+  }, 90_000);
+
   test('a 2-car race: the car behind at the first elimination is out and the other wins there and then', () => {
     const r = start({ cars: 2, interval: 30 });
     let behind = -1;

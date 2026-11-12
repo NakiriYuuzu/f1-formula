@@ -14,6 +14,7 @@ import {
   createWorld,
   forceIncident,
   isSessionOver,
+  retireCar,
   snapshotWorld,
   stepWorld,
 } from '../src/race/index';
@@ -380,6 +381,24 @@ describe('flags and give-backs', () => {
     expect(vscWhileStopped).toBe(true);
     expect(modes.slice(0, 3)).toEqual(['vsc', 'vscEnding', 'green']);
     expect(world.session.control.mode).toBe('green');
+  }, 60000);
+
+  test('a car stranded on the racing surface that retires where it stands takes its VSC with it', () => {
+    const { world, track } = race({ layout: 'highland-ridge', laps: 8, safetyCar: 'reduced', seed: 5 });
+    const me = world.cars.find((c) => c.playerIndex === 0)!;
+    // the human never leaves the grid: the VSC, then (from the pause menu) it retires
+    const coast = (maxSec: number, mode: string): void => {
+      for (let i = 0; i < Math.round(maxSec / SIM_DT) && world.session.control.mode !== mode; i++) {
+        stepWorld(world, track, [null, null], SIM_DT);
+        world.events.length = 0;
+      }
+    };
+    coast(60, 'vsc');
+    expect(world.session.control.mode).toBe('vsc');
+    retireCar(world, me.id, '');
+    coast(60, 'green');
+    expect(world.session.control.mode).toBe('green');
+    expect(world.race.incidents.filter((i) => !i.resolved && i.carId === me.id)).toHaveLength(0);
   }, 60000);
 
   test('a car about to be lapped sees the blue flag', () => {
