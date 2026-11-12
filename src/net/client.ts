@@ -31,6 +31,7 @@
 import type {
   BuiltTrack,
   CarEntry,
+  CarPhysicsState,
   CarRenderState,
   ControlInput,
   ErsMode,
@@ -166,6 +167,8 @@ export class ClientSession {
   private view: number | null = null;
   /** host time of the snapshot the own car was last reconciled to */
   private ownSnapTime: number | null = null;
+  /** the host's state of the own car then: what its prediction starts from, the pending inputs played on it */
+  private hostOwn: CarPhysicsState | null = null;
   /** the player watches the others (own car out of the race; setSpectating) */
   private spectating = false;
   private events: GameEvent[] = [];
@@ -454,7 +457,9 @@ export class ClientSession {
     this.drive = to;
     const follower = this.followers.get(this.carId);
     if (to === 'predicted') {
-      // from the host's last state, with every input it has not played
+      // from the host's last state, with every input it has not played (since it was taken the car may have been
+      // predicted on and handed to the host: that state has them played already)
+      if (this.hostOwn) assignDeep(car.phys as unknown as Record<string, unknown>, this.hostOwn as unknown as Record<string, unknown>);
       for (const p of this.pending) this.predict(car, p.input);
       const d = { x: drawn.x - car.phys.x, y: drawn.y - car.phys.y, z: drawn.z - car.phys.z };
       this.smooth = follower && Math.hypot(d.x, d.z) < HANDOVER_MAX ? d : { x: 0, y: 0, z: 0 };
@@ -643,6 +648,7 @@ export class ClientSession {
     const before = { x: car.phys.x, y: car.phys.y, z: car.phys.z };
     const drawn = this.drawnOwn(car);
     this.ownSnapTime = own.time;
+    this.hostOwn = own.phys;
     assignDeep(car.phys as unknown as Record<string, unknown>, own.phys as unknown as Record<string, unknown>);
     if (own.ack !== null) {
       const ack = own.ack;

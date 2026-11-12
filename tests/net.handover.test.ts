@@ -182,7 +182,7 @@ describe('online: the own car between the guest and the host', () => {
     120_000,
   );
 
-  test.failing(
+  test(
     "the host takes the car and hands it straight back before its next state: the guest's inputs are played once",
     () => {
       const r = requestWithdrawn();
