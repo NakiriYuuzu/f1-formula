@@ -1,19 +1,24 @@
 /**
  * Form editors shared by several screens: driving assists (preset + every item), session rules,
- * race options (laps / difficulty / weather / time / regulation / format / qualifying) and season settings.
+ * race options (race format / laps or elimination interval / difficulty / weather / time / regulation / format /
+ * qualifying) and season settings.
  */
 import type { Assists, Regulation, SafetyCarSetting, SessionRules } from '../../../core/types';
 import { ASSIST_PRESETS } from '../../../core/defaults';
 import {
+  DEFAULT_ELIMINATION_INTERVAL,
   detectAssistPreset,
+  ELIMINATION_INTERVALS,
   LAPS_CHOICES,
   QUALIFYING_TYPES,
+  RACE_FORMATS,
   TIME_OF_DAY_CHOICES,
   WEATHER_CHOICES,
   WEEKEND_FORMATS,
   type AssistPreset,
   type LapsChoice,
   type QualifyingType,
+  type RaceFormatChoice,
   type TimeOfDayChoice,
   type WeatherChoice,
   type WeekendFormat,
@@ -31,6 +36,7 @@ import {
   lapsLabel,
   PRESET_LABEL,
   QUALI_LABEL,
+  RACE_FORMAT_LABEL,
   RACING_LINE_LABEL,
   SAFETY_CAR_LABEL,
   SPRINT_WEEKEND_DESCRIPTION,
@@ -183,6 +189,9 @@ export interface RaceOptionsValue {
   regulation: Regulation;
   format: WeekendFormat;
   qualifying: QualifyingType;
+  /** Grand Prix only (absent = standard) */
+  raceFormat?: RaceFormatChoice;
+  eliminationInterval?: number;
 }
 
 export const REGULATION_OPTIONS: { value: Regulation; label: string }[] = [
@@ -195,7 +204,7 @@ export function raceOptionsEditor(
   initial: RaceOptionsValue,
   fullLaps: number | null,
   onChange: (v: RaceOptionsValue) => void,
-  fields: readonly (keyof RaceOptionsValue)[] = ['laps', 'aiDifficulty', 'weather', 'timeOfDay', 'regulation', 'format', 'qualifying'],
+  fields: readonly (keyof RaceOptionsValue)[] = ['raceFormat', 'laps', 'eliminationInterval', 'aiDifficulty', 'weather', 'timeOfDay', 'regulation', 'format', 'qualifying'],
   title = '賽事設定',
   formats: readonly WeekendFormat[] = WEEKEND_FORMATS,
 ): HTMLElement {
@@ -228,8 +237,37 @@ export function raceOptionsEditor(
     regulation: () => cycler<Regulation>({ label: '規則年份', options: REGULATION_OPTIONS, value: value.regulation, onChange: set('regulation'), description: '2026：車身更小更輕、直線模式取代 DRS、1 秒內可用 Overtake' }).el,
     format: () => cycler<WeekendFormat>({ label: '週末賽制', options: opts(formats, FORMAT_LABEL), value: value.format, onChange: set('format'), description: formats.includes('sprint') ? SPRINT_WEEKEND_DESCRIPTION : undefined }).el,
     qualifying: () => cycler<QualifyingType>({ label: '排位形式', options: opts(QUALIFYING_TYPES, QUALI_LABEL), value: value.qualifying, onChange: set('qualifying'), description: '單圈排位只計 1 個計時圈；短排位最多 3 個計時圈' }).el,
+    raceFormat: () =>
+      cycler<RaceFormatChoice>({
+        label: '比賽形式',
+        options: opts(RACE_FORMATS, RACE_FORMAT_LABEL),
+        value: value.raceFormat ?? 'standard',
+        onChange: (v) => {
+          set('raceFormat')(v);
+          showFormatRows();
+        },
+        description: '淘汰賽：每隔一段時間淘汰最後一名，留到最後的車手獲勝；不計圈數',
+      }).el,
+    eliminationInterval: () =>
+      cycler<number>({
+        label: '淘汰間隔',
+        options: ELIMINATION_INTERVALS.map((sec) => ({ value: sec, label: `每 ${sec} 秒` })),
+        value: value.eliminationInterval ?? DEFAULT_ELIMINATION_INTERVAL,
+        onChange: set('eliminationInterval'),
+        description: '安全車、虛擬安全車與紅旗期間倒數暫停',
+      }).el,
   };
-  return panel(title, fields.map((f) => rows[f]()));
+  const built = new Map(fields.map((f) => [f, rows[f]()] as const));
+  // the laps do not apply to an elimination race, the interval only to one
+  function showFormatRows(): void {
+    const elimination = value.raceFormat === 'elimination';
+    const laps = built.get('laps');
+    const interval = built.get('eliminationInterval');
+    if (laps) laps.hidden = elimination;
+    if (interval) interval.hidden = !elimination;
+  }
+  showFormatRows();
+  return panel(title, [...built.values()]);
 }
 
 /** Season settings (career / My Team): race options + rules. */

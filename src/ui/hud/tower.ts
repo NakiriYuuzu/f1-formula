@@ -2,7 +2,7 @@
  * Timing tower: every car in classification order (car rows glide to their new slot while the position numbers stay
  * fixed per slot, so the column always reads 1..N even mid-glide), team colour, abbreviation,
  * tyre letter, gap-to-leader / interval toggle (race) or best-lap gap (other sessions), pit / finished /
- * retired / penalty markers, fastest-lap marker, player highlight and the spectated car's outline. Refreshed at 5 Hz.
+ * retired (淘汰 in an elimination race) / penalty markers, fastest-lap marker, player highlight and the spectated car's outline. Refreshed at 5 Hz.
  * When the column would run into the minimap below it, only a window of rows is shown (pickTowerRows): the leaders
  * plus the rows around the player (or the watched car).
  */
@@ -100,6 +100,8 @@ export class TimingTower {
   private isRace = true;
   /** cars a spectating player watches */
   private watched: readonly number[] = [];
+  /** elimination race: the cars out by the countdown */
+  private eliminated: readonly number[] = [];
   /** the block below the tower (the minimap column): the rows must end above it */
   private limit: Element | null = null;
   private bodyRows = -1;
@@ -145,6 +147,7 @@ export class TimingTower {
     if (this.accum < REFRESH) return;
     this.accum = 0;
     this.isRace = world.session.kind === 'race';
+    this.eliminated = world.session.elimination?.out ?? [];
     this.cars = world.cars;
     this.ensureRows(world.cars);
     this.title.set(this.isRace ? '名次' : '最快圈');
@@ -272,7 +275,7 @@ export class TimingTower {
 
   private valueText(car: CarEntry, index: number, order: readonly CarEntry[], leaderBest: number | null): string {
     const t = car.timing;
-    if (car.status === 'retired') return '退賽';
+    if (car.status === 'retired') return this.eliminated.includes(car.id) ? '淘汰' : '退賽';
     if (!this.isRace) {
       if (t.bestLap == null) return '無時間';
       if (index === 0 || leaderBest == null) return formatLapTime(t.bestLap);

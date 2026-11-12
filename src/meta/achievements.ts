@@ -79,8 +79,9 @@ function humanRow(result: SessionResult): ResultRow | undefined {
   return result.rows.find((r) => r.playerIndex === 0);
 }
 
+/** Classified at the end: a finisher, or a car eliminated by the countdown (it races to its place, not a DNF). */
 function finished(row: ResultRow): boolean {
-  return row.status !== 'retired' && row.disqualified !== true && row.position >= 1;
+  return (row.status !== 'retired' || row.eliminated === true) && row.disqualified !== true && row.position >= 1;
 }
 
 /** Stats after counting this session. */

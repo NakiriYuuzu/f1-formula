@@ -135,7 +135,9 @@ export class MainMenuScreen extends Screen {
     const profile = loadProfile();
     const plan = quickRacePlan(profile, standardRoster(), loadSetup, 0);
     const sub = this.quickTile.querySelector<HTMLElement>('.nvm-tile__sub');
-    if (sub) setText(sub, plan ? `${plan.layoutName}・${plan.teamName}・${plan.request.raceLaps} 圈` : '上次的大獎賽設定，直接開賽');
+    const format = plan?.request.raceFormat;
+    const length = format ? `淘汰賽（每 ${format.interval} 秒）` : `${plan?.request.raceLaps} 圈`;
+    if (sub) setText(sub, plan ? `${plan.layoutName}・${plan.teamName}・${length}` : '上次的大獎賽設定，直接開賽');
     // the track the quick race will start, drawn in white on the pink field
     const layoutId = plan?.request.layoutId ?? '';
     if (layoutId !== this.quickLayout) {

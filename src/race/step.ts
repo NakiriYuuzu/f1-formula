@@ -3,7 +3,7 @@
  * weather → session clock / start lights → per car (projection → input (human / AI; pit autopilot overrides) →
  * PhysicsEnv → physics → re-projection → barrier) → car-vs-car contacts → per car (pit-entry detection → timing →
  * track limits → AI stuck watchdog) → classification & gaps → damage rules (terminal damage, black-and-orange flag) →
- * race control → DRS / overtake eligibility → session end →
+ * race control → elimination countdown → DRS / overtake eligibility → session end →
  * AI pit strategy → radio.
  */
 import type { BuiltTrack, CarEntry, ControlInput, TireCompound, WorldState } from '../core/types';
@@ -23,6 +23,7 @@ import { radioTeamHold, radioTeamYield, stepRadio } from './radio';
 import { checkSessionEnd, mandatoryStopOpen, stepSessionClock } from './session';
 import { stepRaceControl } from './control';
 import { stepDamageRules } from './damageRules';
+import { stepElimination } from './elimination';
 import { stepParking } from './gridPark';
 import { updateCarTiming } from './timing';
 import { stepWeather } from './weather';
@@ -281,6 +282,7 @@ export function advanceWorld(world: WorldState, track: BuiltTrack, inputs: reado
   updateClassification(world, track);
   stepDamageRules(world, track, h);
   stepRaceControl(world, track, h);
+  stepElimination(world, track);
   updateDrs(world, track, t0);
   checkSessionEnd(world);
   runStrategies(world, track, h);

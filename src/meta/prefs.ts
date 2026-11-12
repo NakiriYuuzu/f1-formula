@@ -9,13 +9,17 @@ import { asRecord, bool, int, oneOf, sanitizeAssists, sanitizeRules, sanitizeSet
 import {
   AI_DIFFICULTY_MAX,
   AI_DIFFICULTY_MIN,
+  DEFAULT_ELIMINATION_INTERVAL,
+  ELIMINATION_INTERVALS,
   LAPS_CHOICES,
+  RACE_FORMATS,
   QUALIFYING_TYPES,
   TIME_OF_DAY_CHOICES,
   WEATHER_CHOICES,
   WEEKEND_FORMATS,
   type LapsChoice,
   type QualifyingType,
+  type RaceFormatChoice,
   type TimeOfDayChoice,
   type WeatherChoice,
   type WeekendFormat,
@@ -38,6 +42,10 @@ export interface GrandPrixPrefs extends SeatChoice {
   format: WeekendFormat;
   qualifying: QualifyingType;
   rules: SessionRules;
+  /** how the races are decided; an elimination race ignores `laps` */
+  raceFormat: RaceFormatChoice;
+  /** elimination race: seconds between eliminations (ELIMINATION_INTERVALS) */
+  eliminationInterval: number;
 }
 
 export interface TimeTrialPrefs extends SeatChoice {
@@ -90,6 +98,8 @@ export function defaultProfile(): ProfileSave {
       format: 'qualiRace',
       qualifying: 'oneShot',
       rules: { ...DEFAULT_RULES },
+      raceFormat: 'standard',
+      eliminationInterval: DEFAULT_ELIMINATION_INTERVAL,
     },
     tt: { layoutId: '', regulation: '2025', ghost: true, teamId: DEFAULT_PLAYER_TEAM, driverId: DEFAULT_PLAYER_DRIVER },
     split: {
@@ -147,6 +157,8 @@ export function sanitizeProfile(v: unknown): ProfileSave {
       format: oneOf(gp.format, WEEKEND_FORMATS, d.gp.format),
       qualifying: oneOf(gp.qualifying, QUALIFYING_TYPES, d.gp.qualifying),
       rules: sanitizeRules(gp.rules, d.gp.rules),
+      raceFormat: oneOf(gp.raceFormat, RACE_FORMATS, d.gp.raceFormat),
+      eliminationInterval: ELIMINATION_INTERVALS.includes(gp.eliminationInterval as number) ? (gp.eliminationInterval as number) : d.gp.eliminationInterval,
     },
     tt: {
       ...seat(tt, d.tt),

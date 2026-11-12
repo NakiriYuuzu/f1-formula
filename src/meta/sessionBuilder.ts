@@ -24,6 +24,7 @@ import type {
   TireCompound,
   WeatherKind,
   PlayerIndex,
+  RaceFormat,
 } from '../core/types';
 import { COMPOUNDS, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../core/defaults';
 import { clamp, nextRandom, type RngState } from '../core/math';
@@ -87,6 +88,8 @@ export interface SessionRequest {
   sprint?: boolean;
   /** season modes: achieved part development per team id (meta/development.ts developmentGains) */
   development?: Record<string, CarPartGains>;
+  /** how every race-kind session of the plan is decided (absent = standard: its laps) */
+  raceFormat?: RaceFormat;
 }
 
 /** Rules forced in time trial: no wear / fuel / damage / collisions. */
@@ -369,6 +372,7 @@ export function buildSessionConfig(req: SessionRequest, layout: LayoutMeta = lay
     objective: req.objective ? { ...req.objective } : null,
     ...(sprint ? { sprint: true } : {}),
     ...(req.development ? { development: cloneDevelopment(req.development) } : {}),
+    ...(kind === 'race' && req.raceFormat ? { raceFormat: { ...req.raceFormat } } : {}),
   };
 }
 
@@ -407,6 +411,7 @@ export function validateSessionConfig(config: SessionConfig): string[] {
   if (!(config.laps >= 1)) problems.push('laps < 1');
   if (config.sprint === true && config.kind !== 'race') problems.push('sprint on a non-race session');
   if (config.sprint === true && config.rules.mandatoryPitStop) problems.push('sprint with a mandatory pit stop');
+  if (config.raceFormat && config.kind !== 'race') problems.push('race format on a non-race session');
   if (config.kind === 'race' && config.timeLimit !== null) problems.push('race must not have a time limit');
   if ((config.kind === 'practice' || config.kind === 'qualifying') && !(config.timeLimit !== null && config.timeLimit > 0)) {
     problems.push('timed session without a time limit');
@@ -465,6 +470,7 @@ export function requestFromConfig(config: SessionConfig): SessionRequest {
     objective: config.objective ? { ...config.objective } : null,
     ...(config.sprint ? { sprint: true } : {}),
     ...(config.development ? { development: cloneDevelopment(config.development) } : {}),
+    ...(config.raceFormat ? { raceFormat: { ...config.raceFormat } } : {}),
   };
 }
 

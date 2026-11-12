@@ -1,0 +1,49 @@
+/*
+ * Elimination race panel (elimination.ts): top-left column, above the timing tower. Same house rules as hud.css:
+ * glass block, the countdown in the display face, nothing below --nvh-xs. Amber with 10 s or less left; red while
+ * the car at risk is the player's, the countdown blinking in its last seconds.
+ */
+.nvh-elim {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.7em;
+  padding: 0.45em 0.8em 0.5em;
+}
+.nvh-elim-label {
+  font-size: var(--nvh-xs);
+  font-weight: 800;
+  color: var(--nv-text-3);
+  white-space: nowrap;
+}
+.nvh-elim-clock {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  font-family: var(--nv-font-display);
+  font-weight: 800;
+  font-style: italic;
+  font-size: 2em;
+  line-height: 1;
+}
+.nvh-elim-risk {
+  min-width: 0;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nvh-elim-risk:empty {
+  display: none;
+}
+.nvh-elim[data-tone='warn'] .nvh-elim-clock {
+  color: var(--nv-c-yellow);
+}
+.nvh-elim.nvh-panel[data-tone='danger'] {
+  background: var(--nv-c-red);
+}
+.nvh-elim[data-tone='danger'] .nvh-elim-label {
+  color: #fff;
+}
+.nvh-elim[data-tone='danger'][data-urgent] .nvh-elim-clock {
+  animation: nvh-blink 0.6s ease-in-out infinite;
+}

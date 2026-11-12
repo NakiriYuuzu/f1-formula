@@ -157,8 +157,11 @@ export class TimingPanel {
     // Lap counter / time remaining.
     if (s.kind === 'race') {
       const total = Math.max(1, Math.round(fin(s.totalLaps, 1)));
+      // an elimination race has no lap target: the lap alone
+      const elim = s.elimination;
+      const going = elim ? String(Math.max(lap, 1)) : `${Math.min(Math.max(lap, 1), total)}/${total}`;
       this.lapLabel.set('圈數');
-      this.lapValue.set(disqualified ? '取消資格' : finished ? '完賽' : retired ? '退賽' : `${Math.min(Math.max(lap, 1), total)}/${total}`);
+      this.lapValue.set(disqualified ? '取消資格' : finished ? '完賽' : elim?.out.includes(car.id) ? '淘汰' : retired ? '退賽' : going);
       this.lapSub.set('');
     } else if (s.timeRemaining != null && Number.isFinite(s.timeRemaining)) {
       this.lapLabel.set('剩餘時間');

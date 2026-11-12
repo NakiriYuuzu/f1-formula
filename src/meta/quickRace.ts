@@ -1,10 +1,10 @@
 /**
  * Quick race (main menu): one press starts a race-only Grand Prix with the last Grand Prix track, team, driver and
- * options saved in the profile. Pure: the caller passes the roster, the setup lookup and the seed.
+ * options saved in the profile (the race format, elimination included). Pure: the caller passes the roster, the setup lookup and the seed.
  */
 import type { CarSetup } from '../core/types';
 import type { SessionContext } from './context';
-import { findLayout, listLayouts, resolveLaps } from './options';
+import { findLayout, listLayouts, raceFormatFor, resolveLaps } from './options';
 import type { ProfileSave } from './prefs';
 import type { Roster } from './roster';
 import { requestForKind, type SessionRequest } from './sessionBuilder';
@@ -33,6 +33,7 @@ export function quickRacePlan(profile: ProfileSave, roster: Roster, setupFor: (l
   if (!team) return null;
   const drivers = seated(team.id);
   const driverId = drivers.includes(gp.driverId) ? gp.driverId : (drivers[0] as string);
+  const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval);
   const base: SessionRequest = {
     mode: 'grandPrix',
     kind: 'race',
@@ -52,6 +53,7 @@ export function quickRacePlan(profile: ProfileSave, roster: Roster, setupFor: (l
     playerStartPosition: null,
     ghost: null,
     objective: null,
+    ...(raceFormat ? { raceFormat } : {}),
   };
   return {
     request: requestForKind(base, 'race', null),

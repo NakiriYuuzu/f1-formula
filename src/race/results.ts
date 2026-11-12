@@ -1,13 +1,13 @@
 /**
  * Standings (live timing tower rows) and the final SessionResult: race classification with unserved time penalties
  * applied (finishers by laps then total time, then unfinished cars by distance, then retirements, then disqualified
- * cars), zh-TW gap texts,
+ * cars; an elimination race: the eliminated, last out first, 淘汰, ahead of the retirements), zh-TW gap texts,
  * POINTS_TABLE points for classified finishers of races, fastest lap flag and story objective evaluation.
  */
 import type { CarEntry, ResultRow, SessionResult, StandingRow, StoryObjective, WorldState } from '../core/types';
 import { POINTS_TABLE, SPRINT_POINTS } from '../core/defaults';
 import { formatGap, formatLapTime } from '../core/math';
-import { compareFinishers, raceTotal, unservedPenalty } from './classification';
+import { compareFinishers, raceTotal, stayedLonger, unservedPenalty } from './classification';
 import { fin } from './events';
 
 /** 3723.4 → "1:02:03.400"; under an hour like formatLapTime. */
@@ -66,7 +66,7 @@ function raceClassification(world: WorldState): CarEntry[] {
   const finished = cars.filter((c) => c.status === 'finished' && c.timing.finishTime !== null && !dq(c));
   finished.sort((a, b) => compareFinishers(world, a, b));
   const running = cars.filter((c) => c.status !== 'retired' && !finished.includes(c) && !dq(c)).sort(byProgress);
-  const retired = cars.filter((c) => c.status === 'retired' && !dq(c)).sort(byProgress);
+  const retired = cars.filter((c) => c.status === 'retired' && !dq(c)).sort((a, b) => stayedLonger(world, a, b) || byProgress(a, b));
   return [...finished, ...running, ...retired, ...cars.filter(dq).sort(byProgress)];
 }
 
@@ -112,6 +112,7 @@ export function sessionResult(world: WorldState): SessionResult {
   const winnerTotal = winner ? raceTotal(world, winner) : null;
   const leaderBest = winner ? winner.timing.bestLap : null;
   const length = world.race.cpCount * world.race.cpSpacing;
+  const out = world.session.elimination?.out ?? [];
 
   const rows: ResultRow[] = ordered.map((car, i) => {
     const position = i + 1;
@@ -119,9 +120,11 @@ export function sessionResult(world: WorldState): SessionResult {
     let time: number | null;
     let gapText: string;
     const dq = car.penalties.disqualified === true;
+    const eliminated = out.includes(car.id);
     if (race) {
       time = raceTotal(world, car);
       if (dq) gapText = '取消資格';
+      else if (eliminated) gapText = '淘汰';
       else if (car.status === 'retired') gapText = '退賽';
       else if (i === 0) gapText = time !== null ? formatRaceTime(time) : `${t.lapsCompleted} 圈`;
       else if (winner && time !== null && winnerTotal !== null && t.lapsCompleted === winner.timing.lapsCompleted) {
@@ -155,7 +158,9 @@ export function sessionResult(world: WorldState): SessionResult {
       penaltySec: car.penalties.timeSec,
       penaltyServedSec: Math.max(0, fin(car.penalties.servedSec)),
       disqualified: dq,
-      points: race && car.status === 'finished' && !dq ? ((world.config.sprint === true ? SPRINT_POINTS : POINTS_TABLE)[i] ?? 0) : 0,
+      ...(eliminated ? { eliminated: true } : {}),
+      // an eliminated car is classified: it scores for its place
+      points: race && (car.status === 'finished' || eliminated) && !dq ? ((world.config.sprint === true ? SPRINT_POINTS : POINTS_TABLE)[i] ?? 0) : 0,
       fastestLap: car.id === fastestId,
       status: car.status,
     };

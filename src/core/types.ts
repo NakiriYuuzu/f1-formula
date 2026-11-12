@@ -778,6 +778,33 @@ export interface SessionConfig {
   sprint?: boolean;
   /** season modes: achieved part development per team id (meta/development.ts). undefined / missing team = none */
   development?: Record<string, CarPartGains>;
+  /** race kind only: how the race is run and decided. undefined = a standard race over `laps` */
+  raceFormat?: RaceFormat;
+}
+
+/** A race run by another rule than the distance (SessionConfig.raceFormat). */
+export type RaceFormat = EliminationFormat;
+
+/**
+ * Elimination race: every `interval` seconds of green-flag racing the car last in the running order is out; the last
+ * car left wins. No lap target.
+ */
+export interface EliminationFormat {
+  kind: 'elimination';
+  /** seconds of green-flag racing between two eliminations */
+  interval: number;
+  /** seconds of green-flag racing from lights out to the first elimination */
+  grace: number;
+}
+
+/** Elimination race clock and outcome (SessionState.elimination). */
+export interface EliminationState {
+  /** world time the next elimination is due while the countdown runs */
+  dueAt: number;
+  /** seconds left while the countdown is frozen (before the start, under SC / VSC / red flag); null = running */
+  held: number | null;
+  /** car ids in the order they were eliminated, first out first */
+  out: number[];
 }
 
 /**
@@ -835,6 +862,8 @@ export interface SessionState {
   fastestLap: { carId: number; time: number; lap: number } | null;
   /** race control (flags, VSC, safety car, red flag, formation lap). Always present; 'green' outside races. */
   control: RaceControlState;
+  /** elimination race only (config.raceFormat): the countdown and who is out */
+  elimination?: EliminationState;
 }
 
 export interface WeatherState {
@@ -878,6 +907,8 @@ export type GameEvent =
   | { type: 'shift'; carId: number; gear: number }
   | { type: 'radio'; carId: number | null; text: string }
   | { type: 'retired'; carId: number; reason: string }
+  /** elimination race: the car last in the running order is out, classified at `position` (a 'retired' follows) */
+  | { type: 'eliminated'; carId: number; position: number }
   /** the suspension broke (DamageState.suspension reached 1): no drive any more, the car retires once it stops */
   | { type: 'terminalDamage'; carId: number }
   /** black-and-orange flag shown to a car: dangerous damage, pit for repairs */
@@ -1028,6 +1059,8 @@ export interface ResultRow {
   penaltyServedSec?: number;
   /** disqualified (black flag, tyre rule): classified last, no points; undefined = false */
   disqualified?: boolean;
+  /** elimination race: out by the countdown (status 'retired', yet classified at its place); undefined = false */
+  eliminated?: boolean;
   points: number;
   fastestLap: boolean;
   status: CarStatus;

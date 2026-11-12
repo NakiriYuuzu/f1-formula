@@ -1,11 +1,12 @@
 /**
  * Session option vocabulary shared by menus and session building: lap-distance choices, weather choices,
- * weekend formats, qualifying types, assist presets, and safe access to layout metadata from the track registry.
+ * race formats (standard / elimination), weekend formats, qualifying types, assist presets, and safe access to layout metadata from the track registry.
  */
 import type {
   Assists,
   Biome,
   LayoutInfo,
+  RaceFormat,
   RealCircuitInfo,
   SessionKind,
   TimeOfDay,
@@ -14,6 +15,7 @@ import type {
 } from '../core/types';
 import { ASSIST_PRESETS } from '../core/defaults';
 import { LAYOUTS, TRACK_DEFS } from '../data/tracks';
+import { eliminationFormat } from '../race/index';
 
 export type LapsChoice = 'l3' | 'l5' | 'l10' | 'p25' | 'p50' | 'p100';
 export const LAPS_CHOICES: readonly LapsChoice[] = ['l3', 'l5', 'l10', 'p25', 'p50', 'p100'];
@@ -50,6 +52,18 @@ export function resolveWeather(choice: WeatherChoice): { weather: WeatherKind; d
 
 export type TimeOfDayChoice = TimeOfDay | 'auto';
 export const TIME_OF_DAY_CHOICES: readonly TimeOfDayChoice[] = ['auto', 'day', 'dusk', 'night'];
+
+/** How a race is decided: its laps (standard) or the elimination countdown. */
+export type RaceFormatChoice = 'standard' | 'elimination';
+export const RACE_FORMATS: readonly RaceFormatChoice[] = ['standard', 'elimination'];
+/** Elimination countdown choices (s). */
+export const ELIMINATION_INTERVALS: readonly number[] = [30, 45, 60, 90];
+export const DEFAULT_ELIMINATION_INTERVAL = 45;
+
+/** SessionRequest.raceFormat for a menu choice (undefined = a standard race over its laps). */
+export function raceFormatFor(choice: RaceFormatChoice, interval: number): RaceFormat | undefined {
+  return choice === 'elimination' ? eliminationFormat(interval) : undefined;
+}
 
 export type WeekendFormat = 'raceOnly' | 'qualiRace' | 'full' | 'sprint';
 export const WEEKEND_FORMATS: readonly WeekendFormat[] = ['raceOnly', 'qualiRace', 'full', 'sprint'];

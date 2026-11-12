@@ -20,7 +20,7 @@ import type {
   WeatherKind,
 } from '../../core/types';
 import type { PartGroup } from '../../meta/development';
-import type { AssistPreset, LapsChoice, QualifyingType, TimeOfDayChoice, WeatherChoice, WeekendFormat, WeekendStep } from '../../meta/options';
+import type { AssistPreset, LapsChoice, QualifyingType, RaceFormatChoice, TimeOfDayChoice, WeatherChoice, WeekendFormat, WeekendStep } from '../../meta/options';
 import { resolveLaps } from '../../meta/options';
 
 export const WEATHER_LABEL: Record<WeatherChoice, string> = {
@@ -77,6 +77,11 @@ export const FORMAT_LABEL: Record<WeekendFormat, string> = {
   full: '練習＋排位＋正賽',
   sprint: '衝刺賽週末',
 };
+
+export const RACE_FORMAT_LABEL: Record<RaceFormatChoice, string> = { standard: '標準', elimination: '淘汰賽' };
+
+/** 「淘汰賽・每 45 秒淘汰末位」 */
+export const eliminationLabel = (interval: number): string => `淘汰賽・每 ${interval} 秒淘汰末位`;
 
 /** Format hint shown under the weekend-format selector. */
 export const SPRINT_WEEKEND_DESCRIPTION =
