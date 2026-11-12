@@ -2,7 +2,8 @@
  * Fast-forward fallback for a race that cannot be simulated to the flag in time (e.g. the player retired early in
  * a long race): every car still racing is classified where its average pace so far takes it — the projected
  * leader completes the distance, the others finish on their next line crossing after that, and a car that still
- * owes the mandatory stop loses a typical stop. Cars without racing pace stay unclassified. Ends the session.
+ * owes the mandatory stop loses a typical stop. Cars without racing pace stay unclassified. An elimination race goes
+ * out from the back of its running order instead (elimination.ts). Ends the session.
  */
 import type { BuiltTrack, WorldState } from '../core/types';
 import { updateClassification } from './classification';
@@ -10,6 +11,7 @@ import { isRacing } from './events';
 import { isBroken } from '../physics/index';
 import { BROKEN_REASON } from './damageRules';
 import { chequer, finishCar, mandatoryStopOpen, requestEnd, retire } from './session';
+import { concludeElimination } from './elimination';
 
 /** Time (s) a projected car that still owes the mandatory stop loses to it. */
 const PROJECTED_STOP_LOSS = 24;
@@ -28,6 +30,12 @@ export function concludeRace(world: WorldState, track: BuiltTrack): void {
   }
   // a car whose suspension broke is withdrawn, not projected to the flag
   for (const car of world.cars) if (isRacing(car) && isBroken(car.phys)) retire(world, car, BROKEN_REASON);
+  if (s.elimination) {
+    concludeElimination(world);
+    updateClassification(world, track);
+    requestEnd(world);
+    return;
+  }
   const runs = world.cars
     .filter(isRacing)
     .map((car) => ({ car, pace: car.timing.progress / elapsed, loss: mandatoryStopOpen(world, car) ? PROJECTED_STOP_LOSS : 0 }))

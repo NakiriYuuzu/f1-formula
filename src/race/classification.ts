@@ -2,8 +2,8 @@
  * Live classification. Race: finished cars by laps then total time incl. unserved penalties (disqualified ones last;
  * a car still racing that will
  * take the flag with more laps stays ahead of them), then racing cars by progress (4 m hysteresis so side-by-side
- * cars do not flicker), retired cars last; gaps from checkpoint times (every ~50 m), laps down from progress;
- * overtake events for real on-track passes. Practice / qualifying / time trial: by best valid lap.
+ * cars do not flicker), retired cars last (an elimination race: the last out first); gaps from checkpoint times
+ * (every ~50 m), laps down from progress; overtake events for real on-track passes. Practice / qualifying / time trial: by best valid lap.
  */
 import type { BuiltTrack, CarEntry, WorldState } from '../core/types';
 import { emit, fin, isRacing, mod } from './events';
@@ -32,6 +32,10 @@ export function compareFinishers(world: WorldState, a: CarEntry, b: CarEntry): n
   if (a.timing.lapsCompleted !== b.timing.lapsCompleted) return b.timing.lapsCompleted - a.timing.lapsCompleted;
   return (raceTotal(world, a) ?? Infinity) - (raceTotal(world, b) ?? Infinity) || a.id - b.id;
 }
+
+/** Elimination race: of two cars out of the race, the one that went out later first (0 in any other race). */
+export const stayedLonger = (world: WorldState, a: CarEntry, b: CarEntry): number =>
+  world.session.elimination ? (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) : 0;
 
 /** A car still racing classifies ahead of a finished one when it will take the flag with more laps. */
 const runsAheadOf = (racing: CarEntry, finished: CarEntry): boolean => racing.timing.lapsCompleted >= finished.timing.lapsCompleted;
@@ -103,11 +107,11 @@ function raceOrder(world: WorldState, track: BuiltTrack): void {
     }
     if (!changed) break;
   }
-  // the retired by distance, then the disqualified (as in the results)
+  // the retired by distance (an elimination race: the last out first), then the disqualified (as in the results)
   const dq = (c: CarEntry): number => (c.penalties.disqualified === true ? 1 : 0);
   const retired = cars
     .filter(out)
-    .sort((a, b) => dq(a) - dq(b) || b.timing.progress - a.timing.progress || (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) || a.id - b.id);
+    .sort((a, b) => dq(a) - dq(b) || stayedLonger(world, a, b) || b.timing.progress - a.timing.progress || (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) || a.id - b.id);
   const order: number[] = [];
   let j = 0;
   for (const f of finished) {

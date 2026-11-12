@@ -31,6 +31,7 @@ import { predictLapTime, qualiCalibration, qualifyingBenchmark } from './qualiSi
 import { createWeather } from './weather';
 import { createCarFlags, createControlState } from './control';
 import { gridSlot } from './gridPark';
+import { eliminationOf, newElimination, plannedLaps } from './elimination';
 
 export { GRID_FRONT, GRID_GAP, GRID_LATERAL } from './gridPark';
 /** Flying-lap start distance (m) before the line and spacing (m) between cars. */
@@ -248,6 +249,12 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
   const L = track.length;
   const cpCount = Math.max(8, Math.round(L / CHECKPOINT_SPACING));
   const cpSpacing = L / cpCount;
+  // an elimination race has no lap target: the cars are prepared for its longest race and owe no stop
+  const elimination = race ? eliminationOf(config) : null;
+  if (elimination) {
+    config.laps = plannedLaps(elimination, config.grid.length, track.referenceLapTime);
+    config.rules = { ...config.rules, mandatoryPitStop: false };
+  }
   const totalLaps = race ? clamp(Math.round(Number.isFinite(config.laps) ? config.laps : 1), 1, 500) : kind === 'qualifying' ? Math.max(1, config.qualifyingLaps) : 0;
   config.laps = race ? totalLaps : config.laps;
   const duration = race ? totalLaps * track.referenceLapTime * 1.12 + 20 : (config.timeLimit ?? 0);
@@ -349,6 +356,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     finishOrder: [],
     fastestLap: null,
     control: createControlState(),
+    ...(elimination ? { elimination: newElimination(elimination) } : {}),
   };
   if (session.timeRemaining !== null && !(config.timeLimit !== null && config.timeLimit > 0)) config.timeLimit = session.timeRemaining;
 
