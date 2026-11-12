@@ -213,8 +213,8 @@ export class RaceScene {
 
     this.frame = new TrackFrame(track);
     this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
-    // the far cascade light must follow the sun in the scene (lights are numbered in scene order)
-    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.sunFar, this.env.sunFar.target, this.env.hemi);
+    // the far cascade light joins the scene in applyShadows(), and only while it shades
+    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);
     this.staticShadowCam.layers.set(STATIC_SHADOW_LAYER);
     this.staticShadowCam.position.set(0, -1e6, 0);
     this.staticShadowCam.updateMatrixWorld();
@@ -449,7 +449,15 @@ export class RaceScene {
     this.farShadowSize = farSize;
     this.farCentre = null;
     this.safetyCar.setCastShadow(enabled);
-    if (changed) {
+    // a second directional light is in every lit material's shader, even at intensity 0: only in the scene while it shades
+    const inScene = far.parent === this.scene;
+    const lightsChanged = (farSize > 0) !== inScene;
+    if (lightsChanged) {
+      if (farSize > 0) this.scene.add(far, far.target);
+      else this.scene.remove(far, far.target);
+      this.tagLights();
+    }
+    if (changed || lightsChanged) {
       this.scene.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
         if (!mat) return;
