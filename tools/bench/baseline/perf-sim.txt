@@ -1,0 +1,4 @@
+phase running t 70.0 avgSpeed m/s 41.0
+{"layout":"monza","cars":20,"simSeconds":30,"wallMs":549.3,"msPerSimSecond":18.31,"stepMs":{"mean":0.1526,"p50":0.1387,"p95":0.2368,"p99":0.3531,"max":1.409},"cpuShareAt120HzRealtime":0.0183,"buildRenderFrameMs":{"p50":0.0068,"p95":0.0193},"flashbackSnapshotMs":{"p50":0.595,"p95":0.874,"max":1.315},"heapMB":"11"}
+phase running t 70.0 avgSpeed m/s 21.5
+{"layout":"monaco","cars":20,"simSeconds":30,"wallMs":553,"msPerSimSecond":18.43,"stepMs":{"mean":0.1536,"p50":0.1475,"p95":0.1844,"p99":0.2056,"max":0.827},"cpuShareAt120HzRealtime":0.0184,"buildRenderFrameMs":{"p50":0.0073,"p95":0.0103},"flashbackSnapshotMs":{"p50":0.557,"p95":0.628,"max":0.789},"heapMB":"7"}

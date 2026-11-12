@@ -1,0 +1,48 @@
+=== monza len=5790 zone=720 ramp=120 laneLen=720 est=25.3
+ctrl laps {"1":91.8204477340317,"2":87.49349049243932,"3":87.43809106491261,"4":87.64809016309226,"5":87.39378418047295} stops 0
+AI   laps {"1":91.8204477340317,"2":87.49349049243932,"3":104.91788048109595,"4":95.57616321517884,"5":87.14947208373536} stops 1 stopDur 2.65
+AI loss (lap3+4 delta) 25.41
+AI marks [{"phase":"none->entry","t":270.06,"v":79.8,"d":0},{"phase":"entry->lane","t":272.44,"v":22.2,"d":120},{"phase":"lane->stopped","t":281.53,"v":0,"d":290},{"phase":"stopped->lane","t":284.18,"v":0,"d":290},{"phase":"lane->exit","t":299.76,"v":22.2,"d":601},{"phase":"exit->none","t":302.83,"v":56,"d":721}]
+AI maxJump(m, beyond v*dt) 0.466 exit->none d=721 maxYawJump 0.146
+manual ctrl laps {"1":92.18468815351616,"2":87.73421260699358,"3":87.77728122042632,"4":87.89315642682362,"5":87.83393616579497}
+manual laps {"1":92.18468815351616,"2":87.73421260699358,"3":106.29886394043055,"4":95.95616757936489,"5":87.73827100210156} stops 1 stopDur 2.65 pen 0
+manual loss vs manual-ctrl 26.58  vs ctrl AI 27.17
+manual marks [{"phase":"none->entry","t":271,"v":79.6,"d":0},{"phase":"entry->lane","t":273.95,"v":21.2,"d":120},{"phase":"lane->stopped","t":283.33,"v":0,"d":290},{"phase":"stopped->lane","t":285.98,"v":0,"d":290},{"phase":"lane->exit","t":302.07,"v":21.2,"d":600},{"phase":"exit->none","t":305.12,"v":57.2,"d":720}]
+manual handovers pitAuto false->true t=280.5 v=21.2 lat=15.00 d=260 | pitAuto true->false t=288.0 v=14.0 lat=15.00 d=304
+manual maxJump 0.117 lane->lane d=304 maxYawJump 0.123
+=== monaco len=3319 zone=390 ramp=98 laneLen=384 est=14.7
+ctrl laps {"1":82.89648108028567,"2":80.15971857283107,"3":80.46943356647427,"4":79.91206238751829,"5":79.60518023347026} stops 0
+AI   laps {"1":82.89648108028567,"2":80.15971857283107,"3":95.67474619610795,"4":80.84360566210319,"5":79.22631275810278} stops 1 stopDur 2.65
+AI loss (lap3+4 delta) 16.14
+AI marks [{"phase":"none->entry","t":248.71,"v":40.6,"d":0},{"phase":"entry->lane","t":251.3,"v":22.2,"d":98},{"phase":"lane->stopped","t":253.97,"v":0,"d":125},{"phase":"stopped->lane","t":256.62,"v":0,"d":125},{"phase":"lane->exit","t":265.76,"v":22.2,"d":293},{"phase":"exit->none","t":268.42,"v":51.4,"d":391}]
+AI maxJump(m, beyond v*dt) 0.428 exit->none d=391 maxYawJump 0.115
+manual ctrl laps {"1":83.06873730059127,"2":80.21365774089348,"3":80.30535366302519,"4":80.28083980046091,"5":80.24568835570659}
+manual laps {"1":83.06873730059127,"2":80.21365774089348,"3":95.27029360754455,"4":80.4278139906844,"5":80.02716128660836} stops 1 stopDur 2.65 pen 0
+manual loss vs manual-ctrl 15.11  vs ctrl AI 15.32
+manual marks [{"phase":"none->entry","t":248.27,"v":40.3,"d":0},{"phase":"entry->lane","t":251.03,"v":21.2,"d":98},{"phase":"lane->stopped","t":253.72,"v":0,"d":125},{"phase":"stopped->lane","t":256.37,"v":0,"d":125},{"phase":"lane->exit","t":265.57,"v":21.2,"d":293},{"phase":"exit->none","t":268.17,"v":53.8,"d":390}]
+manual handovers pitAuto false->true t=251.0 v=21.2 lat=12.99 d=98 | pitAuto true->false t=258.4 v=14.0 lat=13.00 d=139
+manual maxJump 0.117 lane->lane d=139 maxYawJump 0.143
+=== silverstone len=5877 zone=460 ramp=115 laneLen=461 est=16.6
+ctrl laps {"1":100.15007949180115,"2":96.64917451930293,"3":96.79410523381429,"4":96.47993075702908,"5":96.22416231076636} stops 0
+AI   laps {"1":100.15007949180115,"2":96.64917451930293,"3":109.28295872644313,"4":101.79121546356532,"5":95.69268482616599} stops 1 stopDur 2.65
+AI loss (lap3+4 delta) 17.80
+AI marks [{"phase":"none->entry","t":300.19,"v":34.8,"d":0},{"phase":"entry->lane","t":303.61,"v":22.2,"d":115},{"phase":"lane->stopped","t":307.06,"v":0,"d":159},{"phase":"stopped->lane","t":309.71,"v":0,"d":159},{"phase":"lane->exit","t":319.67,"v":22.2,"d":345},{"phase":"exit->none","t":322.65,"v":54.9,"d":460}]
+AI maxJump(m, beyond v*dt) 0.458 exit->none d=460 maxYawJump 0.103
+manual ctrl laps {"1":100.48641058302742,"2":96.91290382597958,"3":96.90396874776047,"4":97.1000756119509,"5":97.26033942456411}
+manual laps {"1":100.48641058302742,"2":96.91290382597958,"3":109.36981700211481,"4":102.21076879199296,"5":96.66501116462007} stops 1 stopDur 2.65 pen 0
+manual loss vs manual-ctrl 17.58  vs ctrl AI 18.31
+manual marks [{"phase":"none->entry","t":300.87,"v":34.6,"d":0},{"phase":"entry->lane","t":304.25,"v":21.2,"d":115},{"phase":"lane->stopped","t":307.73,"v":0,"d":159},{"phase":"stopped->lane","t":310.38,"v":0,"d":159},{"phase":"lane->exit","t":320.59,"v":21.2,"d":345},{"phase":"exit->none","t":323.54,"v":56.4,"d":460}]
+manual handovers pitAuto false->true t=304.9 v=21.2 lat=16.55 d=130 | pitAuto true->false t=312.4 v=14.0 lat=16.50 d=173
+manual maxJump 0.117 lane->lane d=173 maxYawJump 0.262
+=== suzuka len=5802 zone=644 ramp=120 laneLen=645 est=22.7
+ctrl laps {"1":99.82416381549692,"2":95.70293726251232,"3":95.74075390055665,"4":95.69497720194437,"5":95.32029733354312} stops 0
+AI   laps {"1":99.82416381549692,"2":95.70293726251232,"3":109.25100054010275,"4":104.8503007817348,"5":95.16098341551015} stops 1 stopDur 2.65
+AI loss (lap3+4 delta) 22.67
+AI marks [{"phase":"none->entry","t":296.81,"v":70.5,"d":0},{"phase":"entry->lane","t":299.21,"v":22.2,"d":120},{"phase":"lane->stopped","t":305.67,"v":0,"d":231},{"phase":"stopped->lane","t":308.32,"v":0,"d":231},{"phase":"lane->exit","t":323.09,"v":22.2,"d":524},{"phase":"exit->none","t":326.17,"v":56,"d":644}]
+AI maxJump(m, beyond v*dt) 0.466 exit->none d=644 maxYawJump 0.142
+manual ctrl laps {"1":100.15282880054939,"2":96.07195090384121,"3":96.1027310177281,"4":96.38526711103691,"5":96.0967070082823}
+manual laps {"1":100.15282880054939,"2":96.07195090384121,"3":110.34422707183825,"4":105.5304079060038,"5":95.87234618755537} stops 1 stopDur 2.65 pen 0
+manual loss vs manual-ctrl 23.39  vs ctrl AI 24.44
+manual marks [{"phase":"none->entry","t":297.75,"v":70.1,"d":0},{"phase":"entry->lane","t":300.82,"v":21.2,"d":120},{"phase":"lane->stopped","t":307.45,"v":0,"d":231},{"phase":"stopped->lane","t":310.1,"v":0,"d":231},{"phase":"lane->exit","t":325.35,"v":21.2,"d":524},{"phase":"exit->none","t":328.4,"v":57.2,"d":644}]
+manual handovers pitAuto false->true t=304.6 v=21.2 lat=15.00 d=201 | pitAuto true->false t=312.1 v=14.0 lat=15.00 d=245
+manual maxJump 0.117 lane->lane d=245 maxYawJump 0.123

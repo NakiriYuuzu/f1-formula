@@ -1,0 +1,23 @@
+
+=== control: ~0 ms  link={"delayMs":2,"jitterMs":0,"loss":0} seed=9 cars=12 render every 2 step(s) frames=1800 snapshotsRecv=1260
+remote 2nd-diff guest   : n=19778 mean=0.007 p50=0.004 p99=0.034 max=0.066
+remote 2nd-diff along-track: n=19778 mean=0.005 p50=0.003 p99=0.026 max=0.066 | lateral: n=19778 mean=0.003 p50=0.001 p99=0.026 max=0.064 | host floor lateral: n=19778 mean=0.002 p50=0.001 p99=0.006 max=0.007  pitAssist=false
+remote 2nd-diff host(floor): n=19778 mean=0.004 p50=0.004 p99=0.011 max=0.016
+remote |dP|-v*dt guest  : n=19789 mean=0.005 p50=0.001 p99=0.037 max=0.079
+remote |dP|-v*dt host   : n=19789 mean=0.001 p50=0.001 p99=0.003 max=0.004
+own drawn |dP|-v*dt     : n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.003   own 2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.01 max=0.012
+own reconcile corr (m)  : count=900 >0.3m=0 >1m=0 p50=0 p99=0 max=0.001
+snapshot arrival gap ms : n=900 mean=33.3 p50=33.3 p99=33.3 max=33.3  >50ms=0 >100ms=0
+extrapolation horizon s : n=1800 mean=0.058 p50=0.067 p99=0.067 max=0.067
+view time - host time s : n=1800 mean=0.033 p50=0.033 p99=0.033 max=0.033
+remote lag vs host present ms (+ = behind): n=16993 mean=-33.3 p50=-33.3 p99=-31 max=-23.2
+remote pos err vs host @shown time m      : n=19778 mean=0.039 p50=0.024 p99=0.255 max=0.413
+own drawn lead over host's own-car state ms: n=1410 mean=25 p50=25 p99=25.2 max=25.2
+host input delay ms     : n=3601 mean=25 p50=25 p99=25 max=25 changes=1 guessSteps=0 ghostSteps=0 replayed=0
+HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.003  2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.01 max=0.012
+tower order (timing.position, 5 Hz reliable mirror): host changes=13 guest changes=13 guest!=host share=0.03 catch-up lag ms: n=13 mean=70 p50=58 p99=150 max=150
+own drawn jump while not predicting/in pit: n=0 mean=NaN p50=NaN p99=NaN max=NaN | while driving: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.003 usedCompounds=["medium"]
+frame.time went backwards: 0 frames (>50 ms: 0, max 0 s)
+collisions all=0 involving guest=0 guest status=running
+
+wall 0.977s

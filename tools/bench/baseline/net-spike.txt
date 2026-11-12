@@ -1,0 +1,44 @@
+
+=== SPIKES: target link + 100-300 ms stall every 2-5 s  link={"delayMs":50,"jitterMs":30,"loss":0.03,"retransmitMs":260} seed=9 cars=12 render every 2 step(s) frames=1800 snapshotsRecv=1213
+remote 2nd-diff guest   : n=19778 mean=0.017 p50=0.006 p99=0.103 max=3.642
+remote 2nd-diff along-track: n=19778 mean=0.013 p50=0.004 p99=0.097 max=3.642 | lateral: n=19778 mean=0.006 p50=0.002 p99=0.055 max=0.342 | host floor lateral: n=19778 mean=0.002 p50=0.001 p99=0.007 max=0.007  pitAssist=false
+remote 2nd-diff host(floor): n=19778 mean=0.004 p50=0.003 p99=0.012 max=0.016
+remote |dP|-v*dt guest  : n=19789 mean=0.018 p50=0.004 p99=0.159 max=1.479
+remote |dP|-v*dt host   : n=19789 mean=0.001 p50=0.001 p99=0.003 max=0.004
+own drawn |dP|-v*dt     : n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.003   own 2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.009 max=0.012
+own reconcile corr (m)  : count=829 >0.3m=0 >1m=0 p50=0 p99=0.007 max=0.04
+snapshot arrival gap ms : n=832 mean=36 p50=33.1 p99=96 max=266  >50ms=124 >100ms=8
+extrapolation horizon s : n=1800 mean=0.173 p50=0.167 p99=0.35 max=0.4
+view time - host time s : n=1800 mean=0.083 p50=0.083 p99=0.083 max=0.083
+remote lag vs host present ms (+ = behind): n=16564 mean=-83.2 p50=-83.1 p99=-74 max=-12.4
+remote pos err vs host @shown time m      : n=19734 mean=0.16 p50=0.103 p99=0.843 max=3.241
+own drawn lead over host's own-car state ms: n=1520 mean=74.9 p50=74.8 p99=77 max=80.9
+host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1202 ghostSteps=154 replayed=1443
+HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0.001 p99=0.005 max=0.402  2nd-diff: n=1798 mean=0.005 p50=0.004 p99=0.011 max=0.534
+tower order (timing.position, 5 Hz reliable mirror): host changes=2 guest changes=2 guest!=host share=0.005 catch-up lag ms: n=2 mean=75 p50=150 p99=150 max=150
+own drawn jump while not predicting/in pit: n=0 mean=NaN p50=NaN p99=NaN max=NaN | while driving: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.003 usedCompounds=["medium"]
+frame.time went backwards: 0 frames (>50 ms: 0, max 0 s)
+collisions all=0 involving guest=0 guest status=running
+
+=== SPIKES: target link + 100-300 ms stall every 2-5 s  link={"delayMs":50,"jitterMs":30,"loss":0.03,"retransmitMs":260} seed=10 cars=12 render every 2 step(s) frames=1800 snapshotsRecv=1227
+remote 2nd-diff guest   : n=19778 mean=0.016 p50=0.006 p99=0.094 max=1.643
+remote 2nd-diff along-track: n=19778 mean=0.012 p50=0.003 p99=0.089 max=1.638 | lateral: n=19778 mean=0.006 p50=0.002 p99=0.054 max=0.214 | host floor lateral: n=19778 mean=0.002 p50=0.001 p99=0.007 max=0.011  pitAssist=false
+remote 2nd-diff host(floor): n=19778 mean=0.004 p50=0.003 p99=0.012 max=0.027
+remote |dP|-v*dt guest  : n=19789 mean=0.017 p50=0.004 p99=0.152 max=1.479
+remote |dP|-v*dt host   : n=19789 mean=0.001 p50=0.001 p99=0.003 max=0.006
+own drawn |dP|-v*dt     : n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.013   own 2nd-diff: n=1798 mean=0.004 p50=0.004 p99=0.009 max=0.024
+own reconcile corr (m)  : count=840 >0.3m=0 >1m=0 p50=0 p99=0.013 max=0.085
+snapshot arrival gap ms : n=848 mean=35.4 p50=33.9 p99=86.2 max=282.5  >50ms=109 >100ms=8
+extrapolation horizon s : n=1800 mean=0.173 p50=0.167 p99=0.35 max=0.4
+view time - host time s : n=1800 mean=0.083 p50=0.083 p99=0.083 max=0.083
+remote lag vs host present ms (+ = behind): n=16422 mean=-83.2 p50=-83.1 p99=-75.8 max=-38.8
+remote pos err vs host @shown time m      : n=19734 mean=0.145 p50=0.098 p99=0.775 max=2.506
+own drawn lead over host's own-car state ms: n=1447 mean=74.8 p50=74.8 p99=76.9 max=77.1
+host input delay ms     : n=3601 mean=75 p50=75 p99=75 max=75 changes=1 guessSteps=1213 ghostSteps=153 replayed=1377
+HOST's drawn guest car |dP|-v*dt: n=1799 mean=0.001 p50=0.001 p99=0.004 max=0.471  2nd-diff: n=1798 mean=0.005 p50=0.004 p99=0.016 max=0.514
+tower order (timing.position, 5 Hz reliable mirror): host changes=11 guest changes=9 guest!=host share=0.044 catch-up lag ms: n=9 mean=137 p50=158 p99=258 max=258
+own drawn jump while not predicting/in pit: n=0 mean=NaN p50=NaN p99=NaN max=NaN | while driving: n=1799 mean=0.001 p50=0.001 p99=0.003 max=0.013 usedCompounds=["medium"]
+frame.time went backwards: 0 frames (>50 ms: 0, max 0 s)
+collisions all=2 involving guest=0 guest status=running
+
+wall 1.778s

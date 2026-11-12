@@ -1,0 +1,156 @@
+
+=== monza|reverse|d90|12L|head3  (4 races, seeds 1,2,3,4) ===
+events (all): 133.5/race | after lap 1: 114.8 | on-track (excl lap1, excl pit-related): 114.8/race = 10.43/lap | re-pass<20s: 26.0/race | feint/switchback-credited: 12.3/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 46.0/race vs gross on-track passes 114.8 -> churn x2.49
+spearman(grid, final) mean 0.525 | spearman(paceStatic, final) mean 0.573 | net displacement grid->final (sum|dpos|/2) mean 42.0 | pit stops/race 0.0 | collisions 22.0 heavy 3.0 | retired 0.0
+paceStatic spread: total 2.78% (2.41 s) | 3rd..18th 1.67% | adjacent gap median 0.117% mean 0.146%
+  seed 1: back-five varga,lindqvist,morioka,dahl,bellandi  grid mean 18.0  final positions 6,9,11,13,15  mean 10.8  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 2: back-five varga,bellandi,lindqvist,ferraz,hsu  grid mean 14.6  final positions 1,6,7,12,13  mean 7.8  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 3: back-five varga,lindqvist,morioka,bellandi,ferraz  grid mean 18.0  final positions 3,8,14,16,17  mean 11.6  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 4: back-five varga,lindqvist,morioka,ferraz,dahl  grid mean 18.0  final positions 3,8,10,11,12  mean 8.8  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  mean position of fastest-5 by leader lap (0 = grid): 17.1 15.7 15.2 14.4 14.0 13.2 12.5 12.2 11.5 10.9 10.5 10.3 9.8
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=1081
+    A faster by <=0 (slower/equal) n=548 passRate=24% median t<1s=30.1s (0.37 laps) meanT=46.2s | in 'attack' 29% DRS-open 19% conserve 0% inTrain 33% | passed-stint median t1 15.4s
+    A faster 0-0.15%               n= 32 passRate=42% median t<1s=41.3s (0.50 laps) meanT=80.7s | in 'attack' 35% DRS-open 21% conserve 0% inTrain 33% | passed-stint median t1 50.4s
+    A faster 0.15-0.4%             n=114 passRate=48% median t<1s=35.3s (0.43 laps) meanT=50.4s | in 'attack' 40% DRS-open 19% conserve 0% inTrain 31% | passed-stint median t1 27.5s
+    A faster 0.4-0.8%              n=139 passRate=54% median t<1s=24.0s (0.29 laps) meanT=46.2s | in 'attack' 44% DRS-open 18% conserve 0% inTrain 27% | passed-stint median t1 27.6s
+    A faster >0.8%                 n=248 passRate=67% median t<1s=28.6s (0.35 laps) meanT=36.5s | in 'attack' 70% DRS-open 19% conserve 0% inTrain 3% | passed-stint median t1 32.0s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=1081
+    A faster by <=0 (slower/equal) n=534 passRate=24% median t<1s=30.3s (0.37 laps) meanT=46.5s | in 'attack' 29% DRS-open 19% conserve 0% inTrain 31% | passed-stint median t1 14.7s
+    A faster 0-0.15%               n= 42 passRate=31% median t<1s=47.2s (0.58 laps) meanT=75.3s | in 'attack' 27% DRS-open 22% conserve 0% inTrain 42% | passed-stint median t1 82.4s
+    A faster 0.15-0.4%             n= 98 passRate=40% median t<1s=39.5s (0.48 laps) meanT=57.5s | in 'attack' 32% DRS-open 18% conserve 0% inTrain 40% | passed-stint median t1 30.1s
+    A faster 0.4-0.8%              n=124 passRate=60% median t<1s=23.4s (0.29 laps) meanT=45.5s | in 'attack' 46% DRS-open 18% conserve 0% inTrain 26% | passed-stint median t1 25.8s
+    A faster >0.8%                 n=283 passRate=65% median t<1s=27.9s (0.34 laps) meanT=34.9s | in 'attack' 72% DRS-open 19% conserve 0% inTrain 1% | passed-stint median t1 31.7s
+  FAST (static delta>0.3%) stints ended: 400, passed 247 (62%); time within 1 s before the pass: mean 0.51 laps, median 0.38 laps, p90 1.09; mean delta 1.17%; not-passed ones (dropped/reorder/pit): mean t1 0.46 laps
+  stint end reasons: {"passed":423,"reorder":474,"dropped":136,"end":48}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=291, ended in pass 195, dropped 26, other/end 70; mean t<1s 51.7s, mean delta 1.23%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 1.18% (n=105) | 20-60%: 1.22% (n=24) | clean: 0.12% (n=29, spread sd) 
+  tricks (sum over cars/races): feints 87 feintPasses 44 switchbacks 106 switchbackPasses 0
+
+=== suzuka|reverse|d90|12L|head3  (4 races, seeds 1,2,3,4) ===
+events (all): 58.3/race | after lap 1: 47.5 | on-track (excl lap1, excl pit-related): 47.5/race = 4.32/lap | re-pass<20s: 0.8/race | feint/switchback-credited: 1.0/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 44.0/race vs gross on-track passes 47.5 -> churn x1.08
+spearman(grid, final) mean 0.587 | spearman(paceStatic, final) mean 0.537 | net displacement grid->final (sum|dpos|/2) mean 44.0 | pit stops/race 0.0 | collisions 15.5 heavy 0.0 | retired 0.0
+paceStatic spread: total 3.27% (3.06 s) | 3rd..18th 2.17% | adjacent gap median 0.128% mean 0.172%
+  seed 1: back-five varga,lindqvist,ferraz,morioka,dahl  grid mean 18.0  final positions 6,8,9,12,13  mean 9.6  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 2: back-five varga,bellandi,lindqvist,dahl,morioka  grid mean 18.0  final positions 7,9,10,11,15  mean 10.4  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 3: back-five varga,lindqvist,ferraz,morioka,bellandi  grid mean 18.0  final positions 9,10,11,12,14  mean 11.2  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 4: back-five lindqvist,varga,bellandi,morioka,dahl  grid mean 18.0  final positions 10,11,12,13,14  mean 12.0  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  mean position of fastest-5 by leader lap (0 = grid): 18.0 17.5 16.8 15.9 14.9 14.3 13.7 13.3 12.7 12.1 11.7 11.2 10.8
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=572
+    A faster by <=0 (slower/equal) n=280 passRate=4% median t<1s=42.1s (0.47 laps) meanT=84.0s | in 'attack' 6% DRS-open 3% conserve 0% inTrain 48% | passed-stint median t1 24.7s
+    A faster 0-0.15%               n= 17 passRate=7% median t<1s=80.4s (0.90 laps) meanT=172.8s | in 'attack' 12% DRS-open 3% conserve 0% inTrain 52% | passed-stint median t1 23.5s
+    A faster 0.15-0.4%             n= 33 passRate=45% median t<1s=81.3s (0.91 laps) meanT=185.8s | in 'attack' 19% DRS-open 4% conserve 0% inTrain 42% | passed-stint median t1 79.8s
+    A faster 0.4-0.8%              n= 67 passRate=28% median t<1s=90.1s (1.01 laps) meanT=142.1s | in 'attack' 30% DRS-open 4% conserve 0% inTrain 26% | passed-stint median t1 101.9s
+    A faster >0.8%                 n=175 passRate=88% median t<1s=66.0s (0.74 laps) meanT=70.8s | in 'attack' 49% DRS-open 4% conserve 0% inTrain 0% | passed-stint median t1 65.3s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=572
+    A faster by <=0 (slower/equal) n=275 passRate=4% median t<1s=41.1s (0.46 laps) meanT=84.6s | in 'attack' 6% DRS-open 3% conserve 0% inTrain 48% | passed-stint median t1 27.1s
+    A faster 0-0.15%               n= 22 passRate=11% median t<1s=80.4s (0.90 laps) meanT=145.5s | in 'attack' 12% DRS-open 4% conserve 0% inTrain 53% | passed-stint median t1 23.9s
+    A faster 0.15-0.4%             n= 33 passRate=32% median t<1s=81.3s (0.91 laps) meanT=174.2s | in 'attack' 19% DRS-open 4% conserve 0% inTrain 43% | passed-stint median t1 99.0s
+    A faster 0.4-0.8%              n= 61 passRate=34% median t<1s=97.4s (1.09 laps) meanT=154.9s | in 'attack' 29% DRS-open 4% conserve 0% inTrain 27% | passed-stint median t1 101.9s
+    A faster >0.8%                 n=181 passRate=86% median t<1s=66.0s (0.74 laps) meanT=71.0s | in 'attack' 49% DRS-open 4% conserve 0% inTrain 0% | passed-stint median t1 65.3s
+  FAST (static delta>0.3%) stints ended: 240, passed 170 (71%); time within 1 s before the pass: mean 0.90 laps, median 0.76 laps, p90 1.85; mean delta 1.74%; not-passed ones (dropped/reorder/pit): mean t1 1.11 laps
+  stint end reasons: {"passed":190,"reorder":264,"dropped":77,"end":41}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=217, ended in pass 151, dropped 4, other/end 62; mean t<1s 102.5s, mean delta 1.47%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 1.47% (n=232) | 20-60%: 0.92% (n=30) | clean: 0.09% (n=72, spread sd) 
+  tricks (sum over cars/races): feints 4 feintPasses 2 switchbacks 13 switchbackPasses 2
+
+=== monza|normal|d90|12L|head  (4 races, seeds 1,2,3,4) ===
+events (all): 87.8/race | after lap 1: 79.8 | on-track (excl lap1, excl pit-related): 79.8/race = 7.25/lap | re-pass<20s: 17.5/race | feint/switchback-credited: 9.8/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 19.8/race vs gross on-track passes 79.8 -> churn x4.04
+spearman(grid, final) mean 0.953 | spearman(paceStatic, final) mean 0.929 | net displacement grid->final (sum|dpos|/2) mean 13.8 | pit stops/race 0.0 | collisions 14.8 heavy 0.5 | retired 0.0
+paceStatic spread: total 2.71% (2.34 s) | 3rd..18th 2.03% | adjacent gap median 0.107% mean 0.143%
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=787
+    A faster by <=0 (slower/equal) n=452 passRate=31% median t<1s=35.0s (0.43 laps) meanT=64.8s | in 'attack' 28% DRS-open 20% conserve 2% inTrain 37% | passed-stint median t1 23.7s
+    A faster 0-0.15%               n= 92 passRate=45% median t<1s=28.9s (0.35 laps) meanT=59.8s | in 'attack' 33% DRS-open 19% conserve 1% inTrain 34% | passed-stint median t1 26.0s
+    A faster 0.15-0.4%             n= 95 passRate=49% median t<1s=49.1s (0.60 laps) meanT=74.3s | in 'attack' 37% DRS-open 19% conserve 5% inTrain 35% | passed-stint median t1 49.1s
+    A faster 0.4-0.8%              n=115 passRate=54% median t<1s=32.5s (0.40 laps) meanT=61.9s | in 'attack' 43% DRS-open 19% conserve 5% inTrain 28% | passed-stint median t1 24.0s
+    A faster >0.8%                 n= 33 passRate=59% median t<1s=47.9s (0.58 laps) meanT=59.0s | in 'attack' 57% DRS-open 18% conserve 8% inTrain 17% | passed-stint median t1 52.1s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=787
+    A faster by <=0 (slower/equal) n=424 passRate=30% median t<1s=35.2s (0.43 laps) meanT=62.0s | in 'attack' 28% DRS-open 20% conserve 1% inTrain 35% | passed-stint median t1 24.0s
+    A faster 0-0.15%               n= 79 passRate=45% median t<1s=21.6s (0.26 laps) meanT=51.3s | in 'attack' 37% DRS-open 18% conserve 1% inTrain 34% | passed-stint median t1 21.2s
+    A faster 0.15-0.4%             n=107 passRate=46% median t<1s=43.3s (0.53 laps) meanT=77.5s | in 'attack' 33% DRS-open 20% conserve 4% inTrain 38% | passed-stint median t1 43.3s
+    A faster 0.4-0.8%              n=108 passRate=45% median t<1s=35.8s (0.44 laps) meanT=74.7s | in 'attack' 31% DRS-open 19% conserve 5% inTrain 41% | passed-stint median t1 26.0s
+    A faster >0.8%                 n= 69 passRate=67% median t<1s=49.9s (0.61 laps) meanT=60.8s | in 'attack' 65% DRS-open 18% conserve 16% inTrain 8% | passed-stint median t1 49.9s
+  FAST (static delta>0.3%) stints ended: 173, passed 91 (53%); time within 1 s before the pass: mean 0.74 laps, median 0.50 laps, p90 1.99; mean delta 0.66%; not-passed ones (dropped/reorder/pit): mean t1 0.81 laps
+  stint end reasons: {"passed":291,"reorder":341,"dropped":107,"end":48}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=134, ended in pass 70, dropped 10, other/end 54; mean t<1s 90.0s, mean delta 0.85%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 0.82% (n=180) | 20-60%: 0.78% (n=30) | clean: -0.00% (n=45, spread sd) 
+  tricks (sum over cars/races): feints 91 feintPasses 37 switchbacks 86 switchbackPasses 0
+
+=== monza|reverse|d90|12L|head  (3 races, seeds 1,2,3) ===
+events (all): 128.7/race | after lap 1: 113.0 | on-track (excl lap1, excl pit-related): 113.0/race = 10.27/lap | re-pass<20s: 29.0/race | feint/switchback-credited: 9.7/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 44.3/race vs gross on-track passes 113.0 -> churn x2.55
+spearman(grid, final) mean 0.537 | spearman(paceStatic, final) mean 0.647 | net displacement grid->final (sum|dpos|/2) mean 42.7 | pit stops/race 0.0 | collisions 21.3 heavy 0.0 | retired 0.0
+paceStatic spread: total 2.71% (2.34 s) | 3rd..18th 1.86% | adjacent gap median 0.107% mean 0.142%
+  seed 1: back-five varga,ferraz,lindqvist,morioka,dahl  grid mean 15.2  final positions 1,11,12,13,14  mean 10.2  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 2: back-five varga,bellandi,lindqvist,dahl,okafor  grid mean 11.8  final positions 1,2,9,10,13  mean 7.0  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 3: back-five varga,lindqvist,ferraz,dahl,bellandi  grid mean 14.8  final positions 1,3,6,11,13  mean 6.8  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  mean position of fastest-5 by leader lap (0 = grid): 13.9 13.2 12.9 12.1 11.9 11.2 10.9 10.5 9.9 9.5 9.0 8.6 8.0
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=839
+    A faster by <=0 (slower/equal) n=438 passRate=23% median t<1s=27.2s (0.33 laps) meanT=50.5s | in 'attack' 27% DRS-open 19% conserve 0% inTrain 36% | passed-stint median t1 8.1s
+    A faster 0-0.15%               n= 44 passRate=34% median t<1s=35.7s (0.44 laps) meanT=55.5s | in 'attack' 28% DRS-open 21% conserve 0% inTrain 42% | passed-stint median t1 39.4s
+    A faster 0.15-0.4%             n= 61 passRate=40% median t<1s=32.7s (0.40 laps) meanT=58.0s | in 'attack' 44% DRS-open 18% conserve 0% inTrain 29% | passed-stint median t1 28.3s
+    A faster 0.4-0.8%              n= 84 passRate=53% median t<1s=31.4s (0.38 laps) meanT=53.1s | in 'attack' 50% DRS-open 16% conserve 0% inTrain 21% | passed-stint median t1 25.4s
+    A faster >0.8%                 n=212 passRate=66% median t<1s=26.5s (0.32 laps) meanT=36.0s | in 'attack' 73% DRS-open 21% conserve 0% inTrain 0% | passed-stint median t1 35.8s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=839
+    A faster by <=0 (slower/equal) n=432 passRate=24% median t<1s=27.2s (0.33 laps) meanT=48.9s | in 'attack' 27% DRS-open 19% conserve 0% inTrain 35% | passed-stint median t1 8.1s
+    A faster 0-0.15%               n= 45 passRate=24% median t<1s=35.7s (0.44 laps) meanT=73.0s | in 'attack' 23% DRS-open 21% conserve 0% inTrain 48% | passed-stint median t1 20.4s
+    A faster 0.15-0.4%             n= 65 passRate=44% median t<1s=32.7s (0.40 laps) meanT=56.6s | in 'attack' 45% DRS-open 18% conserve 0% inTrain 27% | passed-stint median t1 33.7s
+    A faster 0.4-0.8%              n= 79 passRate=54% median t<1s=27.2s (0.33 laps) meanT=50.0s | in 'attack' 48% DRS-open 15% conserve 0% inTrain 24% | passed-stint median t1 25.4s
+    A faster >0.8%                 n=218 passRate=65% median t<1s=27.1s (0.33 laps) meanT=37.4s | in 'attack' 73% DRS-open 21% conserve 0% inTrain 0% | passed-stint median t1 35.8s
+  FAST (static delta>0.3%) stints ended: 307, passed 187 (61%); time within 1 s before the pass: mean 0.52 laps, median 0.41 laps, p90 1.08; mean delta 1.30%; not-passed ones (dropped/reorder/pit): mean t1 0.53 laps
+  stint end reasons: {"passed":313,"reorder":394,"dropped":90,"end":42}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=228, ended in pass 151, dropped 10, other/end 67; mean t<1s 51.8s, mean delta 1.29%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 0.09% (n=13) | 20-60%: -0.45% (n=1) | clean: 0.14% (n=4, spread sd) 
+  tricks (sum over cars/races): feints 60 feintPasses 27 switchbacks 89 switchbackPasses 0
+
+=== suzuka|normal|d90|12L|head  (4 races, seeds 1,2,3,4) ===
+events (all): 21.3/race | after lap 1: 16.0 | on-track (excl lap1, excl pit-related): 15.5/race = 1.41/lap | re-pass<20s: 0.0/race | feint/switchback-credited: 0.3/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 24.5/race vs gross on-track passes 15.5 -> churn x0.63
+spearman(grid, final) mean 0.868 | spearman(paceStatic, final) mean 0.835 | net displacement grid->final (sum|dpos|/2) mean 21.5 | pit stops/race 3.8 | collisions 7.0 heavy 0.0 | retired 0.0
+paceStatic spread: total 3.37% (3.16 s) | 3rd..18th 2.47% | adjacent gap median 0.142% mean 0.177%
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=284
+    A faster by <=0 (slower/equal) n=168 passRate=11% median t<1s=80.9s (0.91 laps) meanT=137.2s | in 'attack' 10% DRS-open 4% conserve 23% inTrain 38% | passed-stint median t1 98.9s
+    A faster 0-0.15%               n= 19 passRate=28% median t<1s=191.3s (2.15 laps) meanT=224.8s | in 'attack' 25% DRS-open 3% conserve 24% inTrain 20% | passed-stint median t1 197.7s
+    A faster 0.15-0.4%             n= 35 passRate=22% median t<1s=157.4s (1.76 laps) meanT=240.2s | in 'attack' 21% DRS-open 4% conserve 28% inTrain 24% | passed-stint median t1 104.9s
+    A faster 0.4-0.8%              n= 36 passRate=53% median t<1s=163.0s (1.83 laps) meanT=213.0s | in 'attack' 26% DRS-open 4% conserve 23% inTrain 17% | passed-stint median t1 104.3s
+    A faster >0.8%                 n= 26 passRate=83% median t<1s=49.4s (0.55 laps) meanT=86.3s | in 'attack' 44% DRS-open 3% conserve 36% inTrain 0% | passed-stint median t1 50.0s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=284
+    A faster by <=0 (slower/equal) n=163 passRate=8% median t<1s=80.1s (0.90 laps) meanT=147.9s | in 'attack' 10% DRS-open 4% conserve 6% inTrain 36% | passed-stint median t1 61.2s
+    A faster 0-0.15%               n= 17 passRate=20% median t<1s=191.5s (2.15 laps) meanT=247.4s | in 'attack' 21% DRS-open 4% conserve 33% inTrain 36% | passed-stint median t1 403.9s
+    A faster 0.15-0.4%             n= 29 passRate=21% median t<1s=102.1s (1.15 laps) meanT=184.5s | in 'attack' 18% DRS-open 4% conserve 30% inTrain 24% | passed-stint median t1 102.1s
+    A faster 0.4-0.8%              n= 27 passRate=40% median t<1s=157.4s (1.76 laps) meanT=189.1s | in 'attack' 22% DRS-open 4% conserve 50% inTrain 29% | passed-stint median t1 185.4s
+    A faster >0.8%                 n= 48 passRate=77% median t<1s=97.3s (1.09 laps) meanT=142.9s | in 'attack' 40% DRS-open 3% conserve 59% inTrain 0% | passed-stint median t1 97.3s
+  FAST (static delta>0.3%) stints ended: 63, passed 39 (62%); time within 1 s before the pass: mean 1.37 laps, median 0.90 laps, p90 3.34; mean delta 0.89%; not-passed ones (dropped/reorder/pit): mean t1 2.27 laps
+  stint end reasons: {"dropped":60,"passed":64,"reorder":115,"pit/other":12,"end":33}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=69, ended in pass 42, dropped 6, other/end 21; mean t<1s 173.1s, mean delta 1.40%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 0.57% (n=308) | 20-60%: 0.09% (n=56) | clean: 0.42% (n=152, spread sd) 
+  tricks (sum over cars/races): feints 3 feintPasses 1 switchbacks 4 switchbackPasses 0
+
+=== suzuka|reverse|d90|12L|head  (3 races, seeds 1,2,3) ===
+events (all): 50.3/race | after lap 1: 40.0 | on-track (excl lap1, excl pit-related): 40.0/race = 3.64/lap | re-pass<20s: 0.7/race | feint/switchback-credited: 1.0/race
+pairs whose order differs between end of lap 1 and the flag (Kendall distance, net): 37.3/race vs gross on-track passes 40.0 -> churn x1.07
+spearman(grid, final) mean 0.643 | spearman(paceStatic, final) mean 0.631 | net displacement grid->final (sum|dpos|/2) mean 37.3 | pit stops/race 0.0 | collisions 6.7 heavy 0.0 | retired 0.0
+paceStatic spread: total 3.22% (3.02 s) | 3rd..18th 2.22% | adjacent gap median 0.136% mean 0.169%
+  seed 1: back-five varga,lindqvist,dahl,morioka,ferraz  grid mean 15.2  final positions 2,9,10,11,12  mean 8.8  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 2: back-five varga,bellandi,lindqvist,dahl,hsu  grid mean 11.8  final positions 2,3,8,9,11  mean 6.6  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  seed 3: back-five varga,lindqvist,ferraz,bellandi,dahl  grid mean 14.8  final positions 1,9,11,12,13  mean 9.2  (paceStatic ranks 1..5 -> if pace alone decided: mean 3.0)
+  mean position of fastest-5 by leader lap (0 = grid): 13.9 13.3 12.8 12.1 11.7 11.3 10.8 10.3 9.9 9.4 9.1 8.7 8.2
+  follow stints (A within 1.0s of B, lap>=1, no pit) by static paceTime delta: n=357
+    A faster by <=0 (slower/equal) n=182 passRate=5% median t<1s=35.3s (0.40 laps) meanT=79.5s | in 'attack' 10% DRS-open 3% conserve 0% inTrain 33% | passed-stint median t1 79.6s
+    A faster 0-0.15%               n= 10 passRate=20% median t<1s=158.6s (1.78 laps) meanT=327.0s | in 'attack' 12% DRS-open 4% conserve 0% inTrain 40% | passed-stint median t1 23.6s
+    A faster 0.15-0.4%             n= 19 passRate=29% median t<1s=79.0s (0.89 laps) meanT=142.4s | in 'attack' 23% DRS-open 3% conserve 0% inTrain 17% | passed-stint median t1 24.9s
+    A faster 0.4-0.8%              n= 25 passRate=25% median t<1s=97.4s (1.09 laps) meanT=221.7s | in 'attack' 26% DRS-open 4% conserve 0% inTrain 20% | passed-stint median t1 97.4s
+    A faster >0.8%                 n=121 passRate=86% median t<1s=68.9s (0.77 laps) meanT=65.4s | in 'attack' 49% DRS-open 4% conserve 0% inTrain 0% | passed-stint median t1 70.7s
+  follow stints (A within 1.0s of B, lap>=1, no pit) by CURRENT tyre-aware estimatedPace delta: n=357
+    A faster by <=0 (slower/equal) n=183 passRate=5% median t<1s=35.3s (0.40 laps) meanT=79.5s | in 'attack' 10% DRS-open 3% conserve 0% inTrain 32% | passed-stint median t1 79.6s
+    A faster 0-0.15%               n=  7 passRate=0% median t<1s=322.2s (3.61 laps) meanT=429.4s | in 'attack' 11% DRS-open 4% conserve 0% inTrain 39% | passed-stint median t1 n/as
+    A faster 0.15-0.4%             n= 20 passRate=35% median t<1s=79.0s (0.89 laps) meanT=135.6s | in 'attack' 23% DRS-open 3% conserve 0% inTrain 17% | passed-stint median t1 24.9s
+    A faster 0.4-0.8%              n= 18 passRate=15% median t<1s=176.0s (1.97 laps) meanT=274.1s | in 'attack' 23% DRS-open 4% conserve 0% inTrain 25% | passed-stint median t1 400.1s
+    A faster >0.8%                 n=129 passRate=83% median t<1s=69.2s (0.78 laps) meanT=67.4s | in 'attack' 48% DRS-open 4% conserve 0% inTrain 0% | passed-stint median t1 71.8s
+  FAST (static delta>0.3%) stints ended: 147, passed 107 (73%); time within 1 s before the pass: mean 0.74 laps, median 0.81 laps, p90 1.13; mean delta 1.89%; not-passed ones (dropped/reorder/pit): mean t1 1.06 laps
+  stint end reasons: {"passed":120,"reorder":144,"dropped":64,"end":29}
+  FAST CAR HELD (delta now>0.4%, >=10 s within 1 s): n=129, ended in pass 95, dropped 1, other/end 33; mean t<1s 105.2s, mean delta 1.61%
+  lap-time vs same-lap clean-air median (control for fuel/tyre trend), %: followed >60% of lap within 1s: mean 1.02% (n=119) | 20-60%: 0.76% (n=20) | clean: 0.13% (n=61, spread sd) 
+  tricks (sum over cars/races): feints 2 feintPasses 0 switchbacks 15 switchbackPasses 3

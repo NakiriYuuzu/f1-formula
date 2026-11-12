@@ -1,0 +1,12 @@
+monza laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -18.9 
+   pitAuto false->true: speed before=22.02 after=21.98 (dv=-0.04 m/s) gLong after=-0.0
+   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
+monza laneSpeed 30 limiter false | stops 1 penalty s 5 minGLong -117.4 
+   pitAuto false->true: speed before=29.99 after=30.00 (dv=0.01 m/s) gLong after=0.0
+   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
+monaco laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -29.7 
+   pitAuto false->true: speed before=21.98 after=22.01 (dv=0.03 m/s) gLong after=0.0
+   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
+silverstone laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -18.5 
+   pitAuto false->true: speed before=22.01 after=21.97 (dv=-0.04 m/s) gLong after=-0.0
+   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
