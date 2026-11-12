@@ -16,7 +16,7 @@ import { Rng } from '../core/canvas';
 import { GeoBuilder, addBox, addGeometry } from '../core/geometry';
 import { FOLIAGE_UV, foliageAtlasTexture, windowTexture } from '../core/surfaceTextures';
 import { sidePoint, wrapIndex, type SceneryContext } from './context';
-import { patchFoliage, patchWindowFade } from './sceneryMaterials';
+import { FACADE_LIGHT, patchFoliage, patchWindowFade } from './sceneryMaterials';
 import { chunkKey } from './sceneryMath';
 import { townStyleFor } from './townscape';
 
@@ -879,6 +879,7 @@ export function buildProps(
     disposer.add(bg);
     const day = disposer.add(windowTexture(false));
     const mat = new THREE.MeshStandardMaterial({ name: 'buildings', map: day, vertexColors: true, roughness: 0.8 });
+    mat.color.setScalar(FACADE_LIGHT[ctx.timeOfDay]);
     if (ctx.timeOfDay !== 'day') {
       mat.emissiveMap = disposer.add(windowTexture(true));
       mat.emissive.setRGB(1, 1, 1);

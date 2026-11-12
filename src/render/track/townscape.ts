@@ -15,7 +15,7 @@ import { Rng } from '../core/canvas';
 import { GeoBuilder, addBox, addGeometry } from '../core/geometry';
 import { windowTexture } from '../core/surfaceTextures';
 import { blockedAt, sidePoint, wrapIndex, type SceneryContext } from './context';
-import { patchWindowFade } from './sceneryMaterials';
+import { FACADE_LIGHT, patchWindowFade } from './sceneryMaterials';
 
 export interface TownStyle {
   /** lot length along the street (m) */
@@ -348,6 +348,7 @@ export function buildTownscape(
   if (wg) {
     disposer.add(wg);
     const mat = new THREE.MeshStandardMaterial({ name: 'townscape-windows', map: disposer.add(windowTexture(false)), vertexColors: true, roughness: 0.8 });
+    mat.color.setScalar(FACADE_LIGHT[ctx.timeOfDay]);
     if (lit) {
       mat.emissiveMap = disposer.add(windowTexture(true));
       mat.emissive.setRGB(1, 1, 1);
@@ -365,6 +366,7 @@ export function buildTownscape(
   if (sg) {
     disposer.add(sg);
     const mat = disposer.add(new THREE.MeshStandardMaterial({ name: 'townscape-structure', vertexColors: true, roughness: 0.78 }));
+    mat.color.setScalar(FACADE_LIGHT[ctx.timeOfDay]);
     const mesh = new THREE.Mesh(sg, mat);
     mesh.name = 'townscape:structure';
     mesh.castShadow = true;
