@@ -18,7 +18,7 @@
  *   behind    still behind: stopped earlier / same lap / later
  *   bf5 sp    back-five mean finish (reverse grid), spearman(paceStatic, final)
  *   stops     mean stops per car; dbl = a car stopping twice within 2 laps; cliff = cars past 0.85 wear (max wear)
- *   win       winner's race time (s)
+ *   win       winner's race time (s); coll heavy = collisions a race, those with impulse > 5000
  *   uc        undercut calls a race / of them by a car within 1 s of the car ahead; ucPos = share that got ahead of the
  *             car ahead at the call once both had stopped, ucFin = mean (position at the call - final position)
  *   vsBase    with --vs=<prefix>: for the cars that made a call within 1 s, mean (final position in the <prefix> race of
@@ -55,7 +55,7 @@ for (const file of files) {
   groups.get(key)!.push(o);
 }
 
-console.log('group'.padEnd(30), 'n  held ahead%  trk  uc  oc same | still pit% | flag% | behind e/s/l |  bf5    sp   stops dbl cliff maxW |   win   | uc  <1s ucPos ucFin');
+console.log('group'.padEnd(30), 'n  held ahead%  trk  uc  oc same | still pit% | flag% | behind e/s/l |  bf5    sp   stops dbl cliff maxW |   win   coll heavy | uc  <1s ucPos ucFin');
 for (const [key, runs] of groups) {
   const pairs: Pair[] = [];
   const bf5: number[] = [], sp: number[] = [], stops: number[] = [], win: number[] = [], maxW: number[] = [];
@@ -127,7 +127,7 @@ for (const [key, runs] of groups) {
     (f((pairs.filter((p) => p.flag).length / Math.max(1, pairs.length)) * 100, 0) + '%').padStart(5), ' |',
     `${cnt(behind, 'undercut')}/${cnt(behind, 'same')}/${cnt(behind, 'overcut')}`.padStart(9), '   |',
     f(mean(bf5), 1).padStart(5), f(mean(sp), 3).padStart(6), f(mean(stops), 2).padStart(6), String(dbl).padStart(3), String(cliff).padStart(4), f(Math.max(...maxW), 2).padStart(5), ' |',
-    f(mean(win), 1).padStart(7), ' |', f(ucCalls / runs.length, 1).padStart(4), String(ucNear).padStart(4), f(mean(ucPos), 2).padStart(5), f(mean(ucFin), 2).padStart(5),
+    f(mean(win), 1).padStart(7), f(mean(runs.map((o) => o.collisions)), 1).padStart(5), f(mean(runs.map((o) => o.heavy)), 1).padStart(5), ' |', f(ucCalls / runs.length, 1).padStart(4), String(ucNear).padStart(4), f(mean(ucPos), 2).padStart(5), f(mean(ucFin), 2).padStart(5),
     vs ? `| vsBase ${f(mean(vsBase), 2)} (n ${vsBase.length})` : '',
   );
   if (showPairs) for (const p of pairs) console.log(`   s${p.seed} ${p.a} behind ${p.b}: stops lap ${p.lapA} (${p.reasonA}) / ${p.lapB} (${p.reasonB}) -> ${p.ahead ? 'AHEAD' : 'behind'} via ${p.how}, flag ${p.flag ? 'ahead' : 'behind'}`);
