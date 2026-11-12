@@ -10,7 +10,7 @@ import { buildTrack } from '../src/track/track';
 import { decodeFrame, encodeFrame } from '../src/app/replay';
 import { qualityProfile } from '../src/render/core/quality';
 import { AO_BY_TIME, aoAmount, createPostLook, showroomLook } from '../src/render/core/post';
-import { RUBBER_BASE, rubberIntensity } from '../src/render/track/road';
+import { RUBBER_BASE, RUNOFF_TAPER_M, rubberIntensity, runoffPlan } from '../src/render/track/road';
 import {
   CREW_LIFT,
   CREW_SERVICE,
@@ -110,6 +110,37 @@ describe('rubbered racing line', () => {
     expect(brakeN).toBeGreaterThan(0);
     expect(straightN).toBeGreaterThan(0);
     expect(brake / brakeN).toBeGreaterThan(straight / straightN + 0.2);
+  });
+});
+
+describe('run-off surfaces', () => {
+  // 2 m samples: 40 grass, 30 gravel, 1 paved, 32 grass, 10 without a ribbon
+  const SURF = [...Array(40).fill(0), ...Array(30).fill(1), 2, ...Array(32).fill(0), ...Array(10).fill(-1)];
+  const plan = runoffPlan(SURF.length, 2, (i) => SURF[i]);
+  test('a gravel trap ends in a curve: its track-side share eases from all to none across the grass boundary', () => {
+    const start = plan.findIndex((p) => p && p.inner === 1 && p.outer === 0);
+    expect(start).toBeGreaterThan(30);
+    expect(start).toBeLessThan(40);
+    let prev = plan[start]!.share0;
+    expect(prev).toBeCloseTo(0, 6);
+    for (let i = start; plan[i]?.inner === 1 && plan[i]?.outer === 0; i++) {
+      expect(plan[i]!.share0).toBeCloseTo(prev, 9);
+      expect(plan[i]!.share1).toBeGreaterThanOrEqual(prev);
+      prev = plan[i]!.share1;
+    }
+    expect(prev).toBeCloseTo(1, 6);
+    // the taper stays between RUNOFF_TAPER_M bounds
+    const len = plan.filter((p) => p && p.inner === 1 && p.outer === 0 && p.share0 < 1 - 1e-9).length * 2;
+    expect(len).toBeGreaterThanOrEqual(RUNOFF_TAPER_M[0] - 2);
+    expect(len).toBeLessThanOrEqual(RUNOFF_TAPER_M[1] + 2);
+  });
+  test('a run too short to taper keeps a straight edge, gaps stay empty, and every segment covers the full width', () => {
+    expect(plan[70]).toEqual({ inner: 2, outer: 2, share0: 1, share1: 1 });
+    for (let i = 103; i < 113; i++) expect(plan[i]).toBeNull();
+    for (const p of plan) {
+      if (!p) continue;
+      for (const v of [p.share0, p.share1]) expect(v >= 0 && v <= 1).toBe(true);
+    }
   });
 });
 
