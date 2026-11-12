@@ -11,7 +11,7 @@ import { AIR_DENSITY, angleDiff, clamp, clamp01, moveToward, nextRandom, worldTo
 import { isCarHeld, steerInputForAngle, tyreGrip } from '../physics/index';
 import { forwardDistance, inRangeS, pitLaneOffsetAt, pitRampLength, pitZoneLength, poseAt, sampleAt } from '../track/track';
 import { PACE_MODE_FACTOR, difficulty01, highSpeedMargin, limitShare, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
-import { REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
+import { PIT_LINE_UP, REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
 import { aeroWake } from '../race/wake';
 import { EDGE_MARGIN, TRAIN_DRS_KEEP, planTraffic } from './traffic';
@@ -506,7 +506,7 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   if (neutral.yieldSide !== 0) desired = neutral.yieldSide * edgeAhead * 0.85;
   if (car.pit.requested && car.pit.phase === 'none' && world.config.kind !== 'timeTrial') {
     const toEntry = forwardDistance(track, p.s, track.pit.entry);
-    if (toEntry < 420) desired = track.pit.side * edgeAhead;
+    if (toEntry < PIT_LINE_UP) desired = track.pit.side * edgeAhead;
   }
   // a late-braking mistake on our own line: the line opens toward the outside of the corner (missed apex)
   const wide = runWide && desired === null && mistakeCorner ? -mistakeCorner.direction * LATE_BRAKE_WIDE : 0;

@@ -33,7 +33,8 @@ import {
   sampleAt,
   wrapS,
 } from '../track/track';
-import { isDry } from '../ai/index';
+import { PATH_EDGE_MARGIN, PIT_LINE_UP, isDry, lookaheadDistance } from '../ai/index';
+import { linePath, pathSpeeds, pathTime } from '../track/speedProfile';
 import { applyProjection, emit, fin, inGarage, isHuman } from './events';
 import type { CarRaceInternal } from './types';
 import { applyTimePenalty } from './legality';
@@ -86,12 +87,17 @@ const PIT_SPEED_TOLERANCE = 0.6;
 /** Race time penalty (s) for speeding in the pit lane. */
 export const PIT_SPEEDING_PENALTY = 5;
 
+/** Mean stationary time (s) of a stop without repairs (startStop: 2.0–3.5 s). */
+const STOP_TIME = 2.75;
 /**
- * Average stationary time (SPEC: 2–3.5 s) and the extra loss around the box and outside the zone (lining up for the
- * entry, accelerating back to racing speed after the exit) — fitted to simulated stops (±1.1 s on 7 layouts).
+ * A racing car's lap against the reference speed profile (REFERENCE_CAR, soft tyres, light fuel): on race fuel and
+ * medium tyres the AI (difficulty 90) laps 1.058–1.077 × referenceLapTime on 8 layouts.
  */
-const STOP_TIME = 2.8;
-const BOX_MANOEUVRE = 3.5;
+const RACE_PACE = 1.065;
+/** Lateral rate (m/s) the AI moves across to line up for the entry (ai/traffic.ts: a plan with no car around). */
+const LINE_UP_RATE = 2.2;
+/** Distance (m) past the pit exit over which the car gets back up to racing speed (counted in the loss). */
+const RECOVERY = 1000;
 /** Pit loss (s) assumed when the track has no usable pit lane data. */
 export const PIT_LOSS_FALLBACK = 22;
 /**
@@ -113,9 +119,10 @@ export const VSC_PIT_LOSS_FACTOR = 0.75;
 const pitLossCache = new WeakMap<BuiltTrack, number>();
 
 /**
- * Estimated time lost by a stop under green: entry road (racing speed down to the limit at the line) + lane between the
- * lines at the limit + exit road (accelerating from the line) + stop − racing time over the same stretch. Shared by the
- * HUD (MFD) and the AI strategy; cached per track.
+ * Estimated time lost by a stop under green, against racing past: lining up on the pit side over the last PIT_LINE_UP
+ * before the entry, the autopilot's drive through the zone (entry road, the lane at the limit with the box stop, exit
+ * road) and the stop, then getting back up to racing speed after the exit: within 0.45 s of one AI car's simulated stop
+ * on 12 layouts (tools/bench/pit/loss.ts). Shared by the HUD (MFD) and the AI strategy; cached per track.
  */
 export function estimatePitLoss(track: BuiltTrack): number {
   const hit = pitLossCache.get(track);
@@ -127,27 +134,58 @@ export function estimatePitLoss(track: BuiltTrack): number {
 
 function computePitLoss(track: BuiltTrack): number {
   const pit = track.pit;
-  const len = track.length;
-  if (!pit || !(pit.laneLength > 0) || !(pit.speedLimit > 0) || track.count < 2 || !(len > 0)) return PIT_LOSS_FALLBACK;
-  const wrap = (s: number): number => ((s % len) + len) % len;
-  const entry = wrap(pit.entry);
-  const exit = wrap(pit.exit);
-  let racing = 0;
-  for (let i = 0; i < track.count; i++) {
-    const s = track.s[i];
-    const inside = entry <= exit ? s >= entry && s < exit : s >= entry || s < exit;
-    if (!inside) continue;
-    const next = i + 1 < track.count ? track.s[i + 1] : len;
-    const ds = next - s;
-    if (!(ds > 0) || !Number.isFinite(ds)) continue;
-    racing += ds / Math.max(10, fin(track.speedProfile[i], 60));
+  const n = track.count;
+  if (!pit || !(pit.laneLength > 0) || !(pit.speedLimit > 0) || n < 2 || !(track.length > 0)) return PIT_LOSS_FALLBACK;
+  const index = (s: number): number => Math.round(wrapS(track, s) / track.spacing) % n;
+  const take = (a: ArrayLike<number>, from: number, count: number): Float64Array => {
+    const out = new Float64Array(count);
+    for (let k = 0; k < count; k++) out[k] = a[(from + k) % n];
+    return out;
+  };
+  const prof = track.speedProfile;
+  const line = linePath(track.px, track.pz, track.rx, track.rz, track.racingLine);
+  // racing past, at the field's pace: `count` samples of the racing line from `from`
+  const racing = (from: number, count: number): number => RACE_PACE * pathTime(take(prof, from, count), take(line.ds, from, count));
+
+  // lining up: from the racing line, the lateral moves toward the pit-side edge (at the look-ahead) at LINE_UP_RATE; the
+  // AI plans its speed for the lateral it holds
+  const up = Math.round(PIT_LINE_UP / track.spacing);
+  const from = (index(pit.entry) - up + n) % n;
+  const offset = Float64Array.from(track.racingLine);
+  let lat = track.racingLine[from];
+  // (on past the entry for a few samples: the path's curvature there reads its neighbours)
+  for (let k = 0; k <= up + 5; k++) {
+    const i = (from + k) % n;
+    const edge = Math.max(0.5, sampleAt(track, track.halfWidth, track.s[i] + lookaheadDistance(prof[i])) - PATH_EDGE_MARGIN);
+    lat = moveToward(lat, pit.side * edge, (LINE_UP_RATE * track.spacing) / Math.max(1, prof[i]));
+    const here = Math.max(0.5, track.halfWidth[i] - PATH_EDGE_MARGIN);
+    offset[i] = clamp(lat, -here, here);
   }
+  const path = linePath(track.px, track.pz, track.rx, track.rz, offset);
+  const ds = take(path.ds, from, up + 1);
+  const vUp = pathSpeeds(take(path.curvature, from, up + 1), ds, prof[from]);
+  const approach = RACE_PACE * pathTime(vUp, ds) - racing(from, up + 1);
+
+  // the zone (kinematic): hold the arrival speed and brake to the limit at the line, the lane at the limit with the
+  // stop in the box, accelerate from the line to the exit; against racing through it
+  const zone = pitZoneLength(track);
+  const ramp = pitRampLength(track);
   const limit = pit.speedLimit;
-  const ramp = Math.min(pitRampLength(track), pit.laneLength / 2);
-  const vIn = Math.max(limit, fin(sampleAt(track, track.speedProfile, entry), limit));
-  const vOut = Math.max(limit, Math.min(fin(sampleAt(track, track.speedProfile, exit), limit), Math.sqrt(limit * limit + 2 * EXIT_ACCEL * ramp)));
-  const roads = ramp / (0.5 * (vIn + limit)) + ramp / (0.5 * (limit + vOut));
-  const loss = (pit.laneLength - 2 * ramp) / limit + roads + STOP_TIME + BOX_MANOEUVRE - racing;
+  const vIn = Math.max(limit, vUp[up] / RACE_PACE);
+  const brake = (vIn * vIn - limit * limit) / (2 * ENTRY_DECEL);
+  const entryRoad = brake <= ramp ? (ramp - brake) / vIn + (vIn - limit) / ENTRY_DECEL : (2 * ramp) / (vIn + limit);
+  const lane = (zone - 2 * ramp) / limit + limit / (2 * BOX_DECEL) + limit / (2 * LANE_ACCEL);
+  const vOut = Math.sqrt(limit * limit + 2 * EXIT_ACCEL * ramp);
+  const exitRoad = (vOut - limit) / EXIT_ACCEL;
+  const inZone = racing(index(pit.entry), Math.round(zone / track.spacing) + 1);
+
+  // after the exit: from vOut back up to racing speed on the line
+  const back = Math.round(RECOVERY / track.spacing);
+  const exit = index(pit.exit);
+  const dsBack = take(line.ds, exit, back);
+  const after = RACE_PACE * pathTime(pathSpeeds(take(line.curvature, exit, back), dsBack, vOut * RACE_PACE), dsBack) - racing(exit, back);
+
+  const loss = approach + entryRoad + lane + exitRoad + STOP_TIME - inZone + after;
   return Number.isFinite(loss) ? clamp(loss, 8, 45) : PIT_LOSS_FALLBACK;
 }
 

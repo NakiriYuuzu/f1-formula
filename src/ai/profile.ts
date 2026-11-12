@@ -231,6 +231,8 @@ export function brakingDecel(cap: Capability, v: number, curvature: number): num
 
 /** Lateral margin (m) between the car centre and the road edge used for driven paths. */
 export const PATH_EDGE_MARGIN = 1.15;
+/** A car called in lines up on the pit side of the road (its edge) from this far (m) before the pit entry. */
+export const PIT_LINE_UP = 420;
 /** Sample offset for the three-point curvature of an offset path (±3 samples ≈ ±6 m). */
 const CURV_SPAN = 3;
 /**

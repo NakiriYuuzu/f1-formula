@@ -273,13 +273,13 @@ describe('C1 race-time model', () => {
 
 describe('C2 undercut / overcut / cover', () => {
   /** Two cars on the same worn mediums, `gap` s apart, mid-way through a 30-lap Silverstone race. */
-  function pair(gap: number, wear = 0.5, ids = ['varga', 'marchand']): { world: WorldState; track: BuiltTrack; a: CarEntry; b: CarEntry } {
+  function pair(gap: number, wear = 0.5, ids = ['varga', 'marchand'], rate = 0.03): { world: WorldState; track: BuiltTrack; a: CarEntry; b: CarEntry } {
     const third = ['okafor', 'dahl'].find((d) => !ids.includes(d))!;
     const { world, track } = frozenRace('silverstone', 30, [{ driver: ids[0] }, { driver: ids[1] }, { driver: third }]);
     const [a, b, c] = world.cars;
-    setup(world, track, a, { lap: 11, wear, rate: 0.03, position: 1, interval: 0, compound: 'medium' });
-    setup(world, track, b, { lap: 11, wear, rate: 0.03, position: 2, interval: gap, compound: 'medium' });
-    setup(world, track, c, { lap: 11, wear, rate: 0.03, position: 3, interval: 20, compound: 'medium' });
+    setup(world, track, a, { lap: 11, wear, rate, position: 1, interval: 0, compound: 'medium' });
+    setup(world, track, b, { lap: 11, wear, rate, position: 2, interval: gap, compound: 'medium' });
+    setup(world, track, c, { lap: 11, wear, rate, position: 3, interval: 20, compound: 'medium' });
     return { world, track, a, b };
   }
 
@@ -304,7 +304,7 @@ describe('C2 undercut / overcut / cover', () => {
   test('overcut: the car ahead boxes this lap → stay out (clean air, the old set still as quick as its out-lap)', () => {
     // a quicker car behind a slower one; its own plan says box now
     const run = (rivalBoxes: boolean): CarEntry => {
-      const { world, track, a, b } = pair(1.2, 0.64, ['caldwell', 'varga']);
+      const { world, track, a, b } = pair(1.2, 0.64, ['caldwell', 'varga'], 0.025);
       b.ai.aheadId = a.id;
       b.ai.aheadStops = 0;
       b.ai.aheadGap = 1.2;
@@ -830,7 +830,7 @@ describe('review fixes', () => {
       world.time = 0;
       Object.assign(world.weather, { kind: 'overcast', rain: 0, wetness: 0, trackTemp: 18, forecast: forecast ? [{ time: 60, kind: 'lightRain' }] : [] });
       const car = world.cars[0];
-      setup(world, track, car, { lap: 11, wear, rate: 0.03, position: 1, interval: 0, compound: 'medium' });
+      setup(world, track, car, { lap: 11, wear, rate: 0.025, position: 1, interval: 0, compound: 'medium' });
       decide(world, track, car);
       return car;
     };

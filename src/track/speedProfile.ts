@@ -123,6 +123,31 @@ export function computeSpeedProfile(curvature: Float64Array, ds: Float64Array): 
   return v;
 }
 
+/**
+ * Speed profile (m/s) along an open path that starts at v0 and is free at its end (the same corner limit, power and
+ * braking as computeSpeedProfile; samples i → i+1 are ds[i] apart).
+ */
+export function pathSpeeds(curvature: ArrayLike<number>, ds: ArrayLike<number>, v0: number): Float64Array {
+  const n = curvature.length;
+  const v = new Float64Array(n);
+  for (let i = 0; i < n; i++) v[i] = Math.max(MIN_SPEED, cornerSpeedLimit(curvature[i]));
+  v[0] = v0;
+  for (let i = 0; i + 1 < n; i++) {
+    v[i + 1] = Math.min(v[i + 1], Math.sqrt(v[i] * v[i] + 2 * driveAccel(v[i], Math.abs(curvature[i])) * ds[i]));
+  }
+  for (let j = n - 1; j > 1; j--) {
+    v[j - 1] = Math.min(v[j - 1], Math.sqrt(v[j] * v[j] + 2 * brakeAccel(v[j], Math.abs(curvature[j])) * ds[j - 1]));
+  }
+  return v;
+}
+
+/** Time (s) to drive an open path at the given per-sample speeds (mean speed per segment). */
+export function pathTime(speed: ArrayLike<number>, ds: ArrayLike<number>): number {
+  let t = 0;
+  for (let i = 0; i + 1 < speed.length; i++) t += ds[i] / Math.max(0.1, 0.5 * (speed[i] + speed[i + 1]));
+  return t;
+}
+
 /** Time (s) to drive the closed path at the given per-sample speeds (mean speed per segment). */
 export function lapTime(speed: Float64Array, ds: Float64Array): number {
   const n = speed.length;
