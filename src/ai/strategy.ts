@@ -54,17 +54,19 @@ const MAX_STOPS = 4;
 
 /**
  * Undercut: the car ahead within UNDERCUT_GAP s — or nearer once it holds us up (within UNDERCUT_GAP[0] s of the same
- * car at the last evaluation and now, a lap without getting by on the road, and its lap slower than ours) — on a set no
- * fresher than ours (SIMILAR_WEAR), and it must stop too. Box now when what the stop gains on it over UNDERCUT_LAPS laps,
- * less what stopping now costs over the best plan, beats the gap by UNDERCUT_MARGIN s. The gain: the fresh set against
- * its old one at our pace, plus (held) the time a lap behind it costs us, less the time lost behind the cars we come out
- * behind (FOLLOW s back from each).
+ * car at the last evaluation and now, a lap without getting by on the road, and its lap slower than ours by more than
+ * HELD_EDGE: a driver's race rhythm swings lap time by up to ±0.4 % (controller.ts), so a smaller edge is no edge) — on
+ * a set no fresher than ours (SIMILAR_WEAR), and it must stop too. Box now when what the stop gains on it over
+ * UNDERCUT_LAPS laps, less what stopping now costs over the best plan, beats the gap by UNDERCUT_MARGIN s. The gain: the
+ * fresh set against its old one at our pace, plus (held) the time a lap behind it costs us, less the time lost behind the
+ * cars we come out behind (FOLLOW s back from each).
  */
 const UNDERCUT_GAP: readonly [number, number] = [1, 2.5];
 const SIMILAR_WEAR = 0.03;
 const UNDERCUT_LAPS = 2;
 const UNDERCUT_MARGIN = 0.4;
 const FOLLOW = 0.5;
+const HELD_EDGE = 0.004;
 /**
  * Overcut: the car ahead (within OVERCUT_GAP s) has just pitted, we have clean air (no car within CLEAN_AIR s) and a lap
  * on our old set is no slower than its out-lap (fresh set + OUTLAP_WARMUP s off the blankets): stay out up to
@@ -789,12 +791,13 @@ function evaluate(
   const nextRate = input.rate * COMPOUND_PARAMS[next].wearRate;
 
   // C2 undercut: the car ahead within reach, or holding us up (a lap within UNDERCUT_GAP[0] s of it, and its lap slower
-  // than ours by `lost`), on a set as old as ours, and it has to stop too
+  // than ours by `lost`, more than HELD_EDGE), on a set as old as ours, and it has to stop too
   const a = neighbour(world, car, -1);
   const gap = car.timing.interval;
   const near = a !== null && ai.aheadId === a.id && ai.aheadGap < UNDERCUT_GAP[0] && gap < UNDERCUT_GAP[0];
-  const lost = a && near ? Math.max(0, lapsOnSet(a, track, 1) - lapsOnSet(car, track, 1)) : 0;
-  if (a && a.status === 'running' && a.pit.phase === 'none' && !a.pit.requested && (gap >= UNDERCUT_GAP[0] || lost > 0) && gap <= UNDERCUT_GAP[1]) {
+  const lapA = a && near ? lapsOnSet(a, track, 1) : 0;
+  const lost = lapA > 0 ? Math.max(0, lapA - lapsOnSet(car, track, 1)) : 0;
+  if (a && a.status === 'running' && a.pit.phase === 'none' && !a.pit.requested && (gap >= UNDERCUT_GAP[0] || lost > HELD_EDGE * lapA) && gap <= UNDERCUT_GAP[1]) {
     const t = a.phys.tire;
     if (isDry(t.compound) && wear >= t.wear - SIMILAR_WEAR && mustStop(world, a, track, ctx)) {
       // a stop into clean air also wins back on it the time lost a lap behind it, until it stops

@@ -379,6 +379,10 @@ describe('C2 undercut / overcut / cover', () => {
     const following = heldPair();
     following.b.ai.paceTime = following.a.ai.paceTime;
     expect(decide(following.world, following.track, following.b)).toBeNull();
+    // ... or quicker only within a driver's lap-to-lap rhythm (0.3 %): the order swings on its own → no stop
+    const rhythm = heldPair();
+    rhythm.b.ai.paceTime = rhythm.a.ai.paceTime * 0.997;
+    expect(decide(rhythm.world, rhythm.track, rhythm.b)).toBeNull();
     // the same held car would come out right behind a car on older tyres → no stop
     const traffic = heldPair({ back: loss - 0.3, thirdWear: 0.65 });
     expect(decide(traffic.world, traffic.track, traffic.b)).toBeNull();
