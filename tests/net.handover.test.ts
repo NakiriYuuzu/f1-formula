@@ -12,6 +12,7 @@ import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout } from '../src/data/tracks/index';
 import { computeAIInput } from '../src/ai/index';
 import { createWorld, getPlayerCarId, stepWorld } from '../src/race/index';
+import { forwardDistance } from '../src/track/track';
 import { HostSession } from '../src/net/host';
 import { ClientSession } from '../src/net/client';
 import { LoopbackNetwork } from '../src/net/loopback';
@@ -93,6 +94,63 @@ function pitStop(pitAssist: boolean) {
   return { phases: [...phases].sort(), outAt, compound: car.phys.tire.compound, inPit, worst, laneReconciles };
 }
 
+/**
+ * With pit assist, the guest predicting its car past the handoff point: the host's word that a stop is requested lands,
+ * and its withdrawal three steps later, with no state of the own car for six steps more (the link holds it back: 75 ms,
+ * an own-car state lost on a jittery link). The car goes to the host and straight back. The two words are put on the guest's mirrored car directly. Scores the drawn car from
+ * there for 1.5 s, and whether the car stood still while the host had it.
+ */
+function requestWithdrawn() {
+  const track = getLayout('monza');
+  const cfg = config(12, true);
+  const net = new LoopbackNetwork({ delayMs: 50, jitterMs: 30, loss: 0.03, retransmitMs: 260, seed: 9 });
+  const [h, c] = net.pair();
+  const world = createWorld(cfg, track);
+  const host = new HostSession(world, track, 1, [{ playerIndex: 1, name: 'Ann', transport: h }], { now: () => net.now });
+  const guest = new ClientSession(cfg, track, 1, 1, c);
+  const own = guest.car!;
+  let at: number | null = null;
+  let held: { x: number; z: number } | null = null;
+  let stood = true;
+  let last: { x: number; z: number; speed: number } | null = null;
+  let worst = 0;
+  let steps = 0;
+  const step = () => {
+    const inputs: (ControlInput | null)[] = [null, null, null, null];
+    inputs[0] = computeAIInput(world, world.cars[getPlayerCarId(world, 0)]!, track, SIM_DT);
+    host.fillInputs(inputs);
+    stepWorld(world, track, inputs, SIM_DT);
+    world.events.length = 0;
+    host.afterStep();
+    guest.step(computeAIInput(guest.world, own, track, SIM_DT));
+    guest.takeEvents();
+    if (++steps % 2 === 0) {
+      const drawn = guest.renderFrame(2 * SIM_DT).cars.find((x) => x.carId === guest.carId)!;
+      if (last && at !== null) worst = Math.max(worst, Math.abs(Math.hypot(drawn.x - last.x, drawn.z - last.z) - ((drawn.speed + last.speed) / 2) * 2 * SIM_DT));
+      last = { x: drawn.x, z: drawn.z, speed: drawn.speed };
+    }
+  };
+  while (world.time < 200 && (at === null || world.time < at + 1.5)) {
+    // 130 m before the entry: inside the handoff point (150 m)
+    if (at === null && world.time > 12 && forwardDistance(track, own.phys.s, track.pit.entry) < 130) {
+      at = world.time;
+      own.pit.requested = true;
+      for (let i = 0; i < 3; i++) {
+        step();
+        if (held && (own.phys.x !== held.x || own.phys.z !== held.z)) stood = false;
+        held = { x: own.phys.x, z: own.phys.z };
+      }
+      own.pit.requested = false;
+      for (let i = 0; i < 6; i++) step();
+      net.advance(9 * SIM_DT * 1000);
+      continue;
+    }
+    step();
+    net.advance(SIM_DT * 1000);
+  }
+  return { at, stood, worst };
+}
+
 describe('online: the own car between the guest and the host', () => {
   test(
     'a pit stop with pit assist: into the lane, through the stop and back out the drawn car never jumps',
@@ -120,6 +178,19 @@ describe('online: the own car between the guest and the host', () => {
       expect(r.phases).toEqual(['entry', 'exit', 'lane', 'none', 'stopped']);
       expect(r.compound).toBe('hard');
       expect(r.worst).toBeLessThan(0.3);
+    },
+    120_000,
+  );
+
+  test.failing(
+    "the host takes the car and hands it straight back before its next state: the guest's inputs are played once",
+    () => {
+      const r = requestWithdrawn();
+      expect(r.at).not.toBeNull();
+      expect(r.stood).toBe(true);
+      // e48caa8 played the unacknowledged inputs again on the state it had already played them on: the car ran
+      // ahead and was pulled back by the next state (1.4-1.6 m in a frame on the target and a worse link)
+      expect(r.worst).toBeLessThan(0.1);
     },
     120_000,
   );
