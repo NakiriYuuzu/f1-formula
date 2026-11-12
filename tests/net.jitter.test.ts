@@ -5,8 +5,9 @@
  * the car's steps stay within LEAD_MAX (30) of the field, never skipping or inventing one of its inputs — so the
  * guest's own prediction is never corrected for it — and draws those steps spread out; a host or guest that loses
  * time is taken at once and leaves the band to the jitter, and a guest whose clock runs fast gains no more than the
- * band. The guest draws the other cars on a steered view clock with their snapshot jumps blended out
- * (src/net/client.ts), so their drawn motion stays smooth, also at 300 ms round trip.
+ * band. The guest draws the other cars on a steered view clock, each carried along the arc its newest snapshot gives
+ * with every correction faded in (src/net/client.ts, follow.ts), so their drawn motion stays smooth at 60 fps, also at
+ * 300 ms round trip.
  */
 import { describe, expect, test } from 'bun:test';
 import type { ControlInput, PlayerIndex, SessionConfig, WorldState } from '../src/core/types';
@@ -213,7 +214,7 @@ describe('online jitter', () => {
     120_000,
   );
 
-  test.failing(
+  test(
     'the other cars move smoothly on the guest at 60 fps: no jumps from late snapshots or prediction corrections',
     () => {
       const jump: number[] = [];
@@ -226,17 +227,17 @@ describe('online jitter', () => {
         rate.push(...drawn.rate);
       }
       expect(jump.length).toBeGreaterThan(150_000);
-      // 9c3e7ea (two snapshots extrapolated along the track, each new one's jump blended out over 0.1 s): p99
-      // 0.086–0.098 m, max 0.21–0.31 m per seed
+      // measured p99 0.018–0.020 m and max 0.044–0.094 m per seed. 9c3e7ea (two snapshots extrapolated along the
+      // track, each new one's jump blended out over 0.1 s): p99 0.086–0.098 m, max 0.21–0.31 m
       expect(p99(jump)).toBeLessThan(0.04);
       expect(Math.max(...jump)).toBeLessThan(0.12);
-      // the view clock: measured at most 12–14 % off (moving the cars 0.06–0.07 m off their speed at p99)
+      // the view clock: measured at most 12–14 % off (moving the cars 0.06–0.07 m off their speed at p99, as 9c3e7ea)
       expect(Math.max(...rate)).toBeLessThan(0.2);
     },
     120_000,
   );
 
-  test.failing(
+  test(
     'at 300 ms round trip the other cars still move smoothly on the guest at 60 fps',
     () => {
       // the p99 sits on its ~1 % of jumps, so it moves with the link's luck: 5 link seeds
@@ -247,7 +248,7 @@ describe('online jitter', () => {
         expect(drawn.jump.length).toBeGreaterThan(30_000);
         p99s.push(p99(drawn.jump));
       }
-      // 9c3e7ea: 0.50 m (0.47–0.53 per seed)
+      // measured 0.099 m (0.093–0.104 per seed), each snapshot carried 0.35–0.4 s; 9c3e7ea: 0.50 m
       expect(p99s.reduce((a, b) => a + b, 0) / p99s.length).toBeLessThan(0.15);
     },
     120_000,

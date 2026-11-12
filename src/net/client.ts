@@ -8,20 +8,22 @@
  *   after the last input the host's state is final for (its seq and host time; inputs the host still guesses are
  *   replayed on its side once they arrive): the state is taken and the unacknowledged inputs replayed on top; the
  *   visual jump is smoothed out (beyond TELEPORT m: shown at once);
- * - the other cars are shown on the own car's timeline: its prediction stands for the host time of the newest
- *   snapshot plus the unacknowledged inputs, so they are extrapolated along the track that far past the newest
- *   snapshot (at most MAX_EXTRAPOLATION s; the jump in place and speed a new snapshot makes is blended out over
- *   BLEND s, so the drawn motion stays continuous in both). While the host drives the
- *   own car (pit autopilot, formation, parking) it is extrapolated the same way, so taking over and handing back
- *   keep one timeline (the prediction starts with the unacknowledged inputs replayed). Before the first snapshot of
- *   the own car, and while the player spectates (setSpectating), everything is interpolated INTERP_DELAY s behind
- *   the host clock. The view time is a clock of its own,
+ * - everything the host drives is a Follower (follow.ts): the newest snapshot's fix of it carried along its arc to
+ *   the view time, with an offset that fades each correction in. The view time is the own car's timeline — its
+ *   prediction stands for the host time of its last state plus the unacknowledged inputs — so the others are shown
+ *   where the host will have them when it plays the input the player is giving now;
+ * - the own car is driven by this side's prediction or by the host (Drive: pit autopilot, formation, parking). Hosted,
+ *   it is one more Follower on the same timeline; when it changes hands it is drawn on from where it was drawn.
+ *   Before the first state of the own car, and while the player spectates (setSpectating), the view time runs
+ *   INTERP_DELAY s behind the host clock instead: with no own car to line the others up with, they are shown as the
+ *   host had them. The view time is a clock of its own,
  *   steered toward its target by running at most VIEW_WARP faster or slower than the steps (set at once only when
  *   VIEW_SNAP off, also by a frame that runs no step), so network jitter does not shake the other cars. The host clock
  *   estimate is the earliest arrival of the last CLOCK_WINDOW s, timed with the steps the frame clock still owes
  *   (useClock: a stalled frame being caught up does not make snapshots look early; the time of a hidden page, which is
  *   skipped, is not owed: skipTime); it bounds the target, so a host or this side losing time is
- *   followed within a fraction of a second. The mirror world's other cars (slipstream, minimap) follow the view;
+ *   followed within a fraction of a second. The mirror world's other cars (slipstream, minimap) are where the host
+ *   most likely has them at the view time (the followers without their fading offsets);
  * - HUD mirror patches update timing, positions, pit, flags, session and weather of the mirror world; events are
  *   queued in order (deduplicated by seq) for the HUD and audio; commands go to the host.
  * Pure logic over NetTransport (tests: loopback).
@@ -41,10 +43,11 @@ import type {
   WorldState,
 } from '../core/types';
 import { SIM_DT } from '../core/defaults';
-import { angleDiff, clamp, clamp01, lerp, wrapAngle } from '../core/math';
+import { clamp } from '../core/math';
 import { isCarHeld } from '../physics/index';
 import { buildRenderFrame, createWorld, getPlayerCarId, predictHumanStep } from '../race/index';
-import { forwardDistance, poseAt, projectToTrack, signedDeltaS, wrapS } from '../track/track';
+import { forwardDistance, projectToTrack } from '../track/track';
+import { Follower, MAX_CARRY, shownTime, type Fix, type Pose } from './follow';
 import { applyMirrorPatch, applyMirrorToWorld } from './mirror';
 import {
   INPUT_REDUNDANCY,
@@ -61,6 +64,7 @@ import {
   seqNewer,
   type ClientCommand,
   type InputRecord,
+  type Motion,
   type NetMessage,
   type OwnState,
   type Snapshot,
@@ -69,10 +73,8 @@ import { decodeProbe, encodeProbe } from './probe';
 import { SeqTracker, StatWindow, byteSize, type GuestLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
 
-/** While the host drives the own car: render everything this far (s) behind the estimated host clock (interpolation). */
+/** Spectating (and before the own car's first state): everything is shown this far (s) behind the estimated host clock. */
 export const INTERP_DELAY = 0.1;
-/** The other cars are extrapolated at most this far (s) past the newest snapshot (to the own car's timeline). */
-export const MAX_EXTRAPOLATION = 0.4;
 /** The view time runs 1 + VIEW_GAIN · (target − view) times as fast as the steps (at most ± VIEW_WARP); further than
  * VIEW_SNAP (s) from its target it is set to it. */
 const VIEW_GAIN = 6;
@@ -81,54 +83,31 @@ const VIEW_SNAP = 0.15;
 /** Host clock estimate: the earliest arrival of the last CLOCK_WINDOW s (local), approached this share per snapshot. */
 const CLOCK_WINDOW = 0.3;
 const CLOCK_GAIN = 0.5;
-/** Extrapolation limits: along-track acceleration (m/s²) taken from the last two snapshots, lateral speed (m/s). */
-const EXTRAP_ACCEL_MIN = -60;
-const EXTRAP_ACCEL_MAX = 25;
-const EXTRAP_LAT_SPEED = 6;
 /** Own-car correction beyond this distance (m) is shown at once instead of smoothed. */
 const TELEPORT = 3;
 /** Share of the remaining visual correction of the own car removed per second (exponential). */
 const SMOOTH_RATE = 10;
-/** Time (s) over which an other car's jump in place and speed at a new snapshot is blended out (Hermite). */
-const BLEND = 0.1;
-/** Snapshots kept (s of host time). */
-const BUFFER_SECONDS = 1;
 /** Unacknowledged inputs kept at most (2 s of steps). */
 const MAX_PENDING = 240;
-/** Recognised as a car-to-car teleport between two snapshots (m). */
-const SNAP_TELEPORT = 30;
+/** The own car changing hands further than this (m) from where it was drawn is shown at once. */
+const HANDOVER_MAX = 30;
 /** With the pit autopilot on and a stop requested, prediction hands over to the host this far (m) before the entry. */
 const PIT_HANDOFF = 150;
+/** The safety car's follower (car ids start at 0). */
+const SAFETY_CAR = -1;
 
 interface PendingInput {
   rec: InputRecord;
   input: ControlInput;
 }
 
-/** A car's (or the safety car's) place relative to the track in one snapshot. */
-interface TrackPos {
-  s: number;
-  lat: number;
-  /** height above the centre line and yaw against the track direction */
-  dy: number;
-  dyaw: number;
-  index: number;
-}
-
-/** A buffered snapshot with the track places of its cars (by car id; the safety car under -1). */
-interface Buffered {
-  snap: Snapshot;
-  at: Map<number, TrackPos>;
-}
-
 type Vec3 = { x: number; y: number; z: number };
 
-/** A new snapshot's jump for one car at view time t0: the offset in place `e` and speed `v`, blended out over BLEND. */
-interface Blend {
-  t0: number;
-  e: Vec3;
-  v: Vec3;
-}
+/**
+ * Who moves the own car on this side: its prediction from the player's inputs, or the host (pit autopilot and the
+ * approach to it, formation, parking, a held or stopped car), which it then follows like any other car.
+ */
+type Drive = 'predicted' | 'hosted';
 
 export interface ClientCallbacks {
   /** another player left (its car is AI-driven now) */
@@ -172,7 +151,9 @@ export class ClientSession {
   private pending: PendingInput[] = [];
   private sent: InputRecord[] = [];
   private stepCount = 0;
-  private snapshots: Buffered[] = [];
+  /** the newest snapshot (what the followers do not carry is drawn from it) and a follower per car it holds */
+  private newest: Snapshot | null = null;
+  private readonly followers = new Map<number, Follower>();
   /** estimate of the host's time (s): the newest snapshot's as it arrives with the least delay, one step a step */
   private hostClock: number | null = null;
   /** snapshot arrivals of the last CLOCK_WINDOW s: local time (steps · SIM_DT) and host time − local time */
@@ -180,24 +161,19 @@ export class ClientSession {
   /** the frame clock the steps come from (useClock) and its time at the last step (ms; null: none since a pause) */
   private clock: { now(): number; owed(sinceLastStep: number): number } | null = null;
   private lastStepAt: number | null = null;
-  /** the other cars' view time (s of host time), steered toward viewTarget() */
+  /** the view time (s of host time) the followers are shown at, steered toward viewTarget(); null before a snapshot */
   private view: number | null = null;
   /** host time of the snapshot the own car was last reconciled to */
   private ownSnapTime: number | null = null;
-  /** visual correction of each other car: the jumps new snapshots made in the extrapolation, being blended out */
-  private othersBlend = new Map<number, Blend[]>();
   /** the player watches the others (own car out of the race; setSpectating) */
   private spectating = false;
   private events: GameEvent[] = [];
   private eventSeq = 0;
   private mirrorSeq = 0;
   private mirrorState: unknown = undefined;
-  private smooth = { x: 0, y: 0, z: 0 };
-  /** own car as last drawn and whether it was the predicted one (a hand-over is blended, not jumped) */
-  private lastShown: { x: number; y: number; z: number } | null = null;
-  private lastPredicted = false;
-  /** the own car's state is a prediction (the last step predicted it) */
-  private ownPredicted = false;
+  /** predicted own car: drawn − predicted, fading out */
+  private smooth: Vec3 = { x: 0, y: 0, z: 0 };
+  private drive: Drive = 'hosted';
   private disposed = false;
 
   constructor(
@@ -282,15 +258,15 @@ export class ClientSession {
     this.sent.unshift(rec);
     if (this.sent.length > INPUT_REDUNDANCY) this.sent.length = INPUT_REDUNDANCY;
     const car = this.car;
-    const wasPredicted = this.ownPredicted;
-    this.ownPredicted = car !== undefined && this.canPredict(car);
+    const to: Drive = car && this.canPredict(car) ? 'predicted' : 'hosted';
+    // (to the host before the view moves on: both are where the last step left them)
+    if (car && to === 'hosted') this.handOver(car, to, this.drawnOwn(car));
     if (this.hostClock !== null) this.hostClock += SIM_DT;
     this.advanceView();
     this.syncOthers();
-    if (car && this.ownPredicted) {
-      // taking over from the host: its last state plus every unacknowledged input (this one is the last of them)
-      if (!wasPredicted) for (const p of this.pending) this.predict(car, p.input);
-      else this.predict(car, input);
+    if (car && to === 'predicted') {
+      if (this.drive === 'predicted') this.predict(car, input);
+      else this.handOver(car, to, this.drawnOwn(car));
     }
     // the mirrored timers move on (corrected by the next mirror patch)
     if (this.world.session.phase === 'running' || this.world.session.phase === 'chequered') {
@@ -343,19 +319,18 @@ export class ClientSession {
   /**
    * The player's view follows another car (their own is out of the race) / their own again. Spectating, the view
    * time drops back to INTERP_DELAY behind the host clock at once — the camera changes car at this moment anyway —
-   * and the others are interpolated as the host had them; the blends of the extrapolated timeline no longer apply.
+   * and the others are shown as the host had them.
    */
   setSpectating(on: boolean): void {
     if (on === this.spectating) return;
     this.spectating = on;
-    this.othersBlend.clear();
     const target = this.viewTarget();
-    if (target !== null) this.view = target;
+    if (target !== null) this.setView(target);
   }
 
   /**
-   * The frame to draw: the other cars at the view time (the own car's timeline, see the header), the own car where
-   * the prediction has it (plus the decaying correction). `dt` (s) decays the own car's correction.
+   * The frame to draw: what the host drives where its followers are at the view time, the own car where the
+   * prediction has it (plus the decaying correction) unless the host drives it too. `dt` (s) decays that correction.
    */
   renderFrame(dt: number): RenderFrame {
     const decay = Math.exp(-SMOOTH_RATE * Math.max(0, Number.isFinite(dt) ? dt : 0));
@@ -365,27 +340,12 @@ export class ClientSession {
     const local = buildRenderFrame(this.world, this.track);
     // a frame that ran no step (the first one back after a hidden page) does not draw a view left far behind
     const target = this.viewTarget();
-    if (this.view !== null && target !== null && !(Math.abs(target - this.view) <= VIEW_SNAP)) this.view = target;
-    const view = this.viewTime();
-    const frame = (view !== null ? this.frameAt(view) : null) ?? local;
-    frame.cars = frame.cars.map((c) => {
-      const d = c.carId !== this.carId ? this.blendOffset(c.carId, frame.time) : null;
-      return d ? { ...c, x: c.x + d.x, y: c.y + d.y, z: c.z + d.z } : c;
-    });
+    if (this.view !== null && target !== null && !(Math.abs(target - this.view) <= VIEW_SNAP)) this.setView(target);
+    const frame = this.hostFrame() ?? local;
     const car = this.car;
-    if (!car) return frame;
-    const predicted = this.canPredict(car);
-    const base = (predicted ? local : frame).cars.find((c) => c.carId === this.carId);
-    if (!base) return frame;
-    // switching between the predicted and the host's (interpolated) car: carry the difference over and let it decay
-    if (this.lastShown && predicted !== this.lastPredicted) {
-      const d = { x: this.lastShown.x - base.x, y: this.lastShown.y - base.y, z: this.lastShown.z - base.z };
-      if (Math.hypot(d.x, d.z) < SNAP_TELEPORT) this.smooth = d;
-      else this.smooth = { x: 0, y: 0, z: 0 };
-    }
-    const shown: CarRenderState = { ...base, x: base.x + this.smooth.x, y: base.y + this.smooth.y, z: base.z + this.smooth.z };
-    this.lastShown = { x: shown.x, y: shown.y, z: shown.z };
-    this.lastPredicted = predicted;
+    const predicted = this.drive === 'predicted' ? local.cars.find((c) => c.carId === this.carId) : undefined;
+    if (!car || !predicted) return frame;
+    const shown: CarRenderState = { ...predicted, ...this.drawnOwn(car) };
     const i = frame.cars.findIndex((c) => c.carId === this.carId);
     if (i >= 0) frame.cars[i] = shown;
     else frame.cars.push(shown);
@@ -400,29 +360,6 @@ export class ClientSession {
   }
 
   // ───────────────────────────── internals ─────────────────────────────
-
-  private viewTime(): number | null {
-    return this.view;
-  }
-
-  /**
-   * An other car's visual correction at view time `t`: every jump still being blended out, each fading in place and
-   * speed with zero slope at both ends (Hermite h00 / h10), so the drawn motion has no kink.
-   */
-  private blendOffset(carId: number, t: number): Vec3 | null {
-    const list = this.othersBlend.get(carId);
-    if (!list || list.length === 0) return null;
-    const out = { x: 0, y: 0, z: 0 };
-    for (const b of list) {
-      const u = clamp01((t - b.t0) / BLEND);
-      const h00 = 2 * u * u * u - 3 * u * u + 1;
-      const h10 = (u * u * u - 2 * u * u + u) * BLEND;
-      out.x += b.e.x * h00 + b.v.x * h10;
-      out.y += b.e.y * h00 + b.v.y * h10;
-      out.z += b.e.z * h00 + b.v.z * h10;
-    }
-    return out;
-  }
 
   /**
    * Steps the frame clock still owes (useClock): what it will simulate of the wall-clock time since the last step
@@ -443,94 +380,87 @@ export class ClientSession {
     if (this.hostClock === null) return null;
     if (this.ownSnapTime === null || this.spectating) return this.hostClock - INTERP_DELAY;
     const own = this.ownSnapTime + this.pending.length * SIM_DT;
-    return this.hostClock + clamp(own - this.hostClock, -INTERP_DELAY, MAX_EXTRAPOLATION);
+    return this.hostClock + clamp(own - this.hostClock, -INTERP_DELAY, MAX_CARRY);
   }
 
-  /** One step of the view time, steered toward its target (see the header). */
+  /** One step of the view time, steered toward its target (see the header); the followers go with it. */
   private advanceView(): void {
     const target = this.viewTarget();
     if (target === null) return;
     if (this.view === null || !(Math.abs(target - this.view) <= VIEW_SNAP)) {
-      this.view = target;
+      this.setView(target);
       return;
     }
     // steered on the gap left after this step: on the gap before it the view settles a step past its target
     this.view += SIM_DT * (1 + clamp(VIEW_GAIN * (target - (this.view + SIM_DT)), -VIEW_WARP, VIEW_WARP));
+    for (const f of this.followers.values()) f.step(this.view);
+  }
+
+  /** The view time set (not run) to `t`: everything is shown where it is then, at once. */
+  private setView(t: number): void {
+    this.view = t;
+    for (const f of this.followers.values()) f.jump(t);
   }
 
   /** The mirror world's other cars at the view time (the prediction's slipstream, minimap and audio read them). */
   private syncOthers(): void {
-    const view = this.viewTime();
-    if (view === null) return;
-    const places = new Map<number, { s: number; lat: number }>();
-    const frame = this.frameAt(view, places);
-    if (!frame) return;
-    for (const c of frame.cars) {
-      if (c.carId === this.carId) continue;
-      const car = this.world.cars[c.carId];
-      if (!car) continue;
+    if (!this.newest) return;
+    for (const c of this.newest.frame.cars) {
+      const car = c.carId === this.carId ? undefined : this.world.cars[c.carId];
+      const at = this.followers.get(c.carId)?.at;
+      if (!car || !at) continue;
       const p = car.phys;
-      p.x = c.x;
-      p.y = c.y;
-      p.z = c.z;
-      p.yaw = c.yaw;
-      p.speed = c.speed;
+      p.x = at.x;
+      p.y = at.y;
+      p.z = at.z;
+      p.yaw = at.yaw;
+      p.speed = at.speed;
       p.gear = c.gear;
       p.rpm = c.rpm;
       p.throttle = c.throttle;
       p.brake = c.brake;
-      const at = places.get(c.carId);
-      if (at) {
-        p.s = at.s;
-        p.lateral = at.lat;
-        // (not mirrored: the mirrored laps and this place; the AI driving the own car reads it to see a car lap it)
-        car.timing.progress = raceDistance(car.timing.progress, car.timing.lapsCompleted, at.s, this.track.length);
-      }
+      const place = projectToTrack(this.track, at.x, at.z, p.trackIndex, at.y);
+      p.trackIndex = place.index;
+      p.s = place.s;
+      p.lateral = place.lateral;
+      // (not mirrored: the mirrored laps and this place; the AI driving the own car reads it to see a car lap it)
+      car.timing.progress = raceDistance(car.timing.progress, car.timing.lapsCompleted, place.s, this.track.length);
     }
   }
 
-  /**
-   * Everything at host time `t`: interpolated inside the snapshot buffer, extrapolated along the track past its
-   * newest snapshot (at most MAX_EXTRAPOLATION s; frame.time is the time shown). `places` receives the other cars'
-   * s / lateral. Null before any snapshot.
-   */
-  private frameAt(t: number, places?: Map<number, { s: number; lat: number }>): RenderFrame | null {
-    const n = this.snapshots.length;
-    if (n === 0) return null;
-    const first = this.snapshots[0] as Buffered;
-    const last = this.snapshots[n - 1] as Buffered;
-    if (n >= 2 && t > last.snap.time) return extrapolateFrame(this.track, this.snapshots[n - 2] as Buffered, last, Math.min(t - last.snap.time, MAX_EXTRAPOLATION), places);
-    if (n === 1 || t <= first.snap.time || t >= last.snap.time) {
-      const b = n === 1 || t <= first.snap.time ? first : last;
-      if (places) for (const [id, at] of b.at) places.set(id, { s: at.s, lat: at.lat });
-      return cloneFrame(b.snap.frame, b.snap.time);
-    }
-    let i = 0;
-    while (i < n - 2 && (this.snapshots[i + 1] as Buffered).snap.time <= t) i++;
-    const a = this.snapshots[i] as Buffered;
-    const b = this.snapshots[i + 1] as Buffered;
-    const f = b.snap.time > a.snap.time ? clamp01((t - a.snap.time) / (b.snap.time - a.snap.time)) : 0;
-    if (places) {
-      for (const [id, pb] of b.at) {
-        const pa = a.at.get(id);
-        places.set(id, pa ? { s: wrapS(this.track, pa.s + signedDeltaS(this.track, pa.s, pb.s) * f), lat: lerp(pa.lat, pb.lat, f) } : { s: pb.s, lat: pb.lat });
-      }
-    }
-    return blendFrames(a.snap.frame, b.snap.frame, f, t);
-  }
-
-  /** Track places of a snapshot's cars and safety car (projected near their places in the previous one). */
-  private trackPlaces(s: Snapshot): Map<number, TrackPos> {
-    const prev = this.snapshots[this.snapshots.length - 1]?.at;
-    const at = new Map<number, TrackPos>();
-    const place = (id: number, x: number, y: number, z: number, yaw: number): void => {
-      const pr = projectToTrack(this.track, x, z, prev?.get(id)?.index, y);
-      at.set(id, { s: pr.s, lat: pr.lateral, dy: y - pr.height, dyaw: angleDiff(pr.heading, yaw), index: pr.index });
-    };
-    for (const c of s.frame.cars) if (c.carId >= 0) place(c.carId, c.x, c.y, c.z, c.yaw);
+  /** The newest snapshot's frame with everything in it where its follower is drawn at the view time. */
+  private hostFrame(): RenderFrame | null {
+    const s = this.newest;
+    if (!s || this.view === null) return null;
     const sc = s.frame.safetyCar;
-    if (sc) place(-1, sc.x, sc.y, sc.z, sc.yaw);
-    return at;
+    return {
+      ...s.frame,
+      time: shownTime(s.time, this.view),
+      cars: s.frame.cars.map((c) => ({ ...c, ...this.followers.get(c.carId)?.drawn, damage: { ...c.damage } })),
+      safetyCar: sc ? { ...sc, ...this.followers.get(SAFETY_CAR)?.drawn } : null,
+    };
+  }
+
+  /** Where the own car is drawn now. */
+  private drawnOwn(car: CarEntry): Vec3 {
+    if (this.drive === 'hosted') return this.followers.get(this.carId)?.drawn ?? car.phys;
+    return { x: car.phys.x + this.smooth.x, y: car.phys.y + this.smooth.y, z: car.phys.z + this.smooth.z };
+  }
+
+  /** The own car changes hands (see Drive): it is drawn on from `drawn`, where it was drawn until now. */
+  private handOver(car: CarEntry, to: Drive, drawn: Vec3): void {
+    if (to === this.drive) return;
+    this.drive = to;
+    const follower = this.followers.get(this.carId);
+    if (to === 'predicted') {
+      // from the host's last state, with every input it has not played
+      for (const p of this.pending) this.predict(car, p.input);
+      const d = { x: drawn.x - car.phys.x, y: drawn.y - car.phys.y, z: drawn.z - car.phys.z };
+      this.smooth = follower && Math.hypot(d.x, d.z) < HANDOVER_MAX ? d : { x: 0, y: 0, z: 0 };
+    } else if (follower) {
+      if (Math.hypot(drawn.x - follower.at.x, drawn.z - follower.at.z) < HANDOVER_MAX) follower.resume(drawn);
+      else follower.show();
+    }
   }
 
   /**
@@ -646,38 +576,8 @@ export class ClientSession {
   }
 
   private onSnapshot(s: Snapshot): void {
-    const last = this.snapshots[this.snapshots.length - 1];
-    if (last && s.time <= last.snap.time) return;
-    // the other cars where (and how fast) they were drawn just now, to blend out the jump the new snapshot makes
-    const view = this.viewTime();
-    const before = view !== null ? this.frameAt(view) : null;
-    // its drawn speed: the step that led to it (none while the view sat past the extrapolation limit, frozen there)
-    const beforePrev = before && view !== null && before.time >= view - 1e-9 ? this.frameAt(before.time - SIM_DT) : before;
-    this.snapshots.push({ snap: s, at: this.trackPlaces(s) });
-    while (this.snapshots.length > 2 && (this.snapshots[0] as Buffered).snap.time < s.time - BUFFER_SECONDS) this.snapshots.shift();
-    if (before && beforePrev) {
-      // the same moment as just drawn (the newer snapshot may extrapolate further)
-      const t0 = before.time;
-      const after = this.frameAt(t0);
-      const afterNext = this.frameAt(t0 + SIM_DT);
-      for (const c of after?.cars ?? []) {
-        if (c.carId === this.carId) continue;
-        const o = before.cars.find((x) => x.carId === c.carId);
-        const op = beforePrev.cars.find((x) => x.carId === c.carId);
-        const cn = afterNext?.cars.find((x) => x.carId === c.carId);
-        if (!o || !op || !cn) continue;
-        const e = { x: o.x - c.x, y: o.y - c.y, z: o.z - c.z };
-        const v = { x: (o.x - op.x - (cn.x - c.x)) / SIM_DT, y: (o.y - op.y - (cn.y - c.y)) / SIM_DT, z: (o.z - op.z - (cn.z - c.z)) / SIM_DT };
-        // (a step of either path past TELEPORT: the car was put somewhere else, not driven there)
-        const moved = Math.max(Math.hypot(o.x - op.x, o.z - op.z), Math.hypot(cn.x - c.x, cn.z - c.z));
-        if (Math.hypot(e.x, e.z) > TELEPORT || moved > TELEPORT || !Number.isFinite(e.x + e.y + e.z + v.x + v.y + v.z)) this.othersBlend.delete(c.carId);
-        else {
-          const list = (this.othersBlend.get(c.carId) ?? []).filter((b) => t0 - b.t0 < BLEND);
-          list.push({ t0, e, v });
-          this.othersBlend.set(c.carId, list);
-        }
-      }
-    }
+    if (this.newest && s.time <= this.newest.time) return;
+    this.newest = s;
     // host clock estimate: the earliest arrival of the last CLOCK_WINDOW s — jitter only delays snapshots, so a late
     // one does not pull it back, a window of them all behind it (the host lost time, a slower route) does; jumps
     // beyond 0.5 s taken at once. The view time starts with the first snapshot
@@ -693,28 +593,45 @@ export class ClientSession {
     if (this.hostClock === null || Math.abs(clock - this.hostClock) > 0.5) this.hostClock = clock;
     else this.hostClock += (clock - this.hostClock) * CLOCK_GAIN;
     if (this.view === null) this.advanceView();
+    const view = this.view ?? s.time;
+    const follow = (id: number, at: Pose, motion: Motion, grade: number): void => {
+      const fix: Fix = { time: s.time, x: at.x, y: at.y, z: at.z, yaw: at.yaw, speed: at.speed, ...motion, climb: Math.tan(grade) };
+      const f = this.followers.get(id);
+      if (f) f.take(fix, view);
+      else this.followers.set(id, new Follower(fix, view));
+    };
+    s.frame.cars.forEach((c, i) => follow(c.carId, c, s.motion[i] as Motion, c.groundPitch ?? 0));
+    const sc = s.frame.safetyCar;
+    if (sc && s.safetyCarMotion) follow(SAFETY_CAR, sc, s.safetyCarMotion, sc.pitch ?? 0);
+    else this.followers.delete(SAFETY_CAR);
     this.syncOthers();
   }
 
-  /** The host's state of the own car (newest seq only): taken, the unacknowledged inputs replayed on top. */
+  /**
+   * The host's state of the own car (newest seq only): taken; while this side drives, the unacknowledged inputs are
+   * replayed on top and the step that makes in what is drawn fades out.
+   */
   private reconcile(own: OwnState): void {
     const car = this.car;
     if (!car || own.carId !== this.carId) return;
     if (this.ownSeq !== null && !seqNewer(own.seq, this.ownSeq)) return;
     this.ownSeq = own.seq;
-    const wasPredicting = this.ownPredicted;
     const before = { x: car.phys.x, y: car.phys.y, z: car.phys.z };
+    const drawn = this.drawnOwn(car);
     this.ownSnapTime = own.time;
     assignDeep(car.phys as unknown as Record<string, unknown>, own.phys as unknown as Record<string, unknown>);
     if (own.ack !== null) {
       const ack = own.ack;
       this.pending = this.pending.filter((p) => seqNewer(p.rec.seq, ack));
     }
-    const predicting = this.canPredict(car);
-    if (predicting) for (const p of this.pending) this.predict(car, p.input);
-    this.ownPredicted = predicting;
-    // the visual correction of the predicted car (following the host there is nothing to correct)
-    if (!wasPredicting || !predicting) return;
+    const to: Drive = this.canPredict(car) ? 'predicted' : 'hosted';
+    if (to !== this.drive) {
+      this.handOver(car, to, drawn);
+      return;
+    }
+    // following the host there is nothing to correct
+    if (to === 'hosted') return;
+    for (const p of this.pending) this.predict(car, p.input);
     const err = { x: before.x - car.phys.x, y: before.y - car.phys.y, z: before.z - car.phys.z };
     const d = Math.hypot(err.x, err.z);
     this.corrections++;
@@ -759,105 +676,6 @@ function withOneShots(rec: InputRecord, prev: readonly number[]): ControlInput {
   const fired = oneShotsBetween(prev, rec.counters);
   for (const k of ONE_SHOTS) input[k] = fired[k];
   return input;
-}
-
-function cloneFrame(f: RenderFrame, time: number): RenderFrame {
-  return { ...f, time, cars: f.cars.map((c) => ({ ...c, damage: { ...c.damage } })), safetyCar: f.safetyCar ? { ...f.safetyCar } : (f.safetyCar ?? null) };
-}
-
-/** A moving thing in two consecutive snapshots carried `tau` s past the second along the track (null: a teleport). */
-function extrapolatePose(
-  track: BuiltTrack,
-  a: { x: number; z: number; speed: number },
-  pa: TrackPos,
-  b: { x: number; z: number; speed: number },
-  pb: TrackPos,
-  dt: number,
-  tau: number,
-): { x: number; y: number; z: number; yaw: number; speed: number; s: number; lat: number } | null {
-  if (!(dt > 0) || Math.hypot(b.x - a.x, b.z - a.z) > SNAP_TELEPORT) return null;
-  const acc = clamp((b.speed - a.speed) / dt, EXTRAP_ACCEL_MIN, EXTRAP_ACCEL_MAX);
-  // along-track speed at b (the position step is the interval's mean); a braking car stops, never reverses
-  const v = Math.max(0, signedDeltaS(track, pa.s, pb.s) / dt + (acc * dt) / 2);
-  const tt = acc < 0 ? Math.min(tau, v / -acc) : tau;
-  const s = wrapS(track, pb.s + v * tt + 0.5 * acc * tt * tt);
-  const lat = pb.lat + clamp((pb.lat - pa.lat) / dt, -EXTRAP_LAT_SPEED, EXTRAP_LAT_SPEED) * tau;
-  const pose = poseAt(track, s, lat);
-  return { x: pose.x, y: pose.y + pb.dy, z: pose.z, yaw: wrapAngle(pose.yaw + pb.dyaw), speed: Math.max(0, b.speed + acc * tt), s, lat };
-}
-
-/** The newest snapshot's frame with its cars and safety car carried `tau` s further (see extrapolatePose). */
-function extrapolateFrame(track: BuiltTrack, a: Buffered, b: Buffered, tau: number, places?: Map<number, { s: number; lat: number }>): RenderFrame {
-  const dt = b.snap.time - a.snap.time;
-  const frame = cloneFrame(b.snap.frame, b.snap.time + tau);
-  for (const c of frame.cars) {
-    const pb = b.at.get(c.carId);
-    const ca = a.snap.frame.cars.find((x) => x.carId === c.carId);
-    const pa = a.at.get(c.carId);
-    const e = ca && pa && pb ? extrapolatePose(track, ca, pa, c, pb, dt, tau) : null;
-    if (e) {
-      c.x = e.x;
-      c.y = e.y;
-      c.z = e.z;
-      c.yaw = e.yaw;
-      c.speed = e.speed;
-      places?.set(c.carId, { s: e.s, lat: e.lat });
-    } else if (pb) places?.set(c.carId, { s: pb.s, lat: pb.lat });
-  }
-  const sa = a.snap.frame.safetyCar;
-  const sb = frame.safetyCar;
-  const psa = a.at.get(-1);
-  const psb = b.at.get(-1);
-  if (sa && sb && psa && psb) {
-    const e = extrapolatePose(track, sa, psa, sb, psb, dt, tau);
-    if (e) frame.safetyCar = { ...sb, x: e.x, y: e.y, z: e.z, yaw: e.yaw, speed: e.speed };
-  }
-  return frame;
-}
-
-function blendCar(a: CarRenderState, b: CarRenderState, f: number): CarRenderState {
-  const near = f >= 0.5 ? b : a;
-  if (Math.hypot(b.x - a.x, b.z - a.z) > SNAP_TELEPORT) return { ...near, damage: { ...near.damage } };
-  return {
-    ...near,
-    x: lerp(a.x, b.x, f),
-    y: lerp(a.y, b.y, f),
-    z: lerp(a.z, b.z, f),
-    yaw: wrapAngle(a.yaw + angleDiff(a.yaw, b.yaw) * f),
-    pitch: lerp(a.pitch, b.pitch, f),
-    groundPitch: lerp(a.groundPitch ?? 0, b.groundPitch ?? 0, f),
-    roll: lerp(a.roll, b.roll, f),
-    speed: lerp(a.speed, b.speed, f),
-    steerAngle: lerp(a.steerAngle, b.steerAngle, f),
-    wheelSpin: lerp(a.wheelSpin, b.wheelSpin, f),
-    throttle: lerp(a.throttle, b.throttle, f),
-    brake: lerp(a.brake, b.brake, f),
-    rpm: lerp(a.rpm, b.rpm, f),
-    damage: { ...near.damage },
-  };
-}
-
-function blendFrames(a: RenderFrame, b: RenderFrame, f: number, time: number): RenderFrame {
-  const cars: CarRenderState[] = [];
-  for (const ca of a.cars) {
-    const cb = b.cars.find((c) => c.carId === ca.carId);
-    cars.push(cb ? blendCar(ca, cb, f) : { ...ca, damage: { ...ca.damage } });
-  }
-  const near = f >= 0.5 ? b : a;
-  const sa = a.safetyCar ?? null;
-  const sb = b.safetyCar ?? null;
-  const safetyCar =
-    sa && sb && Math.hypot(sb.x - sa.x, sb.z - sa.z) < SNAP_TELEPORT
-      ? { ...sb, x: lerp(sa.x, sb.x, f), y: lerp(sa.y, sb.y, f), z: lerp(sa.z, sb.z, f), yaw: wrapAngle(sa.yaw + angleDiff(sa.yaw, sb.yaw) * f), speed: lerp(sa.speed, sb.speed, f) }
-      : (near.safetyCar ?? null);
-  return {
-    time,
-    cars,
-    startLights: { ...near.startLights },
-    weather: { kind: near.weather.kind, rain: lerp(a.weather.rain, b.weather.rain, f), wetness: lerp(a.weather.wetness, b.weather.wetness, f) },
-    safetyCar,
-    ...(near.raceControl ? { raceControl: { mode: near.raceControl.mode, sectorFlags: [...near.raceControl.sectorFlags] } } : {}),
-  };
 }
 
 function assignDeep(target: Record<string, unknown>, src: Record<string, unknown>): void {
