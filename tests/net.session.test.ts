@@ -12,7 +12,7 @@ import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, SIM_DT } from '../src/co
 import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout } from '../src/data/tracks/index';
 import { computeAIInput } from '../src/ai/index';
-import { buildSessionResult, createWorld, getPlayerCarId, isSessionOver, stepWorld } from '../src/race/index';
+import { buildSessionResult, createWorld, forceIncident, getPlayerCarId, isSessionOver, stepWorld } from '../src/race/index';
 import { AI_TAKEOVER_SUFFIX, HostSession } from '../src/net/host';
 import { ClientSession } from '../src/net/client';
 import { LoopbackNetwork } from '../src/net/loopback';
@@ -201,6 +201,68 @@ describe('online session (loopback)', () => {
       expect(pings[0]!.ms).toBe(host.pingOf(1));
       expect(a.corrections).toBeGreaterThan(1000);
       expect(a.maxCorrection).toBeLessThan(2);
+    },
+    120_000,
+  );
+
+  test(
+    'the safety car out: the guest draws it smoothly where the host has it at the frame\'s time',
+    () => {
+      const track = getLayout('monza');
+      const ids = RACERS.slice(0, 12);
+      const cfg: SessionConfig = {
+        ...config(50),
+        players: [0, 1].map((pi) => ({ playerIndex: pi as PlayerIndex, driverId: ids[pi]!.id, teamId: ids[pi]!.teamId, setup: { ...DEFAULT_SETUP }, assists: { ...DEFAULT_ASSISTS } })),
+        grid: ids.map((d, i) => ({ driverId: d.id, teamId: d.teamId, playerIndex: (i < 2 ? i : -1) as -1 | PlayerIndex, startCompound: 'medium' })),
+      };
+      const net = new LoopbackNetwork({ delayMs: 50, jitterMs: 30, loss: 0.03, retransmitMs: 260, seed: 9 });
+      const [h, c] = net.pair();
+      const world = createWorld(cfg, track);
+      const host = new HostSession(world, track, 1, [{ playerIndex: 1, name: 'Ann', transport: h }], { now: () => net.now });
+      const guest = new ClientSession(cfg, track, 1, 1, c);
+      const history: { t: number; x: number; z: number }[] = [];
+      const shown: { t: number; x: number; z: number }[] = [];
+      const jump: number[] = [];
+      let last: { t: number; x: number; z: number; speed: number } | null = null;
+      let forced = false;
+      let steps = 0;
+      while (world.time < 200) {
+        const inputs: (ControlInput | null)[] = [null, null, null, null];
+        inputs[0] = computeAIInput(world, world.cars[getPlayerCarId(world, 0)]!, track, SIM_DT);
+        host.fillInputs(inputs);
+        stepWorld(world, track, inputs, SIM_DT);
+        world.events.length = 0;
+        host.afterStep();
+        if (!forced && world.time >= 20) forced = forceIncident(world, track, 'sc');
+        const sc = world.session.control.safetyCar;
+        if (sc.onTrack) history.push({ t: world.time, x: sc.x, z: sc.z });
+        guest.step(computeAIInput(guest.world, guest.car!, track, SIM_DT));
+        guest.takeEvents();
+        net.advance(SIM_DT * 1000);
+        if (++steps % 2 !== 0) continue;
+        const frame = guest.renderFrame(2 * SIM_DT);
+        const drawn = frame.safetyCar;
+        if (drawn && last) jump.push(Math.abs(Math.hypot(drawn.x - last.x, drawn.z - last.z) - ((drawn.speed + last.speed) / 2) * (frame.time - last.t)));
+        last = drawn ? { t: frame.time, x: drawn.x, z: drawn.z, speed: drawn.speed } : null;
+        if (drawn) shown.push({ t: frame.time, x: drawn.x, z: drawn.z });
+      }
+      const err: number[] = [];
+      for (const d of shown) {
+        const i = history.findIndex((p) => p.t >= d.t);
+        if (i <= 0) continue;
+        const a = history[i - 1]!;
+        const b = history[i]!;
+        const f = (d.t - a.t) / (b.t - a.t);
+        err.push(Math.hypot(d.x - (a.x + (b.x - a.x) * f), d.z - (a.z + (b.z - a.z) * f)));
+      }
+      const p99 = (xs: number[]): number => [...xs].sort((x, y) => x - y)[Math.floor(xs.length * 0.99)]!;
+      expect(forced).toBe(true);
+      expect(err.length).toBeGreaterThan(5000);
+      // measured p99 0.018 m, max 0.026 m (9c3e7ea: 0.057 m at p99) and p99 0.57 m off the host (its yaw, the road's
+      // heading, taken for its course and the centre line's bend for its turn: 1.39 m)
+      expect(p99(jump)).toBeLessThan(0.04);
+      expect(Math.max(...jump)).toBeLessThan(0.12);
+      expect(p99(err)).toBeLessThan(1);
     },
     120_000,
   );

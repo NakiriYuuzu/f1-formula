@@ -5,8 +5,9 @@
  * the car's steps stay within LEAD_MAX (30) of the field, never skipping or inventing one of its inputs — so the
  * guest's own prediction is never corrected for it — and draws those steps spread out; a host or guest that loses
  * time is taken at once and leaves the band to the jitter, and a guest whose clock runs fast gains no more than the
- * band. The guest draws the other cars on a steered view clock with their snapshot jumps blended out
- * (src/net/client.ts), so their drawn motion stays smooth, also at 300 ms round trip.
+ * band. The guest draws the other cars on a steered view clock, each carried along the arc its newest snapshot gives
+ * with every correction faded in (src/net/client.ts, follow.ts), so their drawn motion stays smooth at 60 fps, also at
+ * 300 ms round trip.
  */
 import { describe, expect, test } from 'bun:test';
 import type { ControlInput, PlayerIndex, SessionConfig, WorldState } from '../src/core/types';
@@ -50,8 +51,10 @@ function config(cars: number): SessionConfig {
 
 interface WifiRun {
   cars: number;
-  /** every step after 10 s with the guest's drawn frame */
+  /** every frame after 10 s with the guest's drawn frame */
   each?: (frame: ReturnType<ClientSession['renderFrame']>, guest: ClientSession, world: WorldState) => void;
+  /** guest steps per drawn frame (default 1; 2 is a 60 Hz screen) */
+  frameSteps?: number;
   /** after every host step: the host's world and its end of the link */
   afterHost?: (world: WorldState, link: NetTransport) => void;
   /** the host's frame stalls and `steps` of its time are dropped at `at` s (the guest keeps driving) */
@@ -82,10 +85,12 @@ function wifiRace(o: WifiRun) {
     rng = (rng * 1103515245 + 12345) & 0x7fffffff;
     return rng / 0x7fffffff;
   };
-  const guestStep = (): ReturnType<ClientSession['renderFrame']> => {
+  const frameSteps = o.frameSteps ?? 1;
+  let stepsRun = 0;
+  const guestStep = (): ReturnType<ClientSession['renderFrame']> | null => {
     guest.step(computeAIInput(guest.world, guest.car!, track, SIM_DT));
     guest.takeEvents();
-    return guest.renderFrame(SIM_DT);
+    return ++stepsRun % frameSteps === 0 ? guest.renderFrame(frameSteps * SIM_DT) : null;
   };
   let nextStall = 5;
   let nextRoute = 8;
@@ -149,6 +154,37 @@ function secondDiffs(): { add(x: number, z: number): void; values: number[] } {
   };
 }
 
+/**
+ * The other cars as drawn at 60 fps. `jump`: how far each one's step is from its drawn speed × the host time the frame
+ * moved on (smooth motion: millimetres; a correction shown at once: its size). `rate`: how far the frame's host time
+ * ran off the frame time — the view clock steered toward the own car's timeline, which moves a step whenever the
+ * host's playout delay does; every car speeds up or slows down with it, so it is no jump of any one.
+ */
+function otherCars(): { add(frame: ReturnType<ClientSession['renderFrame']>, guest: ClientSession): void; jump: number[]; rate: number[] } {
+  const last = new Map<number, { x: number; z: number; speed: number }>();
+  let lastTime: number | null = null;
+  const jump: number[] = [];
+  const rate: number[] = [];
+  return {
+    jump,
+    rate,
+    add(frame, guest) {
+      const ran = lastTime === null ? null : frame.time - lastTime;
+      lastTime = frame.time;
+      if (ran === null) return;
+      rate.push(Math.abs(ran / (2 * SIM_DT) - 1));
+      for (const c of frame.cars) {
+        if (c.carId === guest.carId) continue;
+        const q = last.get(c.carId);
+        if (q) jump.push(Math.abs(Math.hypot(c.x - q.x, c.z - q.z) - ((c.speed + q.speed) / 2) * ran));
+        last.set(c.carId, { x: c.x, z: c.z, speed: c.speed });
+      }
+    },
+  };
+}
+
+const p99 = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length * 0.99)]!;
+
 describe('online jitter', () => {
   test(
     "the host's playout delay follows the link without touching the guest's inputs: no own-car correction, the host draws the car smoothly",
@@ -179,60 +215,41 @@ describe('online jitter', () => {
   );
 
   test(
-    'the other cars move smoothly on the guest: no jumps from late snapshots or extrapolation corrections',
+    'the other cars move smoothly on the guest at 60 fps: no jumps from late snapshots or prediction corrections',
     () => {
-      // second difference of each other car's drawn position per step (smooth motion: millimetres)
-      const paths = new Map<number, ReturnType<typeof secondDiffs>>();
-      const { guest } = wifiRace({
-        cars: 12,
-        each: (frame, g) => {
-          for (const c of frame.cars) {
-            if (c.carId === g.carId) continue;
-            const p = paths.get(c.carId) ?? secondDiffs();
-            p.add(c.x, c.z);
-            paths.set(c.carId, p);
-          }
-        },
-      });
-      const jerk = [...paths.values()].flatMap((p) => p.values).sort((a, b) => a - b);
-      expect(jerk.length).toBeGreaterThan(50_000);
-      // measured p99 0.019 m, max 0.051 m. The place alone blended (no speed term): max 0.095 m; the view time nudged
-      // toward every snapshot's arrival as before (a late one pulled every car back) with an exponential correction:
-      // p99 0.14 m, max 0.9 m
-      expect(jerk[Math.floor(jerk.length * 0.99)]!).toBeLessThan(0.03);
-      expect(jerk[jerk.length - 1]!).toBeLessThan(0.075);
-      expect(guest.corrections).toBeGreaterThan(1000);
+      const jump: number[] = [];
+      const rate: number[] = [];
+      for (const seed of [9, 10, 11, 12, 13]) {
+        const drawn = otherCars();
+        const { guest } = wifiRace({ cars: 12, seed, frameSteps: 2, each: drawn.add });
+        expect(guest.corrections).toBeGreaterThan(1000);
+        jump.push(...drawn.jump);
+        rate.push(...drawn.rate);
+      }
+      expect(jump.length).toBeGreaterThan(150_000);
+      // measured p99 0.018–0.020 m and max 0.044–0.094 m per seed. 9c3e7ea (two snapshots extrapolated along the
+      // track, each new one's jump blended out over 0.1 s): p99 0.086–0.098 m, max 0.21–0.31 m
+      expect(p99(jump)).toBeLessThan(0.04);
+      expect(Math.max(...jump)).toBeLessThan(0.12);
+      // the view clock: measured at most 12–14 % off (moving the cars 0.06–0.07 m off their speed at p99, as 9c3e7ea)
+      expect(Math.max(...rate)).toBeLessThan(0.2);
     },
     120_000,
   );
 
   test(
-    'at 300 ms round trip (the view at the extrapolation limit) the other cars still move smoothly on the guest',
+    'at 300 ms round trip the other cars still move smoothly on the guest at 60 fps',
     () => {
-      // the per-step second difference's p99 sits on its ~1 % of jumps, so it moves with the link's luck: 5 link seeds
+      // the p99 sits on its ~1 % of jumps, so it moves with the link's luck: 5 link seeds
       const p99s: number[] = [];
       for (const seed of [9, 10, 11, 12, 13]) {
-        const paths = new Map<number, ReturnType<typeof secondDiffs>>();
-        wifiRace({
-          cars: 12,
-          seed,
-          link: { delayMs: 150, jitterMs: 40, loss: 0.02 },
-          each: (frame, g) => {
-            for (const c of frame.cars) {
-              if (c.carId === g.carId) continue;
-              const p = paths.get(c.carId) ?? secondDiffs();
-              p.add(c.x, c.z);
-              paths.set(c.carId, p);
-            }
-          },
-        });
-        const jerk = [...paths.values()].flatMap((p) => p.values).sort((a, b) => a - b);
-        expect(jerk.length).toBeGreaterThan(50_000);
-        p99s.push(jerk[Math.floor(jerk.length * 0.99)]!);
+        const drawn = otherCars();
+        wifiRace({ cars: 12, seed, frameSteps: 2, link: { delayMs: 150, jitterMs: 40, loss: 0.02 }, each: drawn.add });
+        expect(drawn.jump.length).toBeGreaterThan(30_000);
+        p99s.push(p99(drawn.jump));
       }
-      // measured 0.18 m (0.11–0.30 per seed). 409fe48 without the blend: 0.36; the blend's drawn speed taken a step
-      // ahead (past the limit: 0, a brake): 0.58
-      expect(p99s.reduce((a, b) => a + b, 0) / p99s.length).toBeLessThan(0.265);
+      // measured 0.099 m (0.093–0.104 per seed), each snapshot carried 0.35–0.4 s; 9c3e7ea: 0.50 m
+      expect(p99s.reduce((a, b) => a + b, 0) / p99s.length).toBeLessThan(0.15);
     },
     120_000,
   );

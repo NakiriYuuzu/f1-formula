@@ -21,6 +21,19 @@ The link is a host and one guest on `LoopbackNetwork` with a manual clock, so re
 - `own drawn jump while not predicting/in pit` is the guest's own car while the host drives it.
 - `remote pos err vs host @shown time` is how far a drawn car is from where the host had it.
 
+```sh
+bun run tools/bench/net/pose.ts            # spin, height, wall, outage, sc
+bun run tools/bench/net/pose.ts spin,wall  # some of them
+```
+
+The pose probe scores where the guest draws the other cars against where the host had them at the frame's time, in the moments the smoothness lines above do not see. Same link and clock; `tests/net.pose.test.ts` gates its scenarios.
+
+- `spin`: a random-crash spin. `spinYawMean` is the drawn nose's error while the host car turns faster than 1 rad/s, `slowYawMax` the largest while it is under 3 m/s and barely turning, `placeMax` the drawn place's.
+- `height`: every other car's drawn height on Spa, Monza, Suzuka and wet Spa, against the host's (`dy`) and against the road's under the drawn place (`floatMax`).
+- `wall`: a car turned square into the barrier. `pastBarrier` counts frames whose drawn body reaches past it, `offRoad` frames drawn more than 1 m further off the road than the host has the car.
+- `outage`: the link stalls for 1.0, 1.6 and 1.9 s. `carsPut` is cars that took one frame over 0.5 m to get back, `carsSlid` cars that took more.
+- `sc`: the safety car's drawn place once it is out.
+
 ## AI: do faster cars get through
 
 ```sh

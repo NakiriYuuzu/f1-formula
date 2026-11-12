@@ -21,9 +21,9 @@
  *   than GHOST_AFTER in a row and the car is a ghost to the other cars (netGhost), more than REWIND_STEPS (nothing
  *   left to replay: a frozen tab) and the AI controller drives it. A sender whose records keep arriving behind what
  *   was played (it lost time) is taken back on its own timeline at once;
- * - snapshots at SNAPSHOT_HZ, two datagrams of one packet each with the receiver's snapshot seq (the frame, and the
- *   receiver's car before its first guess still open to a replay with the seq before it and the host time of that
- *   state), the HUD mirror at MIRROR_HZ (patches), game events as
+ * - snapshots at SNAPSHOT_HZ, two datagrams of one packet each with the receiver's snapshot seq (the frame with how
+ *   every car is moving, and the receiver's car before its first guess still open to a replay with the seq before it
+ *   and the host time of that state), the HUD mirror at MIRROR_HZ (patches), game events as
  *   they happen, pings. Newest wins: a snapshot or patch that is due waits (the next step tries again) while the link
  *   still has more than LINK_BACKLOG bytes queued, so a link slower than what the host sends gets fewer, fresh
  *   snapshots instead of a queue of stale ones that every message waits behind. Snapshots go first; a mirror patch
@@ -33,8 +33,9 @@
  * - a player whose link closes hands its car to the AI controller (name marked 「AI 代駕」) and the race goes on.
  * Pure logic over NetTransport (tests: loopback).
  */
-import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, PlayerIndex, RenderFrame, SessionResult, WorldState } from '../core/types';
+import type { BuiltTrack, CarEntry, CarPhysicsState, ControlInput, GameEvent, PlayerIndex, RenderFrame, SafetyCarState, SessionResult, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
+import { angleDiff, damp, forwardX, forwardZ, rightX, rightZ } from '../core/math';
 import { computeAIInput } from '../ai/index';
 import { isCarHeld } from '../physics/index';
 import { COAST_INPUT, RETIRE_BY_CHOICE, buildRenderFrame, cancelPit, getPlayerCarId, predictHumanStep, requestPit, retireCar, setErsMode } from '../race/index';
@@ -51,8 +52,10 @@ import {
   oneShotsBetween,
   recordToInput,
   type InputRecord,
+  type Motion,
   type NetMessage,
 } from './protocol';
+import { SLIDE } from './follow';
 import { decodeProbe, encodeProbe } from './probe';
 import { StatWindow, byteSize, type HostLinkStats, type PeerLinkStats } from './stats';
 import type { NetTransport } from './transport';
@@ -96,6 +99,13 @@ const MAX_BEHIND = 60;
 const LINK_BACKLOG = 1024;
 /** Steps a due mirror patch waits for a clear link at most (then it goes behind queued snapshots, not patches). */
 const MIRROR_MAX_WAIT = 60;
+/** Below this speed (m/s) a car's velocity has no direction worth sending: its heading stands for its course. */
+const MOVING = 0.5;
+/**
+ * Rate (1/s) at which the safety car's turn and yaw rates follow its steps. The road is straight between its samples and bends
+ * at each, so one step turns by nothing or by a whole bend: averaged, it is the bend of the road it is on.
+ */
+const SC_TURN_RATE = 8;
 
 /** The car before a step: what predictHumanStep reads and writes. */
 interface SavedCar {
@@ -199,6 +209,8 @@ export class HostSession {
   /** wall clock (ms, see clock()) of the last step; null before the first / after a pause */
   private lastStepAt: number | null = null;
   private disposed = false;
+  /** where the safety car is after the last step and how it moved in that step (null: not out) */
+  private safetyCar: SafetyCarStep | null = null;
   /** statistics: steps replayed after late inputs */
   replayed = 0;
 
@@ -336,6 +348,7 @@ export class HostSession {
     if (this.disposed) return;
     this.steps++;
     this.lastStepAt = this.clock();
+    this.safetyCar = safetyCarStep(this.world.session.control.safetyCar, this.safetyCar);
     for (const r of this.remotes.values()) {
       if (!r.connected) continue;
       // a car-to-car contact, a lap completed (per-lap tyre / ERS counters) or a step off the open road: the steps so
@@ -716,15 +729,19 @@ export class HostSession {
   /** Due snapshots to the remotes whose link is clear (see the header: newest wins): the frame, then the own car. */
   private sendSnapshots(): void {
     let frame: RenderFrame | null = null;
+    let motion: Motion[] = [];
     for (const r of this.remotes.values()) {
       if (!r.connected || !r.snapshotDue || this.backlog(r) > LINK_BACKLOG) continue;
       r.snapshotDue = false;
-      frame ??= buildRenderFrame(this.world, this.track);
+      if (!frame) {
+        frame = buildRenderFrame(this.world, this.track);
+        motion = this.world.cars.map((c) => carMotion(c.phys));
+      }
       const seq = r.snapshotSeq;
       r.snapshotSeq = nextSeq(seq);
       const now = this.clock();
       r.stats.snapshots.add(now);
-      this.sendState(r, encodeSnapshot({ seq, tick: this.world.tick, time: this.world.time, frame }), now);
+      this.sendState(r, encodeSnapshot({ seq, tick: this.world.tick, time: this.world.time, frame, motion, safetyCarMotion: this.safetyCar?.motion ?? null }), now);
       const car = this.carOf(r);
       if (!car) continue;
       // the car before its first guess still open to a replay (the steps after it are the client's to predict)
@@ -808,6 +825,45 @@ function openRoad(world: WorldState, car: CarEntry): boolean {
   if (phase !== 'running' && phase !== 'chequered') return false;
   const r = car.race;
   return car.playerIndex >= 0 && car.status === 'running' && car.pit.phase === 'none' && !r.parking && !r.formationAuto && !isCarHeld(car.phys);
+}
+
+/**
+ * How a car is moving, as its physics (or the autopilot driving it) left it after the step. Its yaw turns at its yaw
+ * rate. A car that grips goes where it points: its path turns with it. One that slides (its velocity more than SLIDE
+ * off its heading) goes on a path that only its tyres' push bends: the acceleration the physics keeps, taken along and
+ * across the velocity.
+ */
+function carMotion(p: CarPhysicsState): Motion {
+  const spin = p.yawRate;
+  if (!(p.speed > MOVING)) return { course: p.yaw, accel: p.internal.accelLong, turn: spin, spin };
+  const course = Math.atan2(p.vx, p.vz);
+  if (Math.abs(angleDiff(p.yaw, course)) < SLIDE) return { course, accel: p.internal.accelLong, turn: spin, spin };
+  const ax = p.internal.accelLong * forwardX(p.yaw) + p.internal.accelLat * rightX(p.yaw);
+  const az = p.internal.accelLong * forwardZ(p.yaw) + p.internal.accelLat * rightZ(p.yaw);
+  return { course, accel: (p.vx * ax + p.vz * az) / p.speed, turn: (p.vz * ax - p.vx * az) / (p.speed * p.speed), spin };
+}
+
+interface SafetyCarStep {
+  x: number;
+  z: number;
+  yaw: number;
+  speed: number;
+  motion: Motion;
+}
+
+/**
+ * How the safety car moved in the step that left it at `sc` (null: not out). Its yaw is the road's heading at its place,
+ * not where it goes while it changes line or turns into the pit lane: its course is where the step took it.
+ */
+function safetyCarStep(sc: SafetyCarState, prev: SafetyCarStep | null): SafetyCarStep | null {
+  if (!sc.onTrack) return null;
+  if (!prev) return { x: sc.x, z: sc.z, yaw: sc.yaw, speed: sc.speed, motion: { course: sc.yaw, accel: 0, turn: 0, spin: 0 } };
+  const dx = sc.x - prev.x;
+  const dz = sc.z - prev.z;
+  const course = Math.hypot(dx, dz) > MOVING * SIM_DT ? Math.atan2(dx, dz) : sc.yaw;
+  const turn = damp(prev.motion.turn, angleDiff(prev.motion.course, course) / SIM_DT, SC_TURN_RATE, SIM_DT);
+  const spin = damp(prev.motion.spin, angleDiff(prev.yaw, sc.yaw) / SIM_DT, SC_TURN_RATE, SIM_DT);
+  return { x: sc.x, z: sc.z, yaw: sc.yaw, speed: sc.speed, motion: { course, accel: (sc.speed - prev.speed) / SIM_DT, turn, spin } };
 }
 
 type RaceOwned = { eligible: boolean; available: boolean; overtake: boolean };
