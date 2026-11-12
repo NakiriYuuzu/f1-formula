@@ -785,6 +785,14 @@ export interface SessionConfig {
 /** A race run by another rule than the distance (SessionConfig.raceFormat). */
 export type RaceFormat = EliminationFormat;
 
+/** A countdown on world time (EliminationState has the same two fields). */
+export interface RaceClock {
+  /** world time it runs out while it runs */
+  dueAt: number;
+  /** seconds left while it is stopped; null = running */
+  held: number | null;
+}
+
 /**
  * Elimination race: every `interval` seconds of green-flag racing the car last in the running order is out; the last
  * car left wins. No lap target.
