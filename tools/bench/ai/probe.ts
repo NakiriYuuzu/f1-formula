@@ -222,7 +222,7 @@ let activeMistake: { m: Mistake; rec: any } | null = null;
 let mistakeCount = 0;
 let nextMistakeAt = 0;
 
-interface Stint { a: number; b: number; start: number; t1: number; tot: number; drs: number; atk: Record<string, number>; conserve: number; train: number; deltaStatic: number; deltaNow: number; reason: string; lapA: number; pitSoon: boolean }
+interface Stint { a: number; b: number; start: number; t1: number; tot: number; drs: number; atk: Record<string, number>; conserve: number; train: number; deltaStatic: number; deltaNow: number; reason: string; lapA: number; pitSoon: boolean; [k: string]: any }
 const stints: Stint[] = [];
 const active: (Stint | null)[] = new Array(n).fill(null);
 const grace = new Array(n).fill(0);
@@ -301,7 +301,8 @@ while (!isSessionOver(world) && world.time < 2400) {
       const a = cars[e.carId], b = cars[e.passedCarId];
       const pitRel = (c: any): boolean => c.pit.stops > 0 && world.time - lastPitExit[c.id] < 100 || c.pit.requested || c.pit.phase !== 'none';
       events.push({ t: world.time, lead: leaderLaps, lapA: a.timing.lapsCompleted, lapB: b.timing.lapsCompleted, passer: a.id, passed: b.id, pos: e.position, pit: pitRel(a) || pitRel(b), lap1: a.timing.lapsCompleted < 1 || b.timing.lapsCompleted < 1,
-        paceA: paceStatic[a.id], paceB: paceStatic[b.id], aiTrick: a.ai.trickTarget === b.id && a.ai.trickTimer > 0 ? a.ai.trickKind : null, mode: a.ai.mode, phase: a.ai.attackPhase });
+        paceA: paceStatic[a.id], paceB: paceStatic[b.id], aiTrick: a.ai.trickTarget === b.id && a.ai.trickTimer > 0 ? a.ai.trickKind : null, mode: a.ai.mode, phase: a.ai.attackPhase,
+        s: a.phys.s, ersA: a.phys.ers.charge, ersB: b.phys.ers.charge, otA: a.phys.ers.overtakeActive, otB: b.phys.ers.overtakeActive, drsA: a.phys.drs.open, drsB: b.phys.drs.open });
       close(a.id, 'passed');
     }
   }
@@ -361,6 +362,10 @@ while (!isSessionOver(world) && world.time < 2400) {
           st.t1 += SIM_DT; if (c.phys.drs.open) st.drs += SIM_DT;
           st.atk[c.ai.mode === 'attack' ? c.ai.attackPhase : c.ai.mode] = (st.atk[c.ai.mode === 'attack' ? c.ai.attackPhase : c.ai.mode] ?? 0) + SIM_DT;
           if (c.ai.paceMode === 'conserve') st.conserve += SIM_DT;
+          st.ersA = (st.ersA ?? 0) + c.phys.ers.charge * SIM_DT; st.ersB = (st.ersB ?? 0) + b.phys.ers.charge * SIM_DT;
+          if (c.phys.ers.overtakeActive) st.otA = (st.otA ?? 0) + SIM_DT;
+          if (b.phys.ers.overtakeActive) st.otB = (st.otB ?? 0) + SIM_DT;
+          if (c.phys.ers.charge <= 0.2) st.lowA = (st.lowA ?? 0) + SIM_DT;
           if (c.ai.inTrain) st.train += SIM_DT;
           if (c.ai.dbgGate) { st.gate = st.gate ?? {}; st.gate[c.ai.dbgGate] = (st.gate[c.ai.dbgGate] ?? 0) + SIM_DT; }
           if (c.ai.dbgLimited) st.lim = (st.lim ?? 0) + SIM_DT;
