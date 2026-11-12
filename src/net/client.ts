@@ -454,7 +454,8 @@ export class ClientSession {
       this.view = target;
       return;
     }
-    this.view += SIM_DT * (1 + clamp(VIEW_GAIN * (target - this.view), -VIEW_WARP, VIEW_WARP));
+    // steered on the gap left after this step: on the gap before it the view settles a step past its target
+    this.view += SIM_DT * (1 + clamp(VIEW_GAIN * (target - (this.view + SIM_DT)), -VIEW_WARP, VIEW_WARP));
   }
 
   /** The mirror world's other cars at the view time (the prediction's slipstream, minimap and audio read them). */
