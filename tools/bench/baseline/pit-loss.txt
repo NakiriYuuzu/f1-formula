@@ -1,0 +1,16 @@
+monza        measured 25.45 s (spread 0.14, 3 seeds) est 25.27 diff -0.18
+    s11: entry 0.23 zone 24.31 after 0.79 stop 2.65 vIn 79.8 -> loss 25.43
+    s12: entry 0.19 zone 24.58 after 0.78 stop 2.91 vIn 80.0 -> loss 25.39
+    s13: entry 0.19 zone 23.89 after 0.93 stop 2.23 vIn 80.0 -> loss 25.52
+monaco       measured 16.16 s (spread 0.11, 3 seeds) est 14.74 diff -1.42
+    s11: entry 1.93 zone 13.83 after 0.24 stop 2.65 vIn 40.6 -> loss 16.09
+    s12: entry 1.95 zone 14.09 after 0.31 stop 2.91 vIn 40.6 -> loss 16.20
+    s13: entry 1.94 zone 13.41 after 0.32 stop 2.23 vIn 40.6 -> loss 16.19
+silverstone  measured 18.24 s (spread 0.07, 3 seeds) est 16.59 diff -1.65
+    s11: entry 1.74 zone 15.96 after 0.48 stop 2.65 vIn 34.8 -> loss 18.28
+    s12: entry 1.71 zone 16.24 after 0.41 stop 2.91 vIn 34.7 -> loss 18.21
+    s13: entry 1.74 zone 15.55 after 0.43 stop 2.23 vIn 34.7 -> loss 18.25
+suzuka       measured 23.19 s (spread 0.06, 3 seeds) est 22.74 diff -0.44
+    s11: entry 0.98 zone 21.67 after 0.47 stop 2.65 vIn 70.5 -> loss 23.22
+    s12: entry 0.96 zone 21.94 after 0.43 stop 2.91 vIn 70.5 -> loss 23.17
+    s13: entry 0.95 zone 21.25 after 0.45 stop 2.23 vIn 70.3 -> loss 23.17
