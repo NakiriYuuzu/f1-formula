@@ -2,7 +2,7 @@
  * Live classification. Race: finished cars by laps then total time incl. unserved penalties (disqualified ones last;
  * a car still racing that will
  * take the flag with more laps stays ahead of them), then racing cars by progress (4 m hysteresis so side-by-side
- * cars do not flicker), retired cars last (an elimination race: the last out first); gaps from checkpoint times
+ * cars do not flicker), retired cars last (an elimination race: the eliminated, last out first, then the retirements); gaps from checkpoint times
  * (every ~50 m), laps down from progress; overtake events for real on-track passes. Practice / qualifying / time trial: by best valid lap.
  */
 import type { BuiltTrack, CarEntry, WorldState } from '../core/types';
@@ -33,9 +33,18 @@ export function compareFinishers(world: WorldState, a: CarEntry, b: CarEntry): n
   return (raceTotal(world, a) ?? Infinity) - (raceTotal(world, b) ?? Infinity) || a.id - b.id;
 }
 
-/** Elimination race: of two cars out of the race, the one that went out later first (0 in any other race). */
-export const stayedLonger = (world: WorldState, a: CarEntry, b: CarEntry): number =>
-  world.session.elimination ? (b.race.retiredAt ?? 0) - (a.race.retiredAt ?? 0) : 0;
+/**
+ * Elimination race: of two cars out of the race, the one eliminated later first, and any car eliminated ahead of one
+ * that retired (0 for two retirements, and in any other race).
+ */
+export function stayedLonger(world: WorldState, a: CarEntry, b: CarEntry): number {
+  const out = world.session.elimination?.out;
+  if (!out) return 0;
+  const ia = out.indexOf(a.id);
+  const ib = out.indexOf(b.id);
+  if (ia < 0 || ib < 0) return Number(ia < 0) - Number(ib < 0);
+  return ib - ia;
+}
 
 /** A car still racing classifies ahead of a finished one when it will take the flag with more laps. */
 const runsAheadOf = (racing: CarEntry, finished: CarEntry): boolean => racing.timing.lapsCompleted >= finished.timing.lapsCompleted;
@@ -107,7 +116,7 @@ function raceOrder(world: WorldState, track: BuiltTrack): void {
     }
     if (!changed) break;
   }
-  // the retired by distance (an elimination race: the last out first), then the disqualified (as in the results)
+  // the retired by distance (an elimination race: the eliminated, last out first, before them), then the disqualified (as in the results)
   const dq = (c: CarEntry): number => (c.penalties.disqualified === true ? 1 : 0);
   const retired = cars
     .filter(out)

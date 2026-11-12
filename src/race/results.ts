@@ -1,7 +1,7 @@
 /**
  * Standings (live timing tower rows) and the final SessionResult: race classification with unserved time penalties
  * applied (finishers by laps then total time, then unfinished cars by distance, then retirements, then disqualified
- * cars; an elimination race: the eliminated by when they went out, 淘汰), zh-TW gap texts,
+ * cars; an elimination race: the eliminated, last out first, 淘汰, ahead of the retirements), zh-TW gap texts,
  * POINTS_TABLE points for classified finishers of races, fastest lap flag and story objective evaluation.
  */
 import type { CarEntry, ResultRow, SessionResult, StandingRow, StoryObjective, WorldState } from '../core/types';

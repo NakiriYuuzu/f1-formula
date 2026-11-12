@@ -5,7 +5,7 @@
  * by the safety car / VSC / red flag, the player eliminated, a 2-car race, and the car at risk spending its battery.
  */
 import { describe, expect, test } from 'bun:test';
-import { SIM_DT, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../src/core/defaults';
+import { SIM_DT, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, POINTS_TABLE } from '../src/core/defaults';
 import type { BuiltTrack, ControlInput, GameEvent, SafetyCarSetting, SessionConfig, WorldState } from '../src/core/types';
 import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout } from '../src/data/tracks/index';
@@ -173,7 +173,7 @@ describe('elimination rules', () => {
     expect(r.events.some((e) => e.type === 'retired' && e.carId === id && e.reason === ELIMINATED_REASON)).toBe(true);
   }, 60_000);
 
-  test('a mechanical retirement mid-countdown leaves the countdown as it was; the car is classified by when it went out', () => {
+  test('a mechanical retirement mid-countdown leaves the countdown as it was; the car is classified behind the eliminated', () => {
     // the player never leaves the grid: the first one out, with less distance than the car that fails before it
     const r = start({ cars: 6, interval: 30, player: true });
     const me = getPlayerCarId(r.world, 0);
@@ -205,6 +205,29 @@ describe('elimination rules', () => {
     expect(dnf.eliminated).toBeUndefined();
     expect(dnf.points).toBe(0);
     expect(rows.slice(1, 5).map((row) => row.carId)).toEqual(r.outs.map((o) => o.carId).reverse());
+  }, 60_000);
+
+  test('a car retiring after eliminations is classified behind every eliminated car, who keep their places and points', () => {
+    const r = start({ cars: 8, interval: 30 });
+    run(r, 30, (w) => w.session.phase === 'running');
+    run(r, 300, () => r.outs.length === 3);
+    // the car running second fails
+    const broken = runningOrder(r.world)[1]!;
+    retireCar(r.world, broken, '引擎故障');
+    run(r, 900);
+    expect(isSessionOver(r.world)).toBe(true);
+    const out = r.outs.map((o) => o.carId);
+    const winner = r.world.cars.find((c) => c.status === 'finished')!.id;
+    const rows = buildSessionResult(r.world).rows;
+    const n = out.length;
+    expect(rows.slice(0, n + 1).map((row) => row.carId)).toEqual([winner, ...[...out].reverse()]);
+    expect(rows.slice(1, n + 1).map((row) => row.points)).toEqual(POINTS_TABLE.slice(1, n + 1));
+    // the retirements after them, the late one included, without points
+    const rest = rows.slice(n + 1);
+    expect(rest.map((row) => row.carId)).toContain(broken);
+    for (const row of rest) expect(row).toMatchObject({ gapText: '退賽', points: 0, status: 'retired' });
+    // the live order (timing tower) agrees
+    expect(r.world.race.order).toEqual(rows.map((row) => row.carId));
   }, 60_000);
 
   for (const kind of ['sc', 'vsc', 'red'] as const) {
