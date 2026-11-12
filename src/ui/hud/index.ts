@@ -59,7 +59,7 @@ import { ReplayBar } from './replayBar';
 import type { PadMenuInput } from '../../input/gamepad';
 import { StartLights } from './startLights';
 import { TimingTower } from './tower';
-import { keyLabel } from '../menus/labels';
+import { eliminationLabel, keyLabel } from '../menus/labels';
 import { ViewHud } from './viewHud';
 import { SessionStrip } from './weather';
 
@@ -551,7 +551,7 @@ export class HudLayer {
     const s = world.session;
     const parts = [this.track.displayName];
     const format = world.config.raceFormat;
-    if (format?.kind === 'elimination') parts.push(`淘汰賽・每 ${format.interval} 秒淘汰末位`);
+    if (format?.kind === 'elimination') parts.push(eliminationLabel(format.interval));
     else if (s.kind === 'race') parts.push(`${Math.max(1, Math.round(fin(s.totalLaps, 1)))} 圈`);
     else if (world.config.timeLimit != null && world.config.timeLimit > 0) parts.push(`限時 ${formatClock(world.config.timeLimit)}`);
     parts.push(WEATHER_LABEL[world.weather.kind] ?? '');
