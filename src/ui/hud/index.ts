@@ -48,7 +48,9 @@ import {
 import { Minimap } from './minimap';
 import { NET_PANEL_KEY, NetPanel, netPanelRows, type NetDiagnostics } from './netPanel';
 import { estimatePitLoss } from '../../race/index';
-import { RETIRE_BY_CHOICE } from '../../race/index';
+import { ELIMINATED_REASON, RETIRE_BY_CHOICE } from '../../race/index';
+import './elimination.css';
+import { AT_RISK_BANNER, EliminationPanel, eliminatedCallout } from './elimination';
 import { identColor } from '../../meta/roster';
 import { PauseMenu } from './pauseMenu';
 import type { MenuDirection, PauseItem } from './pauseMenu';
@@ -143,6 +145,7 @@ export class HudLayer {
   private readonly split: boolean;
   private readonly tower: TimingTower;
   private readonly towerShow: ShowSlot;
+  private readonly elimination: EliminationPanel;
   private readonly minimap: Minimap;
   private readonly minimapShow: ShowSlot;
   private readonly strip: SessionStrip;
@@ -212,6 +215,7 @@ export class HudLayer {
     const bottomLeft = el('div', 'nvh-bl', this.rootEl);
     this.strip = new SessionStrip(this.split ? bottomLeft : topLeft, track);
     this.strip.el.classList.add('nvh-panel');
+    this.elimination = new EliminationPanel(topLeft);
     this.tower = new TimingTower(topLeft);
     // the column ends above the minimap: a long field then shows a window of rows (pickTowerRows)
     this.tower.setLimit(bottomLeft);
@@ -504,6 +508,10 @@ export class HudLayer {
     const towerVisible = this.settings.hud.tower && !this.split && world.cars.length > 1;
     this.towerShow.set(towerVisible);
     if (towerVisible) this.tower.update(world, order, dt);
+    const elim = this.elimination.update(world, [...this.viewByCar.keys()]);
+    if (elim?.mine && elim.urgent && elim.carId !== null) {
+      this.viewByCar.get(elim.carId)?.banner.show('elimRisk', AT_RISK_BANNER.title, AT_RISK_BANNER.sub, 'bad', 2.5);
+    }
     if (this.settings.hud.minimap) this.minimap.update(world, dt);
     this.strip.update(world, dt);
     this.lights.update(world, dt);
@@ -542,7 +550,9 @@ export class HudLayer {
   private introBanner(world: WorldState): void {
     const s = world.session;
     const parts = [this.track.displayName];
-    if (s.kind === 'race') parts.push(`${Math.max(1, Math.round(fin(s.totalLaps, 1)))} 圈`);
+    const format = world.config.raceFormat;
+    if (format?.kind === 'elimination') parts.push(`淘汰賽・每 ${format.interval} 秒淘汰末位`);
+    else if (s.kind === 'race') parts.push(`${Math.max(1, Math.round(fin(s.totalLaps, 1)))} 圈`);
     else if (world.config.timeLimit != null && world.config.timeLimit > 0) parts.push(`限時 ${formatClock(world.config.timeLimit)}`);
     parts.push(WEATHER_LABEL[world.weather.kind] ?? '');
     this.banner.show('intro', sessionLabel(s.kind, world.config?.sprint), parts.filter(Boolean).join(' · '), 'info', 3.4);
@@ -728,9 +738,16 @@ export class HudLayer {
         if (v) v.toast('賽事管制警告', ev.reason, 'bad', 4);
         break;
       }
+      case 'eliminated': {
+        const v = this.viewByCar.get(ev.carId);
+        const c = eliminatedCallout(abbr(ev.carId), ev.position, v !== undefined);
+        if (v) v.banner.show('retired', c.title, c.sub, 'bad', OUT_BANNER_SECONDS);
+        else this.toastAll(c.title, c.sub, 'info', 3);
+        break;
+      }
       case 'retired': {
-        // a disqualification has its own banner / toast
-        if (world.cars[ev.carId]?.penalties?.disqualified === true) break;
+        // a disqualification / an elimination has its own banner / toast
+        if (world.cars[ev.carId]?.penalties?.disqualified === true || ev.reason === ELIMINATED_REASON) break;
         const v = this.viewByCar.get(ev.carId);
         const hint = this.flashbackHint(ev.reason);
         if (v) v.banner.show('retired', '退賽', `${ev.reason}${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
