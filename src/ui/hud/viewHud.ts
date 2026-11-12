@@ -30,7 +30,8 @@ export interface ViewRegion {
 }
 
 export interface ViewActions {
-  requestPit(carId: number, compound: TireCompound): void;
+  /** `fuel`: an endurance race's tank (kg) after the stop (undefined: the automatic fill) */
+  requestPit(carId: number, compound: TireCompound, fuel?: number): void;
   cancelPit(carId: number): void;
   setErsMode(carId: number, mode: ErsMode): void;
 }
@@ -106,7 +107,7 @@ export class ViewHud {
     this.mfd = new MfdPanel(
       bottom,
       {
-        requestPit: (compound) => actions.requestPit(carId, compound),
+        requestPit: (compound, fuel) => actions.requestPit(carId, compound, fuel),
         cancelPit: () => actions.cancelPit(carId),
         setErsMode: (mode) => actions.setErsMode(carId, mode),
       },
@@ -167,7 +168,7 @@ export class ViewHud {
     if (!this.delta) this.delta = new DeltaTracker(this.track.length, frame.ghost);
     const delta = this.delta.update(car.timing, world.time, car.phys.s);
     this.teleShow.set(frame.telemetry);
-    if (frame.telemetry) this.telemetry.update(car, world, frame.units, this.track.length);
+    if (frame.telemetry) this.telemetry.update(car, world, frame.units, this.track);
     const pit = this.pitGuide(car);
     if (pit.kind === 'missed' && this.pitKind !== 'missed' && this.watched === null) {
       this.toast('錯過進站口', '進站指令保留 · 下圈再進站', 'warn');
@@ -181,7 +182,7 @@ export class ViewHud {
       units: frame.units,
       pit,
     });
-    if (this.watched === null) this.mfd.sync(car, world);
+    if (this.watched === null) this.mfd.sync(car, world, this.track);
     else this.watchCard.update(car, world);
     this.flags.update(car, world);
   }
@@ -206,6 +207,7 @@ export class ViewHud {
       stopTotal: fin(car.race.pitStopTotal),
       hold: fin(car.race.pitHold),
       repair: car.race.pitRepair === true,
+      fuel: fin(car.race.pitFuel),
       compound: car.pit.nextCompound,
     });
   }

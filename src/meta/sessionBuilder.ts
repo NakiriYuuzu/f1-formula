@@ -88,7 +88,7 @@ export interface SessionRequest {
   sprint?: boolean;
   /** season modes: achieved part development per team id (meta/development.ts developmentGains) */
   development?: Record<string, CarPartGains>;
-  /** how every race-kind session of the plan is decided (absent = standard: its laps) */
+  /** how the plan's race is decided (absent = standard: its laps); a sprint is always a standard race */
   raceFormat?: RaceFormat;
 }
 
@@ -372,7 +372,8 @@ export function buildSessionConfig(req: SessionRequest, layout: LayoutMeta = lay
     objective: req.objective ? { ...req.objective } : null,
     ...(sprint ? { sprint: true } : {}),
     ...(req.development ? { development: cloneDevelopment(req.development) } : {}),
-    ...(kind === 'race' && req.raceFormat ? { raceFormat: { ...req.raceFormat } } : {}),
+    // (the format is the main race's: a sprint weekend's sprint stays a standard race)
+    ...(kind === 'race' && !sprint && req.raceFormat ? { raceFormat: { ...req.raceFormat } } : {}),
   };
 }
 
@@ -412,6 +413,7 @@ export function validateSessionConfig(config: SessionConfig): string[] {
   if (config.sprint === true && config.kind !== 'race') problems.push('sprint on a non-race session');
   if (config.sprint === true && config.rules.mandatoryPitStop) problems.push('sprint with a mandatory pit stop');
   if (config.raceFormat && config.kind !== 'race') problems.push('race format on a non-race session');
+  if (config.raceFormat && config.sprint === true) problems.push('race format on a sprint');
   if (config.kind === 'race' && config.timeLimit !== null) problems.push('race must not have a time limit');
   if ((config.kind === 'practice' || config.kind === 'qualifying') && !(config.timeLimit !== null && config.timeLimit > 0)) {
     problems.push('timed session without a time limit');

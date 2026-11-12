@@ -3,7 +3,7 @@
  * weather → session clock / start lights → per car (projection → input (human / AI; pit autopilot overrides) →
  * PhysicsEnv → physics → re-projection → barrier) → car-vs-car contacts → per car (pit-entry detection → timing →
  * track limits → AI stuck watchdog) → classification & gaps → damage rules (terminal damage, black-and-orange flag) →
- * race control → elimination countdown → DRS / overtake eligibility → session end →
+ * race control → elimination countdown / endurance clock → DRS / overtake eligibility → session end →
  * AI pit strategy → radio.
  */
 import type { BuiltTrack, CarEntry, ControlInput, TireCompound, WorldState } from '../core/types';
@@ -24,6 +24,7 @@ import { checkSessionEnd, mandatoryStopOpen, stepSessionClock } from './session'
 import { stepRaceControl } from './control';
 import { stepDamageRules } from './damageRules';
 import { stepElimination } from './elimination';
+import { stepEndurance } from './endurance';
 import { stepParking } from './gridPark';
 import { updateCarTiming } from './timing';
 import { stepWeather } from './weather';
@@ -227,12 +228,17 @@ function postCar(world: WorldState, track: BuiltTrack, car: CarEntry, t0: number
   stuckWatchdog(world, track, car, dt);
 }
 
-/** Queue a pit stop (shared by the public requestPit and the AI strategy). */
-export function queuePit(world: WorldState, car: CarEntry, compound: TireCompound): void {
+/**
+ * Queue a pit stop (shared by the public requestPit and the AI strategy). `fuel`: an endurance race's tank (kg) after the
+ * stop (undefined: the automatic fill).
+ */
+export function queuePit(world: WorldState, car: CarEntry, compound: TireCompound, fuel?: number): void {
   if (car.status === 'retired' || car.status === 'finished' || world.config.kind === 'timeTrial') return;
   if (!(COMPOUNDS as readonly string[]).includes(compound)) return;
   if (car.pit.phase !== 'none' && (car.pit.phase === 'stopped' || car.race.pitStopTotal > 0)) return;
   car.pit.nextCompound = compound;
+  if (fuel !== undefined && Number.isFinite(fuel) && world.session.endurance) car.pit.fuelTarget = Math.max(0, fuel);
+  else delete car.pit.fuelTarget;
   if (car.pit.phase === 'none') car.pit.requested = true;
   emit(world, { type: 'pitRequested', carId: car.id, compound });
 }
@@ -260,7 +266,7 @@ function runStrategies(world: WorldState, track: BuiltTrack, dt: number): void {
     });
     if (compound) {
       ai.plannedCompound = compound;
-      queuePit(world, car, compound);
+      queuePit(world, car, compound, ai.fuelTarget >= 0 ? ai.fuelTarget : undefined);
     }
     if (ai.yieldFor >= 0 && ai.yieldFor !== yieldBefore) radioTeamYield(world, car, world.cars[ai.yieldFor]);
     if (ai.holdFor >= 0 && ai.holdFor !== holdBefore) radioTeamHold(world, car, world.cars[ai.holdFor]);
@@ -283,6 +289,7 @@ export function advanceWorld(world: WorldState, track: BuiltTrack, inputs: reado
   stepDamageRules(world, track, h);
   stepRaceControl(world, track, h);
   stepElimination(world, track);
+  stepEndurance(world, track);
   updateDrs(world, track, t0);
   checkSessionEnd(world);
   runStrategies(world, track, h);

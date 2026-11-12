@@ -1,11 +1,16 @@
 /**
  * Online lobby (src/net/lobby.ts) over the loopback transport: seats, unique drivers, ready / start, a full room,
- * protocol versions, guests leaving, the guests' car setup and assists reaching the host, session start messages.
+ * protocol versions, guests leaving, the guests' car setup and assists reaching the host, session start messages, the
+ * race format the host picks.
  */
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_ASSISTS, DEFAULT_SETUP } from '../src/core/defaults';
 import type { SessionConfig } from '../src/core/types';
+import { lobbyRaceFormat } from '../src/meta/options';
+import { defaultProfile } from '../src/meta/prefs';
+import { quickRacePlan } from '../src/meta/quickRace';
 import { builtinRoster } from '../src/meta/roster';
+import { buildSessionConfig } from '../src/meta/sessionBuilder';
 import { GuestLobby, HostLobby } from '../src/net/lobby';
 import { LoopbackNetwork } from '../src/net/loopback';
 import { encodeMessage } from '../src/net/protocol';
@@ -135,5 +140,30 @@ describe('online lobby', () => {
     net.advance(100);
     expect(closed).toHaveLength(2);
     expect(closed.every((c) => c.includes('房主'))).toBe(true);
+  });
+
+  test('the race format the host picks reaches the guests: in the lobby, and in the session config they race', () => {
+    const net = new LoopbackNetwork({ delayMs: 20 });
+    const host = new HostLobby({ code: 'K7MPQ2', name: 'Host', roster: builtinRoster(), settings, now: () => net.now });
+    const [h, g] = net.pair();
+    host.addGuest(h);
+    const configs: SessionConfig[] = [];
+    const guest = new GuestLobby(g, 'G1', { start: (_s, config) => configs.push(config) });
+    net.advance(200);
+    // a room from before the format: a standard race
+    expect(lobbyRaceFormat(guest.state!.settings)).toBeUndefined();
+    host.setSettings({ raceFormat: 'endurance', enduranceDuration: 60 });
+    net.advance(100);
+    expect(guest.state!.settings).toMatchObject({ raceFormat: 'endurance', enduranceDuration: 60 });
+    // the weekend the host starts from the room (LobbyScreen.start): its race config, as every guest receives it
+    const profile = defaultProfile();
+    const base = quickRacePlan(profile, builtinRoster(), () => ({ ...DEFAULT_SETUP }), 7)!.request;
+    const raceFormat = lobbyRaceFormat(host.state.settings);
+    host.startSession(1, buildSessionConfig({ ...base, mode: 'splitScreen', ...(raceFormat ? { raceFormat } : {}) }), true);
+    net.advance(100);
+    expect(configs).toHaveLength(1);
+    expect(configs[0]!.raceFormat).toEqual({ kind: 'endurance', duration: 3600 });
+    // and an elimination room's interval
+    expect(lobbyRaceFormat({ raceFormat: 'elimination', eliminationInterval: 30 })?.kind).toBe('elimination');
   });
 });

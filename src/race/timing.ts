@@ -14,6 +14,7 @@ import { forwardDistance } from '../track/track';
 import { crossingTime, emit, isHuman, mod } from './events';
 import { radioFinalLap, radioLap } from './radio';
 import { chequer, finishCar } from './session';
+import { clockLeft } from './raceClock';
 
 /** Ghost sample interval (s). */
 export const GHOST_DT = 0.05;
@@ -149,7 +150,8 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
   radioLap(world, car, lapTime, valid, overallBest);
 
   if (s.kind === 'race') {
-    if (s.phase === 'running' && t.lapsCompleted >= s.totalLaps) {
+    // (an endurance race's laps are a projection until its clock has run out at the crossing: endurance.ts)
+    if (s.phase === 'running' && t.lapsCompleted >= s.totalLaps && !(s.endurance && clockLeft(s.endurance, time) > 0)) {
       chequer(world);
       finishCar(world, car, time);
       return true;
@@ -158,7 +160,8 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
       finishCar(world, car, time);
       return true;
     }
-    if (t.lapsCompleted + 1 === s.totalLaps && !world.race.finalLapAnnounced) {
+    // (an endurance race calls its final lap when the time is up: endurance.ts)
+    if (t.lapsCompleted + 1 === s.totalLaps && !world.race.finalLapAnnounced && !s.endurance) {
       world.race.finalLapAnnounced = true;
       emit(world, { type: 'finalLap' });
       radioFinalLap(world);

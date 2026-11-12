@@ -37,9 +37,17 @@ export interface CarRaceInternal {
   pitSlope: number;
   /** s (m) the car stops at: own box or the queue spot behind a team-mate */
   pitStopS: number;
+  /** this visit queued beside the fast lane (pitlane.ts QUEUE_LATERAL): crosses back to the box from there */
+  pitQueued: boolean;
   pitStopTotal: number;
-  /** seconds of the current stop the car stands before its tyres are changed: an unserved time penalty, then repairs */
+  /**
+   * seconds of the current stop the car stands before its tyres are changed: an unserved time penalty, then repairs,
+   * then the part of a fill longer than the tyre change
+   */
   pitHold: number;
+  /** seconds of refuelling in the current stop (endurance race; 0 = none) from the end of any penalty and repairs; the
+   * stop lasts the longer of it and the tyre change, which ends with the stop */
+  pitFuel: number;
   pitRepair: boolean;
   /**
    * driver-driven pit visit (no pit assist): physics + driver inputs except while pitAuto, the kinematic

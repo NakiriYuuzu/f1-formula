@@ -190,6 +190,7 @@ export function createAIState(driver: DriverDef, difficulty: number, seed: numbe
     fuelMark: 0,
     fuelMarkLap: -1,
     fuelPerLap: 0,
+    fuelTarget: -1,
     teamFaster: 0,
     yieldFor: -1,
     yieldTimer: 0,

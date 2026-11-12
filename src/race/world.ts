@@ -7,6 +7,7 @@
 import type {
   BuiltTrack,
   CarEntry,
+  CarSpec,
   CarTiming,
   DriverDef,
   GridEntry,
@@ -32,6 +33,7 @@ import { createWeather } from './weather';
 import { createCarFlags, createControlState } from './control';
 import { gridSlot } from './gridPark';
 import { eliminationOf, newElimination, plannedLaps } from './elimination';
+import { BURN_FACTOR, enduranceOf, fuelFor, fuelTank, newEndurance, plannedLaps as enduranceLaps } from './endurance';
 
 export { GRID_FRONT, GRID_GAP, GRID_LATERAL } from './gridPark';
 /** Flying-lap start distance (m) before the line and spacing (m) between cars. */
@@ -64,9 +66,12 @@ function defaultNextCompound(start: TireCompound): TireCompound {
   return start;
 }
 
-function fuelLoad(config: SessionConfig, track: BuiltTrack, perKm: number): number {
+function fuelLoad(config: SessionConfig, track: BuiltTrack, spec: CarSpec): number {
   if (!config.rules.fuel) return LIGHT_FUEL;
+  const perKm = fuelPerKm(spec);
   const km = track.length / 1000;
+  // an endurance race: what the laps take over the fewest tanks, evenly (refuelled at the stops)
+  if (enduranceOf(config)) return fuelFor(config.laps, km * perKm * BURN_FACTOR, fuelTank(spec, track));
   if (config.kind === 'race') return Math.max(1, config.laps) * km * perKm * 1.05 + 1;
   if (config.kind === 'qualifying') return (Math.max(1, config.qualifyingLaps) + 2) * km * perKm + 1;
   if (config.kind === 'practice') {
@@ -143,8 +148,10 @@ function newRaceInternal(
     pitLat: 0,
     pitSlope: 0,
     pitStopS: boxS,
+    pitQueued: false,
     pitStopTotal: 0,
     pitHold: 0,
+    pitFuel: 0,
     pitRepair: false,
     pitManual: false,
     pitAuto: false,
@@ -257,6 +264,12 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     config.laps = plannedLaps(elimination, config.grid.length, track.referenceLapTime);
     config.rules = { ...config.rules, mandatoryPitStop: false };
   }
+  // an endurance race runs for its time, and the cars use fuel (it is what they stop for)
+  const endurance = race ? enduranceOf(config) : null;
+  if (endurance) {
+    config.laps = enduranceLaps(endurance, track);
+    config.rules = { ...config.rules, fuel: true };
+  }
   const totalLaps = race ? clamp(Math.round(Number.isFinite(config.laps) ? config.laps : 1), 1, 500) : kind === 'qualifying' ? Math.max(1, config.qualifyingLaps) : 0;
   config.laps = race ? totalLaps : config.laps;
   const duration = race ? totalLaps * track.referenceLapTime * 1.12 + 20 : (config.timeLimit ?? 0);
@@ -279,7 +292,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     const assists = playerIndex !== -1 ? { ...DEFAULT_ASSISTS, ...(slot?.assists ?? {}) } : { ...AI_ASSISTS };
     const spec = createCarSpec(carTeam, setup, config.regulation, config.development?.[team.id] ?? {});
     const compound: TireCompound = (COMPOUNDS as readonly string[]).includes(g.startCompound) ? g.startCompound : 'medium';
-    const fuel = fuelLoad(config, track, fuelPerKm(spec));
+    const fuel = fuelLoad(config, track, spec);
 
     let s: number;
     let lateral: number;
@@ -359,6 +372,7 @@ export function buildWorld(input: SessionConfig, track: BuiltTrack): WorldState 
     fastestLap: null,
     control: createControlState(),
     ...(elimination ? { elimination: newElimination(elimination) } : {}),
+    ...(endurance ? { endurance: newEndurance(endurance) } : {}),
   };
   if (session.timeRemaining !== null && !(config.timeLimit !== null && config.timeLimit > 0)) config.timeLimit = session.timeRemaining;
 

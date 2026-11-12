@@ -59,7 +59,7 @@ import { ReplayBar } from './replayBar';
 import type { PadMenuInput } from '../../input/gamepad';
 import { StartLights } from './startLights';
 import { TimingTower } from './tower';
-import { eliminationLabel, keyLabel } from '../menus/labels';
+import { eliminationLabel, enduranceLabel, keyLabel } from '../menus/labels';
 import { ViewHud } from './viewHud';
 import { SessionStrip } from './weather';
 
@@ -80,7 +80,8 @@ export interface HudCallbacks {
   quit(): void;
   /** opens MenuSystem.openSettingsOverlay */
   openSettings(): void;
-  requestPit(carId: number, compound: TireCompound): void;
+  /** `fuel`: an endurance race's tank (kg) after the stop (undefined: the automatic fill) */
+  requestPit(carId: number, compound: TireCompound, fuel?: number): void;
   cancelPit(carId: number): void;
   setErsMode(carId: number, mode: ErsMode): void;
   setRacingLine(mode: RacingLineMode): void;
@@ -203,7 +204,7 @@ export class HudLayer {
     const pitLoss = estimatePitLoss(track);
     for (const v of views) {
       const vh = new ViewHud(this.rootEl, { playerIndex: v.playerIndex, carId: v.carId, region: v.region }, track, pitLoss, {
-        requestPit: (carId, compound) => this.cb.requestPit(carId, compound),
+        requestPit: (carId, compound, fuel) => this.cb.requestPit(carId, compound, fuel),
         cancelPit: (carId) => this.cb.cancelPit(carId),
         setErsMode: (carId, mode) => this.cb.setErsMode(carId, mode),
       });
@@ -398,6 +399,11 @@ export class HudLayer {
     return v ? v.mfd.selectedCompound() : null;
   }
 
+  /** Fuel the player's MFD would put in (kg in the tank after the stop; undefined: the automatic fill), as getMfdCompound. */
+  getMfdFuel(playerIndex: 0 | 1): number | undefined {
+    return this.views.find((x) => x.view.playerIndex === playerIndex)?.mfd.selectedFuel();
+  }
+
   isMfdOpen(playerIndex: 0 | 1): boolean {
     return this.views.some((v) => v.view.playerIndex === playerIndex && v.mfd.isOpen());
   }
@@ -552,6 +558,7 @@ export class HudLayer {
     const parts = [this.track.displayName];
     const format = world.config.raceFormat;
     if (format?.kind === 'elimination') parts.push(eliminationLabel(format.interval));
+    else if (format?.kind === 'endurance') parts.push(enduranceLabel(format.duration / 60));
     else if (s.kind === 'race') parts.push(`${Math.max(1, Math.round(fin(s.totalLaps, 1)))} 圈`);
     else if (world.config.timeLimit != null && world.config.timeLimit > 0) parts.push(`限時 ${formatClock(world.config.timeLimit)}`);
     parts.push(WEATHER_LABEL[world.weather.kind] ?? '');

@@ -30,7 +30,7 @@ describe('Grand Prix preference', () => {
     const p = defaultProfile();
     Object.assign(p.gp, { raceFormat: 'elimination', eliminationInterval: 90 });
     expect(sanitizeProfile(JSON.parse(JSON.stringify(p))).gp).toMatchObject({ raceFormat: 'elimination', eliminationInterval: 90 });
-    Object.assign(p.gp, { raceFormat: 'endurance', eliminationInterval: 37 });
+    Object.assign(p.gp, { raceFormat: 'marathon', eliminationInterval: 37 });
     expect(sanitizeProfile(JSON.parse(JSON.stringify(p))).gp).toMatchObject({ raceFormat: 'standard', eliminationInterval: DEFAULT_ELIMINATION_INTERVAL });
   });
 });

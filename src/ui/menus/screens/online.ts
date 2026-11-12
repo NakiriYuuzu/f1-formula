@@ -9,8 +9,25 @@
  */
 import type { Assists, Regulation, SessionRules } from '../../../core/types';
 import { DEFAULT_RULES } from '../../../core/defaults';
-import { FORMAT_LABEL, SAFETY_CAR_LABEL, WEATHER_LABEL, difficultyLabel, lapsLabel } from '../labels';
-import { LAPS_CHOICES, WEATHER_CHOICES, findLayout, listLayouts, resolveLaps, weekendSessions, type LapsChoice, type WeatherChoice, type WeekendFormat } from '../../../meta/options';
+import { FORMAT_LABEL, RACE_FORMAT_LABEL, SAFETY_CAR_LABEL, WEATHER_LABEL, difficultyLabel, eliminationLabel, enduranceLabel, lapsLabel } from '../labels';
+import {
+  DEFAULT_ELIMINATION_INTERVAL,
+  DEFAULT_ENDURANCE_DURATION,
+  ELIMINATION_INTERVALS,
+  ENDURANCE_DURATIONS,
+  LAPS_CHOICES,
+  RACE_FORMATS,
+  WEATHER_CHOICES,
+  findLayout,
+  listLayouts,
+  lobbyRaceFormat,
+  resolveLaps,
+  weekendSessions,
+  type LapsChoice,
+  type RaceFormatChoice,
+  type WeatherChoice,
+  type WeekendFormat,
+} from '../../../meta/options';
 import { loadCareer, loadMyTeam, loadOnlineSetup, loadProfile, saveProfile } from '../../../meta/save';
 import { standardRoster } from '../../../meta/roster';
 import { applyOnlineEntries, onlineEntryOptions, type OnlineEntryOption, type OnlineEntrySource } from '../../../meta/onlineEntry';
@@ -326,6 +343,34 @@ export class LobbyScreen extends Screen {
         set({ layoutId: id, laps: resolveLaps(this.lapsChoice, findLayout(id)?.fullLaps ?? 50) });
       },
     });
+    // how the race is decided, and its option; the laps only for a standard race
+    const raceFormat = cycler<RaceFormatChoice>({
+      label: '比賽形式',
+      options: RACE_FORMATS.map((f) => ({ value: f, label: RACE_FORMAT_LABEL[f] })),
+      value: RACE_FORMATS.find((f) => f === s.raceFormat) ?? 'standard',
+      onChange: (v) => {
+        set({ raceFormat: v });
+        showFormatRows();
+      },
+    });
+    const interval = cycler<number>({
+      label: '淘汰間隔',
+      options: ELIMINATION_INTERVALS.map((sec) => ({ value: sec, label: `每 ${sec} 秒` })),
+      value: s.eliminationInterval ?? DEFAULT_ELIMINATION_INTERVAL,
+      onChange: (v) => set({ eliminationInterval: v }),
+    });
+    const duration = cycler<number>({
+      label: '比賽時間',
+      options: ENDURANCE_DURATIONS.map((min) => ({ value: min, label: `${min} 分鐘` })),
+      value: s.enduranceDuration ?? DEFAULT_ENDURANCE_DURATION,
+      onChange: (v) => set({ enduranceDuration: v }),
+    });
+    const showFormatRows = (): void => {
+      laps.el.hidden = s.raceFormat === 'elimination' || s.raceFormat === 'endurance';
+      interval.el.hidden = s.raceFormat !== 'elimination';
+      duration.el.hidden = s.raceFormat !== 'endurance';
+    };
+    showFormatRows();
     const weather = cycler<WeatherChoice>({
       label: '天氣',
       options: WEATHER_CHOICES.map((w) => ({ value: w, label: WEATHER_LABEL[w] })),
@@ -362,7 +407,7 @@ export class LobbyScreen extends Screen {
       format: (v) => `${v}（${difficultyLabel(v)}）`,
       onChange: (v) => set({ aiDifficulty: v }),
     });
-    this.settingsEl.replaceChildren(track.el, laps.el, weather.el, format.el, reg.el, ai.el, diff.el);
+    this.settingsEl.replaceChildren(track.el, raceFormat.el, laps.el, interval.el, duration.el, weather.el, format.el, reg.el, ai.el, diff.el);
     const setRule = <K extends keyof LobbyRules>(key: K) => (v: SessionRules[K]): void => set({ rules: { ...s.rules, [key]: v } });
     const rules: SessionRules = { ...DEFAULT_RULES, ...s.rules };
     this.rulesEl.replaceChildren(aeroWakeRow(rules, setRule), ...raceControlRows(rules, setRule));
@@ -504,9 +549,12 @@ export class LobbyScreen extends Screen {
     const s = state.settings;
     if (room.role === 'guest') {
       const layout = findLayout(s.layoutId);
+      const raceFormat = lobbyRaceFormat(s);
+      const lengthText =
+        raceFormat?.kind === 'elimination' ? `形式：${eliminationLabel(raceFormat.interval)}` : raceFormat ? `形式：${enduranceLabel(raceFormat.duration / 60)}` : `圈數：${s.laps}`;
       this.settingsEl.replaceChildren(
         h('p', { class: 'nvm-note', text: `賽道：${layout?.displayName ?? s.layoutId}` }),
-        h('p', { class: 'nvm-note', text: `圈數：${s.laps}・天氣：${WEATHER_LABEL[s.weather as WeatherChoice] ?? s.weather}` }),
+        h('p', { class: 'nvm-note', text: `${lengthText}・天氣：${WEATHER_LABEL[s.weather as WeatherChoice] ?? s.weather}` }),
         h('p', { class: 'nvm-note', text: `賽制：${FORMAT_LABEL[s.format as WeekendFormat] ?? s.format}・規則 ${s.regulation}` }),
         h('p', { class: 'nvm-note', text: `AI：${s.aiCount} 台・難度 ${s.aiDifficulty}` }),
       );
@@ -648,6 +696,7 @@ export class LobbyScreen extends Screen {
       const car = seat.playerIndex === 0 ? { setup: loadOnlineSetup(layout.id), assists: { ...profile.assists } } : (lobby.guestCar(seat.playerIndex) ?? { setup: loadOnlineSetup(layout.id), assists: { ...profile.assists } });
       return { playerIndex: seat.playerIndex, driverId: seat.driverId, teamId: seat.teamId, setup: car.setup, assists: car.assists, startCompound: null };
     });
+    const raceFormat = lobbyRaceFormat(s);
     const base: SessionRequest = {
       mode: 'splitScreen',
       kind: 'race',
@@ -668,6 +717,7 @@ export class LobbyScreen extends Screen {
       playerStartPosition: null,
       ghost: null,
       objective: null,
+      ...(raceFormat ? { raceFormat } : {}),
     };
     const format = (FORMATS as readonly string[]).includes(s.format) ? (s.format as WeekendFormat) : 'raceOnly';
     launchWeekend(this.host, base, weekendSessions(format), { returnTo: 'online', round: null, storyId: null });
@@ -685,6 +735,9 @@ export function defaultLobbySettings(): LobbySettings {
     aiDifficulty: 80,
     regulation: '2025',
     format: 'raceOnly',
+    raceFormat: 'standard',
+    eliminationInterval: DEFAULT_ELIMINATION_INTERVAL,
+    enduranceDuration: DEFAULT_ENDURANCE_DURATION,
     rules: {
       safetyCar: DEFAULT_RULES.safetyCar ?? 'standard',
       redFlags: DEFAULT_RULES.redFlags ?? true,

@@ -29,7 +29,7 @@ import type {
 import { FRAME_LAYOUT, NO_PIT_SERVICE, decodeFrame, encodeFrame } from '../app/replay';
 import { TAU, wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -650,6 +650,10 @@ export interface LobbySettings {
   regulation: string;
   format: string;
   rules: LobbyRules;
+  /** how the race is decided (meta/options RaceFormatChoice; absent: standard) and its option (absent: the default) */
+  raceFormat?: string;
+  eliminationInterval?: number;
+  enduranceDuration?: number;
 }
 
 /** Race-control rules the host picks in the lobby (the other session rules stay at their defaults online). */
@@ -669,7 +673,8 @@ export interface LobbyState {
 }
 
 export type ClientCommand =
-  | { cmd: 'pit'; compound: TireCompound }
+  /** `fuel`: an endurance race's tank (kg) after the stop (absent: the automatic fill) */
+  | { cmd: 'pit'; compound: TireCompound; fuel?: number }
   | { cmd: 'cancelPit' }
   | { cmd: 'ers'; mode: ErsMode }
   | { cmd: 'retire' };
@@ -764,7 +769,7 @@ function isCommand(v: unknown): v is ClientCommand {
   if (!isObj(v)) return false;
   switch (v.cmd) {
     case 'pit':
-      return typeof v.compound === 'string' && ['soft', 'medium', 'hard', 'inter', 'wet'].includes(v.compound);
+      return typeof v.compound === 'string' && ['soft', 'medium', 'hard', 'inter', 'wet'].includes(v.compound) && (v.fuel === undefined || isNum(v.fuel));
     case 'cancelPit':
     case 'retire':
       return true;
@@ -780,6 +785,7 @@ function isLobby(v: unknown): v is LobbyState {
   if (!Array.isArray(v.roster.teams) || !Array.isArray(v.roster.drivers)) return false;
   const s = v.settings;
   if (typeof s.layoutId !== 'string' || !isNum(s.laps) || !isNum(s.aiCount) || !isNum(s.aiDifficulty) || !isObj(s.rules)) return false;
+  if ((s.raceFormat !== undefined && typeof s.raceFormat !== 'string') || [s.eliminationInterval, s.enduranceDuration].some((n) => n !== undefined && !isNum(n))) return false;
   return v.players.every(
     (p) =>
       isObj(p) &&

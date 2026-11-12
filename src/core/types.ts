@@ -612,6 +612,8 @@ export interface PitState {
   stops: number;
   /** s (m) of this car's pit box */
   boxS: number;
+  /** endurance race: fuel (kg) in the tank after the next stop; undefined = the automatic fill (race/endurance.ts) */
+  fuelTarget?: number;
 }
 
 export interface PenaltyState {
@@ -795,7 +797,25 @@ export interface SessionConfig {
 }
 
 /** A race run by another rule than the distance (SessionConfig.raceFormat). */
-export type RaceFormat = EliminationFormat;
+export type RaceFormat = EliminationFormat | EnduranceFormat;
+
+/**
+ * Endurance race: `duration` seconds of racing from lights out, then the leader's lap is the last; classified by laps,
+ * then time. The tank does not hold the distance: cars refuel at their stops.
+ */
+export interface EnduranceFormat {
+  kind: 'endurance';
+  /** seconds of racing (the clock runs under the safety car and the VSC, and stops under a red flag) */
+  duration: number;
+}
+
+/** A countdown on world time (SessionState.endurance; EliminationState has the same two fields). */
+export interface RaceClock {
+  /** world time it runs out while it runs */
+  dueAt: number;
+  /** seconds left while it is stopped; null = running */
+  held: number | null;
+}
 
 /**
  * Elimination race: every `interval` seconds of green-flag racing the car last in the running order is out; the last
@@ -876,6 +896,8 @@ export interface SessionState {
   control: RaceControlState;
   /** elimination race only (config.raceFormat): the countdown and who is out */
   elimination?: EliminationState;
+  /** endurance race only (config.raceFormat): the race clock */
+  endurance?: RaceClock;
 }
 
 export interface WeatherState {
@@ -913,7 +935,8 @@ export type GameEvent =
   | { type: 'overtake'; carId: number; passedCarId: number; position: number }
   | { type: 'pitRequested'; carId: number; compound: TireCompound }
   | { type: 'pitEntry'; carId: number }
-  | { type: 'pitStop'; carId: number; duration: number; compound: TireCompound }
+  /** `fuel`: kg put in the tank (endurance race; absent = none) */
+  | { type: 'pitStop'; carId: number; duration: number; compound: TireCompound; fuel?: number }
   | { type: 'pitExit'; carId: number }
   | { type: 'weatherChange'; kind: WeatherKind }
   | { type: 'shift'; carId: number; gear: number }

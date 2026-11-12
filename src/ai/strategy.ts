@@ -16,8 +16,9 @@ import type { BuiltTrack, CarEntry, TireCompound, WeatherKind, WorldState } from
 import type { AIPaceMode, AIPitCall } from './types';
 import { DRY_COMPOUNDS } from '../core/defaults';
 import { clamp, clamp01 } from '../core/math';
-import { COMPOUND_PARAMS, wearGrip, wetGrip } from '../physics/index';
+import { COMPOUND_PARAMS, fuelPerKm, wearGrip, wetGrip } from '../physics/index';
 import { predictWetness } from '../race/weather';
+import { BURN_FACTOR, FILL_MARGIN, FILL_RESERVE_LAPS, fuelFor, fuelTank } from '../race/endurance';
 import { forwardDistance } from '../track/track';
 import { estimatedPace } from './traffic';
 
@@ -217,6 +218,12 @@ export interface PlanInput {
   /** mandatory different-compound stop still open: the plan must fit a dry compound not in `used` */
   mandatory: boolean;
   used: readonly TireCompound[];
+  /**
+   * endurance race (fuelLimits): laps after the current one the fuel in the tank reaches a pit entry (the current set
+   * stops by then), and laps a full tank lasts (no stint longer); undefined = no limit
+   */
+  fuelStay?: number;
+  tankLaps?: number;
 }
 
 export interface RacePlan {
@@ -279,8 +286,10 @@ export function planRace(input: PlanInput): PlanResult {
   const dry = DRY_COMPOUNDS;
   const cur = stintTimes(base, input.compound, w0, rc, n);
   const fresh = dry.map((c) => stintTimes(base, c, 0, rateOf(c), n));
-  const toStop = dry.map((c) => lapsTo(0, rateOf(c), PIT_WEAR));
-  const toEnd = dry.map((c) => lapsTo(0, rateOf(c), FINISH_WEAR));
+  const fuelStay = input.fuelStay ?? Infinity;
+  const tankLaps = input.tankLaps ?? Infinity;
+  const toStop = dry.map((c) => Math.min(lapsTo(0, rateOf(c), PIT_WEAR), tankLaps));
+  const toEnd = dry.map((c) => Math.min(lapsTo(0, rateOf(c), FINISH_WEAR), tankLaps));
   const isNew = dry.map((c) => !input.mandatory || !input.used.includes(c));
 
   const offer = (cost: number, stay: number, c1: number, c2: number, m = 0): void => {
@@ -304,8 +313,8 @@ export function planRace(input: PlanInput): PlanResult {
     }
   };
 
-  if (!input.mandatory && lapsTo(w0, rc, FINISH_WEAR) >= n) offer(cur[n], n, -1, -1);
-  const maxStay = Math.min(n - 1, Math.max(0, lapsTo(w0, rc, PIT_WEAR)));
+  if (!input.mandatory && lapsTo(w0, rc, FINISH_WEAR) >= n && fuelStay >= n) offer(cur[n], n, -1, -1);
+  const maxStay = Math.min(n - 1, Math.max(0, Math.min(lapsTo(w0, rc, PIT_WEAR), fuelStay)));
   for (let k = 0; k <= maxStay; k++) {
     const stop = k === 0 ? lossNow : loss;
     const rest = n - k;
@@ -321,7 +330,8 @@ export function planRace(input: PlanInput): PlanResult {
       }
     }
   }
-  morePlans(res, n, cur, fresh, toStop, toEnd, isNew, input.mandatory, maxStay, loss, lossNow);
+  // (stints no longer than a tank may need more stops than MAX_STOPS)
+  morePlans(res, n, cur, fresh, toStop, toEnd, isNew, input.mandatory, maxStay, loss, lossNow, Math.max(MAX_STOPS, Math.ceil(n / tankLaps) + 1));
   return res;
 }
 
@@ -343,6 +353,7 @@ function morePlans(
   maxStay: number,
   loss: number,
   lossNow: number,
+  maxStops: number,
 ): void {
   const C = fresh.length;
   const dry = DRY_COMPOUNDS;
@@ -377,7 +388,7 @@ function morePlans(
     }
   }
   const levels: Level[] = [first];
-  for (let s = 2; s <= MAX_STOPS; s++) {
+  for (let s = 2; s <= maxStops; s++) {
     const prev = levels[s - 2];
     const lv = level();
     for (let r = s; r <= n; r++) {
@@ -688,6 +699,7 @@ function evaluate(
     nowLoss: loss + (busy ? QUEUE_LOSS : 0),
     mandatory: ctx.mandatoryOpen,
     used: ctx.usedCompounds,
+    ...fuelLimits(world, car, track, toEntry),
   };
   const plan = planRace(input);
   ev.plan = plan;
@@ -803,6 +815,51 @@ function measureFuel(world: WorldState, car: CarEntry): void {
   ai.fuelMarkLap = green ? lap : -1;
 }
 
+// ───────────────────────────── fuel (endurance race) ─────────────────────────────
+
+/** Fuel (kg) a lap: the measured burn once known, else BURN_FACTOR × the car's nominal use. */
+function burnPerLap(car: CarEntry, track: BuiltTrack): number {
+  return car.ai.fuelPerLap > 0 ? car.ai.fuelPerLap : (fuelPerKm(car.spec) * track.length * BURN_FACTOR) / 1000;
+}
+
+/** Laps `kg` of fuel lasts at `burn` a lap, less the fill's margins (race/endurance.ts fuelFor). */
+const lapsOn = (kg: number, burn: number): number => (kg - FILL_RESERVE_LAPS * burn) / (burn * (1 + FILL_MARGIN));
+
+/**
+ * Endurance race: the race-time model's fuel limits. The current set stays out only as long as the fuel in the tank
+ * reaches a pit entry, and no stint runs longer than a full tank (no limits in any other race).
+ */
+function fuelLimits(world: WorldState, car: CarEntry, track: BuiltTrack, toEntry: number): Pick<PlanInput, 'fuelStay' | 'tankLaps'> {
+  if (!world.session.endurance) return {};
+  const burn = burnPerLap(car, track);
+  return {
+    fuelStay: Math.floor(lapsOn(car.phys.fuelKg, burn) - toEntry / Math.max(1, track.length)),
+    tankLaps: Math.floor(lapsOn(fuelTank(car.spec, track), burn)),
+  };
+}
+
+/**
+ * Endurance race, the fuel backstop for a lap no other rule stopped on (a wet race has no plan; a held stop, a team-mate
+ * in the box): the fuel does not reach the pit entry a lap later, so the car boxes now — the plan's set, the rain tyre
+ * it runs, or a dry set that lasts.
+ */
+function fuelCall(world: WorldState, car: CarEntry, track: BuiltTrack, ctx: StrategyContext, ev: Evaluation, after: number, toEntry: number): Call | null {
+  const stay = fuelLimits(world, car, track, toEntry).fuelStay;
+  if (stay === undefined || stay >= 1) return null;
+  const cur = car.phys.tire.compound;
+  const compound = !isDry(cur) ? cur : (ev.plan?.now?.stints[0] ?? chooseDryCompound(car, track, after, ctx.mandatoryOpen ? ctx.usedCompounds : []));
+  return { compound, reason: 'fuel' };
+}
+
+/**
+ * Endurance race: the tank (kg) after the stop the strategy called — fuel for the planned next stint, else for the laps
+ * to go over the fewest tanks (-1 in any other race: the automatic fill).
+ */
+function fuelTargetFor(world: WorldState, car: CarEntry, track: BuiltTrack, ev: Evaluation, after: number): number {
+  if (!world.session.endurance) return -1;
+  return fuelFor(ev.plan?.now?.stintLaps[0] ?? after, burnPerLap(car, track), fuelTank(car.spec, track));
+}
+
 /**
  * A3 pace mode for the coming lap: conserve when short of fuel or the set must stretch to its planned stop; push on the
  * in- and out-lap of an undercut / cover, while overcutting and in the last laps when the tyres and fuel allow;
@@ -810,7 +867,8 @@ function measureFuel(world: WorldState, car: CarEntry): void {
  */
 function paceModeFor(world: WorldState, car: CarEntry, track: BuiltTrack, ev: Evaluation, after: number): AIPaceMode {
   if (world.session.control.mode !== 'green') return 'standard';
-  if (fuelShort(world, car, track, after, 1)) return 'conserve';
+  // (an endurance race refuels instead)
+  if (!world.session.endurance && fuelShort(world, car, track, after, 1)) return 'conserve';
   const reason = ev.call?.reason;
   if (reason === 'undercut' || reason === 'cover' || ev.overcut) return 'push';
   if (ev.call) return 'standard';
@@ -928,6 +986,7 @@ export function decidePitStop(
   const after = race ? lapsAfter(world, car) : 99;
   const ev: Evaluation =
     after >= 1 ? evaluate(world, car, track, ctx, want, after, toEntry) : { call: null, plan: null, rate: 0, wearEnd: p.tire.wear, overcut: false };
+  if (!ev.call && after >= 1) ev.call = fuelCall(world, car, track, ctx, ev, after, toEntry);
   if (race) {
     measureFuel(world, car);
     ai.paceMode = paceModeFor(world, car, track, ev, Math.max(0, after));
@@ -936,5 +995,6 @@ export function decidePitStop(
   }
   if (!ev.call) return null;
   ai.pitCall = ev.call.reason;
+  ai.fuelTarget = fuelTargetFor(world, car, track, ev, after);
   return ev.call.compound;
 }

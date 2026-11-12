@@ -59,8 +59,8 @@ export class ResultsScreen extends Screen {
     const race = d.result.kind === 'race';
     super(host, { layout: race ? 'showroom' : 'panel', className: `nvm-results${race ? ' nvm-results--race' : ''}` });
     const { result, world, ctx, outcome } = d;
-    const elimination = result.kind === 'race' && world.config.raceFormat?.kind === 'elimination';
-    this.title = `${elimination ? '淘汰賽' : kindLabel(result.kind, result.sprint)}成績`;
+    const format = result.kind === 'race' ? world.config.raceFormat?.kind : undefined;
+    this.title = `${format === 'elimination' ? '淘汰賽' : format === 'endurance' ? '耐力賽' : kindLabel(result.kind, result.sprint)}成績`;
     const layout = findLayout(result.layoutId);
     this.podiumCars = race ? this.buildPodium() : [];
 

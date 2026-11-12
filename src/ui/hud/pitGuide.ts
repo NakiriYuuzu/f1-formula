@@ -2,7 +2,7 @@
  * What the pit status pill says, and when (pure: timing.ts draws it). Called in, a driver driving the visit gets the
  * distance to the entry and a brake cue for the speed-limit line, then on the entry road and in the lane the speed
  * against the limit (warned over it), and a missed entry is called out; a stop reads as held (an unserved penalty,
- * repairs) before the tyre change.
+ * repairs), then refuelling (an endurance race) and the tyre change, which end together when the fill is the longer.
  */
 import type { PitPhase, SpeedUnit, TireCompound } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
@@ -42,6 +42,8 @@ export interface PitGuideInput {
   stopTotal: number;
   hold: number;
   repair: boolean;
+  /** seconds of refuelling in the stop, from the end of the penalty and repairs (0: none) */
+  fuel: number;
   compound: TireCompound;
 }
 
@@ -59,6 +61,8 @@ export type PitGuide =
   | { kind: 'lane'; speed: number; limit: number; driven: boolean; over: boolean }
   /** standing in the box, held before the tyre change: seconds left of the hold */
   | { kind: 'hold'; left: number; repair: boolean }
+  /** refuelling: seconds left of the fill */
+  | { kind: 'fuel'; left: number }
   /** the tyre change: seconds left */
   | { kind: 'service'; left: number }
   | { kind: 'exit' };
@@ -81,7 +85,11 @@ export function pitGuide(g: PitGuideInput): PitGuide {
     }
     case 'stopped': {
       const elapsed = g.stopTotal - g.timer;
-      if (elapsed < g.hold) return { kind: 'hold', left: Math.max(0, g.hold - elapsed), repair: g.repair };
+      // the penalty and repairs, then the fill (hold includes the part of it longer than the tyre change)
+      const fuel = Math.max(0, fin(g.fuel));
+      const held = g.hold - Math.max(0, fuel - (g.stopTotal - g.hold));
+      if (elapsed < held) return { kind: 'hold', left: Math.max(0, held - elapsed), repair: g.repair };
+      if (elapsed < held + fuel) return { kind: 'fuel', left: Math.max(0, held + fuel - elapsed) };
       return { kind: 'service', left: Math.max(0, g.timer) };
     }
     case 'exit':
@@ -101,7 +109,7 @@ export function pitGuide(g: PitGuideInput): PitGuide {
   return { kind: 'called', compound: g.compound };
 }
 
-/** Pill look: called in, on the pit lane, a warning (brake, over the limit, missed entry), held, the tyre change. */
+/** Pill look: called in, on the pit lane, a warning (brake, over the limit, missed entry), held, the fill or the tyre change. */
 export type PitPillState = 'box' | 'lane' | 'warn' | 'hold' | 'stop';
 
 /** The pill's text and look (null: no pill). */
@@ -127,6 +135,8 @@ export function pitGuideLabel(g: PitGuide, units: SpeedUnit): { text: string; st
       return { text: `${g.over ? '超速 ' : ''}${speedText(g.speed)}/${speedText(g.limit)} ${unit}`, state: g.over ? 'warn' : 'lane' };
     case 'hold':
       return { text: `${g.repair ? '維修中' : '執行罰時'} ${g.left.toFixed(1)} 秒`, state: 'hold' };
+    case 'fuel':
+      return { text: `加油中 ${g.left.toFixed(1)} 秒`, state: 'stop' };
     case 'service':
       return { text: `換胎中 ${g.left.toFixed(1)} 秒`, state: 'stop' };
     case 'exit':

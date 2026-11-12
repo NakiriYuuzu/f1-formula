@@ -33,7 +33,7 @@ export function quickRacePlan(profile: ProfileSave, roster: Roster, setupFor: (l
   if (!team) return null;
   const drivers = seated(team.id);
   const driverId = drivers.includes(gp.driverId) ? gp.driverId : (drivers[0] as string);
-  const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval);
+  const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval, gp.enduranceDuration);
   const base: SessionRequest = {
     mode: 'grandPrix',
     kind: 'race',

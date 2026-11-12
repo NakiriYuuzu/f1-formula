@@ -10,6 +10,7 @@
 import type { BuiltTrack, CarEntry, EliminationFormat, EliminationState, SessionConfig, WorldState } from '../core/types';
 import { emit, isRacing } from './events';
 import { chequer, finishCar, retire } from './session';
+import { clockLeft, lapsAhead, runClock } from './raceClock';
 
 /**
  * Seconds after lights out the field takes to sort out the start: in 20-car races at Monza, Silverstone, Monaco,
@@ -79,16 +80,11 @@ export function stepElimination(world: WorldState, track: BuiltTrack): void {
   if (!e || format?.kind !== 'elimination' || s.phase === 'chequered' || s.phase === 'finished') return;
   // the leader's laps plus the green-flag racing still to come: on under a neutralisation (the countdown waits, the
   // laps go on), back by an interval when a retirement saves an elimination
-  const ahead = (e.held ?? Math.max(0, e.dueAt - world.time)) + Math.max(0, world.cars.filter(isRacing).length - 2) * format.interval;
-  s.totalLaps = Math.max(0, s.leaderLap - 1) + lapsFor(ahead, track.referenceLapTime);
-  if (s.phase !== 'running' || s.control.mode !== 'green') {
-    if (e.held === null) e.held = Math.max(0, e.dueAt - world.time);
-    return;
-  }
-  if (e.held !== null) {
-    e.dueAt = world.time + e.held;
-    e.held = null;
-  }
+  const ahead = clockLeft(e, world.time) + Math.max(0, world.cars.filter(isRacing).length - 2) * format.interval;
+  s.totalLaps = lapsAhead(s.leaderLap, ahead, track.referenceLapTime) + SPARE_LAPS;
+  const running = s.phase === 'running' && s.control.mode === 'green';
+  runClock(e, world.time, running);
+  if (!running) return;
   if (world.time >= e.dueAt) {
     const car = lastRunning(world);
     if (car && world.cars.filter(isRacing).length > 1) eliminate(world, e, car);

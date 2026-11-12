@@ -115,6 +115,7 @@ export function regroupOnGrid(world: WorldState, track: BuiltTrack): void {
     const slot = gridSlot(track, index++);
     car.pit.phase = 'none';
     car.pit.requested = false;
+    delete car.pit.fuelTarget;
     car.pit.timer = 0;
     car.status = 'grid';
     p.limiter = false;
