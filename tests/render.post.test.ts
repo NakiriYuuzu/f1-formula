@@ -307,3 +307,63 @@ describe('adaptive resolution', () => {
     expect(Number.isNaN(c.lastAverageMs)).toBe(true);
   });
 });
+
+describe('adaptive resolution: starved (the tier itself should step down)', () => {
+  /** A controller whose floor is 0.9, already there (one step down and its settle window done). */
+  function atFloor(): AdaptiveResolution {
+    const c = new AdaptiveResolution(0.9);
+    run(c, 25, 2);
+    run(c, 25, 2);
+    expect(c.scale).toBe(0.9);
+    return c;
+  }
+
+  test('three slow windows in a row at the floor', () => {
+    const c = atFloor();
+    run(c, 25, 4);
+    expect(c.starved).toBe(false);
+    run(c, 25, 2);
+    expect(c.starved).toBe(true);
+    c.clearStarved();
+    expect(c.starved).toBe(false);
+  });
+
+  test('a window that keeps up resets the count', () => {
+    const c = atFloor();
+    run(c, 25, 4);
+    run(c, 8, 2);
+    run(c, 25, 4);
+    expect(c.starved).toBe(false);
+    run(c, 25, 2);
+    expect(c.starved).toBe(true);
+  });
+
+  test('slow windows above the floor never count', () => {
+    const c = new AdaptiveResolution();
+    run(c, 25, 8);
+    expect(c.scale).toBeGreaterThan(ADAPTIVE_MIN_SCALE);
+    expect(c.starved).toBe(false);
+  });
+
+  test('a crawl (frames over 0.1 s, six in a row) counts at once; a lone hitch does not', () => {
+    const c = new AdaptiveResolution();
+    for (let i = 0; i < 5; i++) c.sample(0.15);
+    expect(c.starved).toBe(false);
+    c.sample(0.016);
+    for (let i = 0; i < 5; i++) c.sample(0.15);
+    expect(c.starved).toBe(false);
+    c.sample(0.15);
+    expect(c.starved).toBe(true);
+    c.clearStarved();
+    c.sample(1.2);
+    expect(c.starved).toBe(false);
+  });
+
+  test('reset clears it', () => {
+    const c = new AdaptiveResolution();
+    for (let i = 0; i < 6; i++) c.sample(0.2);
+    expect(c.starved).toBe(true);
+    c.reset();
+    expect(c.starved).toBe(false);
+  });
+});

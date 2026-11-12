@@ -300,6 +300,12 @@ export const ADAPTIVE_STEP = 0.1;
 export const ADAPTIVE_MIN_SCALE = 0.6;
 /** Frames longer than this (s) are hitches (tab switch, loading, shader compile) and are ignored. */
 export const ADAPTIVE_MAX_SAMPLE_SEC = 0.25;
+/** Slow windows in a row at the lowest scale before the tier itself should step down (`starved`). */
+export const ADAPTIVE_STARVE_WINDOWS = 3;
+/** This many frames in a row longer than ADAPTIVE_CRAWL_SEC (but not hitches: under ADAPTIVE_CRAWL_MAX_SEC) mean the machine crawls. */
+export const ADAPTIVE_CRAWL_FRAMES = 6;
+export const ADAPTIVE_CRAWL_SEC = 0.1;
+export const ADAPTIVE_CRAWL_MAX_SEC = 2;
 
 // ───────────────────────────── helpers ─────────────────────────────
 
@@ -489,8 +495,30 @@ export class AdaptiveResolution {
   /** `minScale`: the floor, from the quality tier (QualityProfile.adaptiveMinScale). */
   constructor(public minScale = ADAPTIVE_MIN_SCALE) {}
 
+  private slowAtFloor = 0;
+  private crawl = 0;
+  private starvedFlag = false;
+
+  /**
+   * The resolution alone cannot hold the frame rate: slow windows keep coming at the lowest scale, or every frame takes
+   * longer than 0.1 s (frames that long are not sampled, so a crawl is counted here). The owner steps the tier down and
+   * calls clearStarved().
+   */
+  get starved(): boolean {
+    return this.starvedFlag;
+  }
+
+  clearStarved(): void {
+    this.starvedFlag = false;
+    this.slowAtFloor = 0;
+    this.crawl = 0;
+  }
+
   /** Feed one frame duration (s). Returns true when `scale` changed. */
   sample(frameSec: number): boolean {
+    if (Number.isFinite(frameSec) && frameSec > ADAPTIVE_CRAWL_SEC && frameSec <= ADAPTIVE_CRAWL_MAX_SEC) {
+      if (++this.crawl >= ADAPTIVE_CRAWL_FRAMES) this.starvedFlag = true;
+    } else if (frameSec < ADAPTIVE_CRAWL_SEC / 2) this.crawl = 0;
     if (!Number.isFinite(frameSec) || frameSec <= 0 || frameSec > ADAPTIVE_MAX_SAMPLE_SEC) return false;
     this.sinceUpSec += frameSec;
     this.windowSec += frameSec;
@@ -508,10 +536,14 @@ export class AdaptiveResolution {
     }
     if (avgMs > ADAPTIVE_SLOW_MS) {
       this.fastSec = 0;
-      if (this.scale <= this.minScale + 1e-6) return false;
+      if (this.scale <= this.minScale + 1e-6) {
+        if (++this.slowAtFloor >= ADAPTIVE_STARVE_WINDOWS) this.starvedFlag = true;
+        return false;
+      }
       if (this.sinceUpSec < ADAPTIVE_FLAP_SEC) this.upHoldSec = Math.min(ADAPTIVE_MAX_UP_SEC, this.upHoldSec * 2);
       return this.setScale(this.scale - ADAPTIVE_STEP);
     }
+    this.slowAtFloor = 0;
     if (avgMs < ADAPTIVE_FAST_MS && this.scale < 1) {
       this.fastSec += span;
       if (this.fastSec + 1e-6 < this.upHoldSec) return false;
@@ -533,6 +565,7 @@ export class AdaptiveResolution {
     this.upHoldSec = ADAPTIVE_UP_SEC;
     this.sinceUpSec = Number.POSITIVE_INFINITY;
     this.settle = false;
+    this.clearStarved();
   }
 
   private setScale(v: number): boolean {

@@ -53,6 +53,8 @@ export class GameRenderer {
   contextVersion = 0;
   readonly frameCost: FrameCost = { lights: 0, shadowLights: 0, ibl: false, shadowRenders: 0, fullscreenPasses: 0, postFillPixels: 0, sceneSamples: 0 };
   private benchView: BenchView | null = null;
+  /** The race stays too slow even at the lowest resolution scale (or crawls): the owner may step the quality tier down. */
+  onStarved: (() => void) | null = null;
   /** MSAA samples of the canvas's own framebuffer (0 = none), read once while the default framebuffer is bound */
   readonly canvasSamples: number;
   private contextLost = false;
@@ -168,6 +170,10 @@ export class GameRenderer {
       return;
     }
     if (adaptive && this.adaptive.sample(frameSec)) this.resize();
+    if (adaptive && this.adaptive.starved) {
+      this.adaptive.clearStarved();
+      this.onStarved?.();
+    }
   }
 
   /** Benchmark mode: a fixed canvas size / pixel ratio, adaptive resolution held at 100 % (null = back to the window). */
