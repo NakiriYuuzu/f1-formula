@@ -237,8 +237,9 @@ describe('elimination rules', () => {
       run(r, 15);
       expect(forceIncident(r.world, r.track, kind)).toBe(true);
       run(r, SIM_DT);
-      const frozen = left(r.world);
-      expect(r.world.session.elimination!.held).toBe(frozen);
+      // held at what was left (grace 50 s, 15 s of it raced)
+      const frozen = r.world.session.elimination!.held ?? NaN;
+      expect(frozen).toBeCloseTo(r.world.config.raceFormat!.grace - r.green, 2);
       let moved = 0;
       let neutral = 0;
       run(r, 600, (w) => {
@@ -331,9 +332,10 @@ describe('the AI at risk', () => {
     run(r, 40);
     const id = runningOrder(r.world).at(-1)!;
     /** seconds the car spends with its overtake mode on over the next 12 s, the countdown set to `secondsLeft` */
-    const boost = (secondsLeft: number): number => {
+    const boost = (secondsLeft: number, charge?: number): number => {
       const w = snapshotWorld(r.world);
       w.session.elimination!.dueAt = w.time + secondsLeft;
+      if (charge !== undefined) w.cars[id]!.phys.ers.charge = charge;
       const probe: Run = { world: w, track: r.track, events: [], outs: [], green: 0 };
       let on = 0;
       run(probe, 12, (pw) => {
@@ -345,5 +347,7 @@ describe('the AI at risk', () => {
     const calm = boost(600);
     const atRisk = boost(14);
     expect(atRisk).toBeGreaterThan(calm + 1);
+    // and spends a battery a pushing car would keep (below half charge)
+    expect(boost(14, 0.4)).toBeGreaterThan(boost(600, 0.4) + 1);
   }, 60_000);
 });
