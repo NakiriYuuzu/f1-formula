@@ -475,7 +475,7 @@ function pine(crown: readonly string[], weight: number, cluster: number): Specie
       // tall bare trunk, a high tufted crown of flattened needle clumps (Scots / maritime pine)
       b.add(cyl(0.13, 0.24, 6.2, 6), '#6a4a34', 0, 0, 3.1, 0);
       addLimbs(b, '#5e4330', 4.4, 6.6, 1.6, 4, 31);
-      addCrown(b, { c: [0, 7.2, 0], r: [2.3, 1.7, 2.3], clumps: 20, size: [0.7, 1.0], under: 0.45, flat: 0.55, cell: 'needle', seed: 32 });
+      addCrown(b, { c: [0, 7.0, 0], r: [2.7, 1.6, 2.7], clumps: 20, size: [0.42, 0.6], under: 0.45, flat: 0.8, cell: 'needle', seed: 32 });
     },
   };
 }
