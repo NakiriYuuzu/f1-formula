@@ -26,11 +26,12 @@
 - `peer.ts`：WebRTC 包裝（`RTCPeerConnection`，STUN：`stun:stun.cloudflare.com:3478`、`stun:stun.l.google.com:19302`；建立兩個 data channel；把它包成 `NetTransport`）。不提供 TURN（說明：嚴格 NAT 可能連不上）。
 - `protocol.ts`：
   - **輸入封包**（客→主，`state` 通道，60 Hz）：`seq`（uint16 環繞）、`tick`、量化的 throttle / brake（uint8）、steer（int8）、按鈕位元（overtakeHeld）、**一次性動作計數器**（shiftUp / shiftDown / drsPressed / ersCycle / limiterToggle 各一個 uint8 累計計數；房主比較計數差值觸發，所以掉包不會漏、重複封包不會重複觸發）。最近 3 筆輸入冗餘附帶以抗掉包。
-  - **快照封包**（主→客，`state` 通道，30 Hz；2026-10-30 起拆成「全車畫面」與「接收者自車狀態（float64）」兩個各自一個封包的訊息，見 docs/FEATURES.md §3.13）：`tick`、世界時間、每台車的量化渲染狀態（參考 `src/app/replay.ts` 的打包欄位，加上 `groundPitch`、安全車位姿、賽事管制旗號），以及「接收者自己那台車」的完整物理狀態子集（位置、速度、yaw、yawRate、gear、rpm、轉向角、ERS、輪胎溫度／磨耗、limiter…）和**最後處理的輸入 seq**（供預測回放）。
+  - **快照封包**（主→客，`state` 通道，30 Hz；2026-10-30 起拆成「全車畫面」與「接收者自車狀態（float64）」兩個各自一個封包的訊息，見 docs/FEATURES.md §3.13）：`tick`、世界時間、每台車的量化渲染狀態（參考 `src/app/replay.ts` 的打包欄位，加上 `groundPitch` 與每台車的運動 `Motion`：行進方向、加速度、轉彎率、偏航角速度，共 6 bytes；停站進度不送，客人從 HUD 鏡像的進站狀態算出）、安全車位姿與同樣格式的運動、賽事管制旗號（協定版本 8），以及「接收者自己那台車」的完整物理狀態子集（位置、速度、yaw、yawRate、gear、rpm、轉向角、ERS、輪胎溫度／磨耗、limiter…）和**最後處理的輸入 seq**（供預測回放）。
   - **可靠訊息**（JSON）：大廳（加入、玩家資料：名稱、車隊／車手選擇、設定、輔助、準備）、開賽（完整 `SessionConfig` + 玩家席位對應）、事件（`GameEvent` 加序號，客戶端依序號去重）、指令（進站請求／取消、ERS 模式、退賽）、HUD 鏡像狀態（5 Hz：計時、名次、進站、罰則、輪胎、旗號、天氣、session 狀態）、節次結束／成績、下一節、房主暫停／繼續、斷線通知。
   - 所有編解碼都要有往返測試與壞封包防護（長度不符、NaN → 丟棄）。
 - `host.ts`：`HostSession` —— 包住本機 `SessionRuntime`（或其世界步進）；每個遠端玩家一個輸入緩衝（依 seq 排序、套用最新、計數差觸發一次性動作）；固定步長時把遠端輸入放進 `inputs[playerIndex]`；30 Hz 廣播快照、5 Hz HUD 鏡像、事件立即可靠送出；處理指令（呼叫現有 `requestPit` / `cancelPit` / `setErsMode` / `retireCar`）。
-- `client.ts`：`ClientSession` —— 用房主給的 `SessionConfig` 在本機 `createWorld` 建一個**鏡像世界**（不步進 AI／他車），每個快照更新鏡像中各車的位姿與渲染欄位、HUD 鏡像更新計時／名次等欄位；渲染用 100 ms 插值緩衝的 `RenderFrame`；**自己的車**：保留未確認輸入，收到權威狀態後從該狀態用 `stepCarPhysics` 回放未確認輸入（本機預測 + 校正），誤差用平滑修正（> 3 m 直接瞬移）。HUD／音效／場景沿用現有程式（讀鏡像世界與 RenderFrame）。
+- `client.ts`：`ClientSession` —— 用房主給的 `SessionConfig` 在本機 `createWorld` 建一個**鏡像世界**（不步進 AI／他車），每個快照更新鏡像中各車的位姿與渲染欄位、HUD 鏡像更新計時／名次等欄位；其他車與安全車由 `Follower`（`follow.ts`）畫在自車的時間線上（自車最後權威狀態的房主時間加上未確認的輸入），還沒有自車狀態或觀戰時落後房主時鐘 0.1 秒；**自己的車**：保留未確認輸入，收到權威狀態後從該狀態用 `predictHumanStep` 回放未確認輸入（本機預測 + 校正），誤差用平滑修正（> 3 m 直接瞬移）；房主駕駛自車時（進站自動駕駛、停車格、編隊、停車）自車也是一個 `Follower`。HUD／音效／場景沿用現有程式（讀鏡像世界與 RenderFrame）。
+- `follow.ts`：`Follower`，房主駕駛的每個物體一個（其他車、安全車、房主接手時的自車）。取最新快照沿弧線帶到畫面時間（最多往前 0.6 秒），加一個淡出的差值；高度與護欄由客戶端給的 `Ground` 決定。純邏輯，不碰世界。
 
 ## 3. Session／App 整合
 
@@ -50,6 +51,7 @@
 - `tests/net.protocol.test.ts`：輸入／快照／可靠訊息編解碼往返、量化誤差界限、壞封包丟棄、一次性動作計數器在掉包／重複／亂序下恰好觸發一次。
 - `tests/net.room.test.ts`：房間純邏輯（建立、加入、滿員、轉送、房主離開關房、閒置）。
 - `tests/net.session.test.ts`：用 loopback（含延遲 80 ms、掉包 5%、亂序）連接 1 個 HostSession + 2 個 ClientSession 跑一場短正賽：客戶端輸入確實驅動房主上的對應車輛、鏡像世界的車輛位置與房主差距在插值容忍內、事件不漏不重、進站指令有效、客人斷線 → AI 接管且比賽完成、所有人收到相同成績、本機預測的自車誤差有界。
+- `tests/net.follow.test.ts`（`Follower` 的弧線外推、淡出與直接顯示）、`net.pose.test.ts`（打轉的車頭、坡道高度、撞牆、斷線後放回）、`net.handover.test.ts`（自車在客人與房主之間交接）、`net.jitter.test.ts`（類 Wi-Fi 連線下 60 fps 與 300 ms 來回時其他車平滑）。
 - 既有測試全部通過（玩家編號擴大不影響單機與分割畫面）。
 
 ## 6. 文件
