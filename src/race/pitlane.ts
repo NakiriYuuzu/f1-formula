@@ -419,20 +419,27 @@ interface SpeedHold {
 /**
  * Next autopilot speed: accelerate at `accel` up to `vmax` while every hold ahead can still be met braking at its own
  * deceleration after this step; past that point brake at the one constant deceleration that meets the most demanding
- * hold exactly as the steps move the car (at most ENTRY_DECEL_MAX). Above `vmax` (with nothing to brake for) it slows to
- * it at ENTRY_DECEL.
+ * hold exactly as the steps move the car (at most ENTRY_DECEL_MAX), not below that hold's speed while short of it (a hold
+ * reached within this step even at its speed is met at it; one already passed, a gap already closed, opens again).
+ * Above `vmax` (with nothing to brake for) it slows to it at ENTRY_DECEL.
  */
 function nextSpeed(v: number, dt: number, accel: number, vmax: number, holds: readonly SpeedHold[]): number {
   let brake = 0;
+  let floor = 0;
   let cap = vmax;
   for (const h of holds) {
     const x = Math.max(0, h.x);
     const easy = Math.sqrt(h.u * h.u + 2 * h.decel * Math.max(0, x - v * dt));
     // braking from this step on at a, the steps cover (v² − u²) / 2a − (v − u)·dt/2 to reach u
-    if (v > easy) brake = Math.max(brake, (v * v - h.u * h.u) / (2 * x + (v - h.u) * dt));
-    else cap = Math.min(cap, easy);
+    if (v > easy) {
+      const a = (v * v - h.u * h.u) / (2 * x + (v - h.u) * dt);
+      if (a > brake) {
+        brake = a;
+        floor = h.x >= 0 ? h.u : 0;
+      }
+    } else cap = Math.min(cap, easy);
   }
-  if (brake > 0) return Math.max(0, v - Math.min(brake, ENTRY_DECEL_MAX) * dt);
+  if (brake > 0) return Math.max(floor, v - Math.min(brake, ENTRY_DECEL_MAX) * dt);
   if (v > cap) return Math.max(cap, v - ENTRY_DECEL * dt);
   return Math.min(cap, v + accel * dt);
 }
