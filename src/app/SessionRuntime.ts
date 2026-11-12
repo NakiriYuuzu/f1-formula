@@ -400,6 +400,8 @@ export class SessionRuntime {
     if (w.session.phase === 'finished') return '節次已結束';
     // a retirement chosen from the pause menu is final (rewinding would put the car back in the race); a crash is not
     if (this.humans.some((id) => w.cars[id]?.status === 'retired' && this.quit.has(id))) return '退賽後無法回溯';
+    // so is an elimination: it is the race's verdict, not a crash
+    if (this.humans.some((id) => w.session.elimination?.out.includes(id))) return '淘汰後無法回溯';
     // every human car crashed out longer ago than the buffer reaches: rewinding would not bring one back
     if (this.humans.length > 0 && this.humans.every((id) => w.cars[id]?.status === 'retired') && this.rewindableCrash() === null) {
       return '撞車已超過可回溯的時間';
