@@ -10,7 +10,7 @@ import { buildTrack } from '../src/track/track';
 import { decodeFrame, encodeFrame } from '../src/app/replay';
 import { qualityProfile } from '../src/render/core/quality';
 import { AO_BY_TIME, aoAmount, createPostLook, showroomLook } from '../src/render/core/post';
-import { RUBBER_BASE, RUNOFF_TAPER_M, rubberIntensity, runoffPlan } from '../src/render/track/road';
+import { ASPHALT_DRIFT, ASPHALT_PATCH, RUBBER_BASE, RUNOFF_TAPER_M, asphaltTone, rubberIntensity, runoffPlan } from '../src/render/track/road';
 import {
   CREW_LIFT,
   CREW_SERVICE,
@@ -113,7 +113,7 @@ describe('rubbered racing line', () => {
   });
 });
 
-describe('run-off surfaces', () => {
+describe('run-off surfaces and asphalt tone', () => {
   // 2 m samples: 40 grass, 30 gravel, 1 paved, 32 grass, 10 without a ribbon
   const SURF = [...Array(40).fill(0), ...Array(30).fill(1), 2, ...Array(32).fill(0), ...Array(10).fill(-1)];
   const plan = runoffPlan(SURF.length, 2, (i) => SURF[i]);
@@ -141,6 +141,19 @@ describe('run-off surfaces', () => {
       if (!p) continue;
       for (const v of [p.share0, p.share1]) expect(v >= 0 && v <= 1).toBe(true);
     }
+  });
+  test('asphalt tone varies along the lap by more than a patch, within the drift and patch bounds', () => {
+    const t = buildTrack(longDef());
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < t.count; k++) {
+      const v = asphaltTone(t.s[k], t.length, 7);
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    expect(lo).toBeGreaterThanOrEqual(1 - ASPHALT_DRIFT - ASPHALT_PATCH - 1e-9);
+    expect(hi).toBeLessThanOrEqual(1 + ASPHALT_DRIFT + ASPHALT_PATCH + 1e-9);
+    expect(hi - lo).toBeGreaterThan(ASPHALT_PATCH);
   });
 });
 

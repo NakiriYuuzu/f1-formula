@@ -1,6 +1,7 @@
 /**
  * Racing surface: asphalt ribbon (incl. pit lane & apron) with a rubbered racing line (two dark tyre tracks along
- * BuiltTrack.racingLine, heavier in braking zones and corners, glossier when wet), raised striped kerbs, run-off
+ * BuiltTrack.racingLine, heavier in braking zones and corners, glossier when wet; lighter, dustier edges and a
+ * baked tone drift with resurfaced patches along the lap), raised striped kerbs, run-off
  * ribbons (grass / gravel / painted asphalt; where the surface changes one eases into the other along a curve, and baked
  * vertex colours carry broad tone patches), painted markings (edge lines, grid slots, pit lines & boxes, DRS
  * lines) and the chequered start/finish line. Static geometry is merged per material. With surface detail (quality)
@@ -24,7 +25,7 @@ import {
   pebbleNormalTexture,
   runoffAsphaltTexture,
 } from '../core/surfaceTextures';
-import { fbm2D, GROUND_SATURATION, GROUND_VALUE, groundTint, hash3, valueNoise2D } from './sceneryMath';
+import { fbm2D, GROUND_SATURATION, GROUND_VALUE, groundTint, hash3, periodicNoise1D, valueNoise2D } from './sceneryMath';
 import { GROUND_MACRO_SCALE } from './terrain';
 import { GRID_LAYOUT, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
 import { PIT_BOX_COUNT, PIT_BOX_LATERAL, PIT_BOX_SPACING, PIT_LANE_HALF } from './trackFrame';
@@ -122,11 +123,18 @@ export function rubberIntensity(t: BuiltTrack, k: number): number {
   return clamp01((RUBBER_BASE + 0.55 * Math.max(brake, corner)) * vary);
 }
 
+/** Off-line asphalt near the edges is dustier and less rubbered: brightening at the edge and the width (m) it fades in over. */
+export const ASPHALT_EDGE_DUST = 0.3;
+export const ASPHALT_EDGE_WIDTH = 3;
+
 const RUBBER_VERT_DECL = /* glsl */ `
-attribute vec3 rubber;
-varying vec3 vRubber;`;
+attribute vec4 rubber;
+varying vec4 vRubber;`;
 const RUBBER_FRAG_DECL = /* glsl */ `
-varying vec3 vRubber;
+varying vec4 vRubber;
+float edgeDust() {
+  return vRubber.w > 0.5 ? smoothstep(vRubber.w - ${ASPHALT_EDGE_WIDTH.toFixed(3)}, vRubber.w - 0.25, abs(vRubber.x)) : 0.0;
+}
 float rubberAmount() {
   float dl = vRubber.x - vRubber.y;
   float band = exp(-dl * dl / (2.0 * ${RUBBER_BAND_WIDTH.toFixed(3)} * ${RUBBER_BAND_WIDTH.toFixed(3)}));
@@ -136,8 +144,9 @@ float rubberAmount() {
 }`;
 
 /**
- * Asphalt shader patch: per-vertex `rubber` = (vertex lateral, racing-line lateral, intensity), interpolated across the
- * road row so every fragment knows its distance to the line exactly; darkens the colour and lowers the roughness.
+ * Asphalt shader patch: per-vertex `rubber` = (vertex lateral, racing-line lateral, intensity, half width or 0 off the
+ * track), interpolated across the road row so every fragment knows its distance to the line and to the edge exactly; the
+ * line darkens the colour and lowers the roughness, the dusty edges brighten it.
  */
 function applyRubberShader(material: THREE.MeshStandardMaterial): void {
   material.onBeforeCompile = (sh) => {
@@ -146,10 +155,13 @@ function applyRubberShader(material: THREE.MeshStandardMaterial): void {
       .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;');
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>${RUBBER_FRAG_DECL}`)
-      .replace('#include <map_fragment>', `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK;`)
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= ( 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK ) * ( 1.0 + ${ASPHALT_EDGE_DUST.toFixed(3)} * edgeDust() * ( 1.0 - rubberK ) );`,
+      )
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`);
   };
-  material.customProgramCacheKey = () => 'asphalt-rubber';
+  material.customProgramCacheKey = () => 'asphalt-rubber-edge';
 }
 
 /** Detail maps get their own (finer) repeat; three keeps one transform per map. */
@@ -209,9 +221,10 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   const pitSide = f.pitSign;
 
   // ── asphalt ribbon + pit lane / apron (one material) ──
-  const road = new GeoBuilder();
+  const road = new GeoBuilder(true);
   const tile = 12;
-  // per vertex: (lateral, racing-line lateral, rubber intensity); the pit lane / apron gets no racing-line rubber
+  // per vertex: (lateral, racing-line lateral, rubber intensity, half width); the pit lane / apron gets no racing-line rubber
+  // and no dusty edge
   const rubber: number[] = [];
   const addRow = (i: number, sOff: number, lats: number[], dy = 0, onLine = true): number => {
     const k = wrapIndex(i, n);
@@ -227,10 +240,11 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     const first = road.vertexCount;
     const line = Number.isFinite(t.racingLine?.[k]) ? t.racingLine[k] : 0;
     const amount = onLine ? rubberIntensity(t, k) : 0;
+    road.setColor(_tone.setScalar(onLine ? asphaltTone(t.s[k], t.length, ctx.seed) : 1));
     for (const lat of lats) {
       sidePoint(t, k, lat, dy, _a);
       road.vertex(_a.x, _a.y, _a.z, nx / nl, ny / nl, nz / nl, lat / tile, sOff / tile);
-      rubber.push(lat, line, amount);
+      rubber.push(lat, line, amount, onLine ? t.halfWidth[k] : 0);
     }
     return first;
   };
@@ -258,7 +272,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     }
   }
   const asphaltTex = disposer.add(asphaltTexture(ctx.anisotropy, 11, ctx.quality.asphaltTexSize));
-  const roadMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'asphalt', map: asphaltTex, roughness: 0.92, metalness: 0 }));
+  const roadMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'asphalt', map: asphaltTex, roughness: 0.92, metalness: 0, vertexColors: true }));
   const asphaltDetail = detail ? asphaltDetailMaps(ctx.anisotropy) : null;
   if (asphaltDetail) {
     roadMat.normalMap = disposer.add(detailRepeat(asphaltDetail.normal, ASPHALT_DETAIL_REPEAT));
@@ -269,7 +283,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   addWet(roadMat, 0.92, 0.22, WET_REFLECT_SHARE.asphalt);
   const roadGeo = road.build();
   if (roadGeo) {
-    roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 3));
+    roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 4));
     disposer.add(roadGeo);
     const m = new THREE.Mesh(roadGeo, roadMat);
     m.receiveShadow = true;
@@ -651,6 +665,25 @@ export function runoffPlan(n: number, spacing: number, surfAt: (i: number) => nu
 }
 
 const _tone = new THREE.Color();
+
+/** Asphalt tone along the lap: a slow drift (± share over ASPHALT_DRIFT_M) and resurfaced patches (one ASPHALT_PATCH_CELL_M cell in
+ * ASPHALT_PATCH_ODDS gets a darker or lighter stretch of fresh binder with edges crisp to one 2 m segment). */
+export const ASPHALT_DRIFT = 0.09;
+export const ASPHALT_DRIFT_M = 60;
+export const ASPHALT_PATCH = 0.2;
+export const ASPHALT_PATCH_CELL_M = 90;
+export const ASPHALT_PATCH_ODDS = 0.4;
+
+/** Colour multiplier of the racing surface at lap distance s (vertex colour of its rows). */
+export function asphaltTone(s: number, length: number, seed: number): number {
+  const drift = periodicNoise1D(s / ASPHALT_DRIFT_M, Math.max(1, Math.round(length / ASPHALT_DRIFT_M)), seed + 61) * 2 - 1;
+  const cell = Math.floor(s / ASPHALT_PATCH_CELL_M);
+  const from = hash3(cell, 1, seed + 67) * 0.4 * ASPHALT_PATCH_CELL_M;
+  const len = (0.3 + 0.3 * hash3(cell, 2, seed + 67)) * ASPHALT_PATCH_CELL_M;
+  const at = s - cell * ASPHALT_PATCH_CELL_M;
+  const patch = hash3(cell, 3, seed + 67) < ASPHALT_PATCH_ODDS && at >= from && at <= from + len ? (hash3(cell, 4, seed + 67) < 0.6 ? -1 : 1) : 0;
+  return 1 + ASPHALT_DRIFT * drift + ASPHALT_PATCH * patch;
+}
 
 /**
  * Baked colour variation of the run-off (vertex colours, linear multipliers): the verge carries the terrain's own broad patches
