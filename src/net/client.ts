@@ -464,13 +464,13 @@ export class ClientSession {
   }
 
   /**
-   * Driving freely: the prediction applies. The pit-lane autopilot (and the approach to it), parking and the
-   * formation autopilot are the host's: the own car then follows the snapshots.
+   * Driving freely, on the track or down the pit lane: the prediction applies. The pit-lane autopilot (and the approach
+   * to it), parking and the formation autopilot are the host's: the own car then follows the snapshots.
    */
   private canPredict(car: CarEntry): boolean {
     const phase = this.world.session.phase;
     if (phase !== 'running' && phase !== 'chequered') return false;
-    if (car.status !== 'running' || car.race.parking || car.race.formationAuto || isCarHeld(car.phys)) return false;
+    if ((car.status !== 'running' && car.status !== 'pitting') || car.race.parking || car.race.formationAuto || isCarHeld(car.phys)) return false;
     if (car.pit.phase === 'none') {
       const autopilot = car.assists.pitAssist && car.pit.requested;
       return !(autopilot && forwardDistance(this.track, car.phys.s, this.track.pit.entry) < PIT_HANDOFF);
