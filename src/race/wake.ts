@@ -9,11 +9,13 @@ import { signedDeltaS } from '../track/track';
 export const CLEAN_AIR: Readonly<AeroWake> = Object.freeze({ drag: 1, frontDownforce: 1, rearDownforce: 1 });
 
 /**
- * Tow: drag reduction right behind a car, gone at TOW_RANGE (m, centre to centre). Tuned in headless races (about
- * +8 km/h at the end of a straight in 2025, +4 in 2026): a stronger tow brought followers into the braking zones so fast
- * and close that the AI's battles ended in spins and contacts far more often.
+ * Tow: drag reduction right behind a car, gone at TOW_RANGE (m, centre to centre). The tow is what closes a gap, so it
+ * decides whether a faster car gets past a slower one. Tuned in headless races (20 cars, reverse grid, difficulty 90, 8
+ * seeds; mean finish of the five fastest cars, which start 16th to 20th, Monza / Suzuka): 0.15 left them at 10.3 / 11.4;
+ * 0.22 gives 8.6 / 10.8; 0.30 does no better (9.7 / 10.6) and doubles the contacts at Monza. A longer range (110, 120 m)
+ * did not help, a shorter one (45 m) cost passes.
  */
-export const TOW_DRAG = 0.15;
+export const TOW_DRAG = 0.22;
 const TOW_RANGE = 80;
 /**
  * Dirty air: front / rear downforce loss right behind a car, gone at DIRTY_RANGE (m). It is the front wing that loses

@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { SPEED_CAP, createAIState } from '../src/ai/index';
-import { PATH_EDGE_MARGIN, lineCurvatureAt } from '../src/ai/profile';
+import { PATH_EDGE_MARGIN, capability, lineCurvatureAt, targetSpeedAt } from '../src/ai/profile';
 import { planTraffic, type TrafficContext } from '../src/ai/traffic';
 import { createWorld, isSessionOver, stepWorld } from '../src/race/index';
 import { forwardDistance, inRangeS, indexAtS, poseAt, sampleAt, wrapS } from '../src/track/track';
@@ -388,6 +388,74 @@ describe('B3 side by side', () => {
     if (dir > 0) expect(lp.lo).toBeGreaterThanOrEqual(level.outside.phys.lateral + level.need - 1e-9);
     else expect(lp.hi).toBeLessThanOrEqual(level.outside.phys.lateral - level.need + 1e-9);
   });
+});
+
+describe('rejoining the line', () => {
+  /**
+   * Speed (m/s) every 5 m over `dist` m of a lone car started at `s0`, `off` m from the racing line and still holding
+   * that offset (a pass or a cover just ended, nothing placing it any more), at the speed its plan on the line allows.
+   */
+  function run(track: BuiltTrack, s0: number, off: number, dist: number): number[] {
+    const world = createWorld({ ...smallRace(track.id, ['lindqvist']), kind: 'practice', timeLimit: 3600, seed: 1 }, track);
+    world.session.phase = 'running';
+    world.session.startTime = 0;
+    const car = world.cars[0];
+    const ai = car.ai;
+    const cap = capability(car.spec, 1, car.phys.fuelKg, Math.min(1, ai.latFactor), Math.min(0.97, ai.brakeFactor), undefined, ai.trail);
+    place(track, car, s0, line(track, s0) + off, targetSpeedAt(track, cap, s0, 90, 1, 0, ai.kerbSkill));
+    ai.offset = off;
+    ai.offsetHold = 0;
+    ai.holdLane = false;
+    ai.launchTimer = 99;
+    ai.noiseTimer = 1e9;
+    const speeds: number[] = [];
+    let travelled = 0;
+    let last = car.phys.s;
+    while (travelled < dist && speeds.length <= dist / 5) {
+      ai.lineNoise = 0;
+      ai.lineNoiseTarget = 0;
+      stepWorld(world, track, [], SIM_DT);
+      const d = forwardDistance(track, last, car.phys.s);
+      travelled += d < track.length / 2 ? d : 0;
+      last = car.phys.s;
+      while (speeds.length <= travelled / 5) speeds.push(car.phys.speed);
+    }
+    return speeds;
+  }
+
+  test(
+    'a car rejoining from 3–5 m off on a fast stretch keeps close to the speed of the same car on the line',
+    () => {
+      // Its plan reads the path it rejoins on. (Read with the offset held all the way, a car rejoining from 5 m off
+      // braked from 355 to 236 km/h down Sepang's back straight: 0.66 of the car on the line.)
+      for (const id of ['monza', 'sepang']) {
+        const track = getLayout(id);
+        let fast = 0;
+        let worst = 1;
+        let where = '';
+        for (let s0 = 0; s0 < track.length; s0 += 50) {
+          const ref = run(track, s0, 0, 500);
+          const edge = sampleAt(track, track.halfWidth, s0) - PATH_EDGE_MARGIN;
+          for (const off of [-5, -4, -3, 3, 4, 5]) {
+            if (Math.abs(line(track, s0) + off) > edge) continue;
+            const v = run(track, s0, off, 500);
+            for (let k = 0; k < Math.min(v.length, ref.length); k++) {
+              // a fast stretch: the car on the line above 250 km/h there
+              if (ref[k] * 3.6 < 250) continue;
+              fast++;
+              if (v[k] / ref[k] < worst) {
+                worst = v[k] / ref[k];
+                where = `${id} s ${s0} off ${off}: ${Math.round(v[k] * 3.6)} km/h against ${Math.round(ref[k] * 3.6)}`;
+              }
+            }
+          }
+        }
+        expect(fast).toBeGreaterThan(1000);
+        expect(worst, where).toBeGreaterThan(0.75);
+      }
+    },
+    120_000,
+  );
 });
 
 describe('B1 / B4 headless races', () => {
