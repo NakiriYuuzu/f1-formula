@@ -258,6 +258,33 @@ describe('pit stops', () => {
     30_000,
   );
 
+  test(
+    'cars called in on the same lap queue in the lane: none drives through another and every car stops',
+    () => {
+      const track = getLayout('monaco');
+      const grid = RACERS.slice(0, 8).map((d) => d.id);
+      const world = createWorld(config('monaco', { grid, laps: 3 }), track);
+      let closest = Infinity;
+      run(world, track, 600, {
+        each: (w) => {
+          for (const c of w.cars) {
+            if (c.timing.lap === 2 && c.pit.stops === 0 && !c.pit.requested && c.pit.phase === 'none') requestPit(w, c.id, 'hard');
+          }
+          for (const a of w.cars) {
+            if (a.pit.phase === 'none') continue;
+            for (const b of w.cars) {
+              if (b.id <= a.id || b.pit.phase === 'none') continue;
+              closest = Math.min(closest, Math.hypot(a.phys.x - b.phys.x, a.phys.z - b.phys.z));
+            }
+          }
+        },
+      });
+      expect(world.cars.every((c) => c.pit.stops === 1)).toBe(true);
+      expect(closest).toBeGreaterThan(2.2);
+    },
+    60_000,
+  );
+
   test('requestPit / cancelPit and time trial ignores pit requests', () => {
     const track = getLayout('koyo-hills');
     const world = createWorld(config('koyo-hills', { grid: ['varga', 'morioka'] }), track);
