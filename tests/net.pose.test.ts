@@ -1,0 +1,74 @@
+/**
+ * Where the guest draws the other cars against where the host has them at the frame's time, in the moments the
+ * smoothness gates (net.jitter.test.ts) do not score: a spin, grades, a wall hit, a link outage. The scenarios are the
+ * pose probe's (tools/bench/net/pose.ts): host and one guest on the target link, frames at 60 fps.
+ */
+import { describe, expect, test } from 'bun:test';
+import { height, outage, spin, wall } from '../tools/bench/net/pose';
+
+describe('the other cars as the guest draws them', () => {
+  test.failing(
+    "a spinning car's nose turns with the host's, and a slow car barely turning is drawn barely turning",
+    () => {
+      // five random-crash spins on one link and one on another. 9c3e7ea, which drew no yaw rate: 0.29–0.41 rad off
+      // while spinning (0.35 over the six), up to 0.17 slow; e48caa8, whose yaw turned with the path: 0.74–1.06 rad off
+      // while spinning, 1.46 rad slow
+      const spinning: number[] = [];
+      for (const [seed, at] of [[9, 20], [9, 26], [9, 31], [9, 37], [9, 44], [11, 26]] as const) {
+        const r = spin(seed, at);
+        spinning.push(r.spinYawMean);
+        expect(r.spinYawMean).toBeLessThan(0.35);
+        expect(r.slowYawMax).toBeLessThan(0.2);
+      }
+      expect(spinning.reduce((a, b) => a + b, 0) / spinning.length).toBeLessThan(0.25);
+    },
+    60_000,
+  );
+
+  test.failing(
+    'the other cars sit on the road on grades: their height no further off than 9c3e7ea drew it',
+    () => {
+      // 9c3e7ea's |Δy| p99 and max on each run (e48caa8: Spa p99 0.34 m, max 0.45 m)
+      const runs: [string, number, number, string, number, number][] = [
+        ['spa', 9, 70, 'clear', 0.045, 0.146],
+        ['monza', 9, 50, 'clear', 0.013, 0.021],
+        ['suzuka', 9, 70, 'clear', 0.018, 0.052],
+        ['spa', 10, 70, 'heavyRain', 0.017, 0.057],
+      ];
+      for (const [layout, seed, secs, weather, p99, most] of runs) {
+        const r = height(layout, seed, secs, weather);
+        expect(r.dyP99).toBeLessThanOrEqual(p99);
+        expect(r.dyMax).toBeLessThanOrEqual(most);
+      }
+    },
+    60_000,
+  );
+
+  test.failing(
+    'a car turned into the wall: never drawn past the barrier, no frame jumps, no further off the road than 9c3e7ea',
+    () => {
+      // 9c3e7ea: 4 frames more than 1 m further off the road than the host, one 3.84 m jump and 8 frames over 0.5 m;
+      // e48caa8: 30 frames, no jump
+      const r = wall(9, 20, 1.2);
+      expect(r.pastBarrier).toBe(0);
+      expect(r.jumpsOver50cm).toBe(0);
+      expect(r.offRoad).toBeLessThanOrEqual(4);
+      // a spun car pushed along a narrowing barrier (9c3e7ea 2.57 m off, e48caa8 4.08 m)
+      expect(spin(9, 20).placeMax).toBeLessThan(2.6);
+    },
+    60_000,
+  );
+
+  test.failing(
+    'after a link outage longer than a fix is carried, every car is put where the host has it once, none slides back',
+    () => {
+      // e48caa8: every car slides back over a second (up to 2.2 m a frame), at 1.6 s one is put and ten slide
+      for (const ms of [1000, 1600, 1900]) {
+        const r = outage(ms, 9);
+        expect(r.carsSlid).toBe(0);
+        expect(r.over50cm).toBeLessThanOrEqual(11);
+      }
+    },
+    60_000,
+  );
+});
