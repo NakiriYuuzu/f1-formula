@@ -1,6 +1,6 @@
 /**
  * Session option vocabulary shared by menus and session building: lap-distance choices, weather choices,
- * race formats (standard / elimination), weekend formats, qualifying types, assist presets, and safe access to layout metadata from the track registry.
+ * race formats (standard / elimination / endurance), weekend formats, qualifying types, assist presets, and safe access to layout metadata from the track registry.
  */
 import type {
   Assists,
@@ -15,7 +15,7 @@ import type {
 } from '../core/types';
 import { ASSIST_PRESETS } from '../core/defaults';
 import { LAYOUTS, TRACK_DEFS } from '../data/tracks';
-import { eliminationFormat } from '../race/index';
+import { eliminationFormat, enduranceFormat } from '../race/index';
 
 export type LapsChoice = 'l3' | 'l5' | 'l10' | 'p25' | 'p50' | 'p100';
 export const LAPS_CHOICES: readonly LapsChoice[] = ['l3', 'l5', 'l10', 'p25', 'p50', 'p100'];
@@ -53,16 +53,19 @@ export function resolveWeather(choice: WeatherChoice): { weather: WeatherKind; d
 export type TimeOfDayChoice = TimeOfDay | 'auto';
 export const TIME_OF_DAY_CHOICES: readonly TimeOfDayChoice[] = ['auto', 'day', 'dusk', 'night'];
 
-/** How a race is decided: its laps (standard) or the elimination countdown. */
-export type RaceFormatChoice = 'standard' | 'elimination';
-export const RACE_FORMATS: readonly RaceFormatChoice[] = ['standard', 'elimination'];
+/** How a race is decided: its laps (standard), the elimination countdown, or the clock (endurance). */
+export type RaceFormatChoice = 'standard' | 'elimination' | 'endurance';
+export const RACE_FORMATS: readonly RaceFormatChoice[] = ['standard', 'elimination', 'endurance'];
 /** Elimination countdown choices (s). */
 export const ELIMINATION_INTERVALS: readonly number[] = [30, 45, 60, 90];
 export const DEFAULT_ELIMINATION_INTERVAL = 45;
+/** Endurance race lengths (min). */
+export const ENDURANCE_DURATIONS: readonly number[] = [20, 40, 60, 90];
+export const DEFAULT_ENDURANCE_DURATION = 40;
 
 /** SessionRequest.raceFormat for a menu choice (undefined = a standard race over its laps). */
-export function raceFormatFor(choice: RaceFormatChoice, interval: number): RaceFormat | undefined {
-  return choice === 'elimination' ? eliminationFormat(interval) : undefined;
+export function raceFormatFor(choice: RaceFormatChoice, interval: number, minutes = DEFAULT_ENDURANCE_DURATION): RaceFormat | undefined {
+  return choice === 'elimination' ? eliminationFormat(interval) : choice === 'endurance' ? enduranceFormat(minutes) : undefined;
 }
 
 export type WeekendFormat = 'raceOnly' | 'qualiRace' | 'full' | 'sprint';

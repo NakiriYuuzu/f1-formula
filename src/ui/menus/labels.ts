@@ -78,10 +78,13 @@ export const FORMAT_LABEL: Record<WeekendFormat, string> = {
   sprint: '衝刺賽週末',
 };
 
-export const RACE_FORMAT_LABEL: Record<RaceFormatChoice, string> = { standard: '標準', elimination: '淘汰賽' };
+export const RACE_FORMAT_LABEL: Record<RaceFormatChoice, string> = { standard: '標準', elimination: '淘汰賽', endurance: '耐力賽' };
 
 /** 「淘汰賽・每 45 秒淘汰末位」 */
 export const eliminationLabel = (interval: number): string => `淘汰賽・每 ${interval} 秒淘汰末位`;
+
+/** 「耐力賽・40 分鐘」 */
+export const enduranceLabel = (minutes: number): string => `耐力賽・${minutes} 分鐘`;
 
 /** Format hint shown under the weekend-format selector. */
 export const SPRINT_WEEKEND_DESCRIPTION =

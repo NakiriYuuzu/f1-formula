@@ -7,8 +7,10 @@ import type { Assists, Regulation, SafetyCarSetting, SessionRules } from '../../
 import { ASSIST_PRESETS } from '../../../core/defaults';
 import {
   DEFAULT_ELIMINATION_INTERVAL,
+  DEFAULT_ENDURANCE_DURATION,
   detectAssistPreset,
   ELIMINATION_INTERVALS,
+  ENDURANCE_DURATIONS,
   LAPS_CHOICES,
   QUALIFYING_TYPES,
   RACE_FORMATS,
@@ -192,6 +194,7 @@ export interface RaceOptionsValue {
   /** Grand Prix only (absent = standard) */
   raceFormat?: RaceFormatChoice;
   eliminationInterval?: number;
+  enduranceDuration?: number;
 }
 
 export const REGULATION_OPTIONS: { value: Regulation; label: string }[] = [
@@ -204,7 +207,7 @@ export function raceOptionsEditor(
   initial: RaceOptionsValue,
   fullLaps: number | null,
   onChange: (v: RaceOptionsValue) => void,
-  fields: readonly (keyof RaceOptionsValue)[] = ['raceFormat', 'laps', 'eliminationInterval', 'aiDifficulty', 'weather', 'timeOfDay', 'regulation', 'format', 'qualifying'],
+  fields: readonly (keyof RaceOptionsValue)[] = ['raceFormat', 'laps', 'eliminationInterval', 'enduranceDuration', 'aiDifficulty', 'weather', 'timeOfDay', 'regulation', 'format', 'qualifying'],
   title = '賽事設定',
   formats: readonly WeekendFormat[] = WEEKEND_FORMATS,
 ): HTMLElement {
@@ -246,7 +249,7 @@ export function raceOptionsEditor(
           set('raceFormat')(v);
           showFormatRows();
         },
-        description: '淘汰賽：每隔一段時間淘汰最後一名，留到最後的車手獲勝；不計圈數',
+        description: '淘汰賽：每隔一段時間淘汰最後一名，留到最後的車手獲勝；耐力賽：時間到後領先者跑完該圈即結束，進站可加油；兩者都不計圈數',
       }).el,
     eliminationInterval: () =>
       cycler<number>({
@@ -256,15 +259,26 @@ export function raceOptionsEditor(
         onChange: set('eliminationInterval'),
         description: '安全車、虛擬安全車與紅旗期間倒數暫停',
       }).el,
+    enduranceDuration: () =>
+      cycler<number>({
+        label: '比賽時間',
+        options: ENDURANCE_DURATIONS.map((min) => ({ value: min, label: `${min} 分鐘` })),
+        value: value.enduranceDuration ?? DEFAULT_ENDURANCE_DURATION,
+        onChange: set('enduranceDuration'),
+        description: '安全車期間照常計時，紅旗期間暫停',
+      }).el,
   };
   const built = new Map(fields.map((f) => [f, rows[f]()] as const));
-  // the laps do not apply to an elimination race, the interval only to one
+  // the laps do not apply to an elimination or endurance race, the interval and the duration only to theirs
   function showFormatRows(): void {
     const elimination = value.raceFormat === 'elimination';
+    const endurance = value.raceFormat === 'endurance';
     const laps = built.get('laps');
     const interval = built.get('eliminationInterval');
-    if (laps) laps.hidden = elimination;
+    const duration = built.get('enduranceDuration');
+    if (laps) laps.hidden = elimination || endurance;
     if (interval) interval.hidden = !elimination;
+    if (duration) duration.hidden = !endurance;
   }
   showFormatRows();
   return panel(title, [...built.values()]);

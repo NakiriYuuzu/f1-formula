@@ -84,6 +84,7 @@ export class GrandPrixOptionsScreen extends Screen {
         qualifying: gp.qualifying,
         raceFormat: gp.raceFormat,
         eliminationInterval: gp.eliminationInterval,
+        enduranceDuration: gp.enduranceDuration,
       },
       layout ? layout.fullLaps : null,
       (v) => {
@@ -144,7 +145,7 @@ export class GrandPrixOptionsScreen extends Screen {
       this.host.toast('賽道資料尚未載入', 'bad');
       return;
     }
-    const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval);
+    const raceFormat = raceFormatFor(gp.raceFormat, gp.eliminationInterval, gp.enduranceDuration);
     const base: SessionRequest = {
       mode: 'grandPrix',
       kind: 'race',

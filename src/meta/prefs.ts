@@ -10,7 +10,9 @@ import {
   AI_DIFFICULTY_MAX,
   AI_DIFFICULTY_MIN,
   DEFAULT_ELIMINATION_INTERVAL,
+  DEFAULT_ENDURANCE_DURATION,
   ELIMINATION_INTERVALS,
+  ENDURANCE_DURATIONS,
   LAPS_CHOICES,
   RACE_FORMATS,
   QUALIFYING_TYPES,
@@ -42,10 +44,12 @@ export interface GrandPrixPrefs extends SeatChoice {
   format: WeekendFormat;
   qualifying: QualifyingType;
   rules: SessionRules;
-  /** how the races are decided; an elimination race ignores `laps` */
+  /** how the races are decided; an elimination or endurance race ignores `laps` */
   raceFormat: RaceFormatChoice;
   /** elimination race: seconds between eliminations (ELIMINATION_INTERVALS) */
   eliminationInterval: number;
+  /** endurance race: minutes of racing (ENDURANCE_DURATIONS) */
+  enduranceDuration: number;
 }
 
 export interface TimeTrialPrefs extends SeatChoice {
@@ -100,6 +104,7 @@ export function defaultProfile(): ProfileSave {
       rules: { ...DEFAULT_RULES },
       raceFormat: 'standard',
       eliminationInterval: DEFAULT_ELIMINATION_INTERVAL,
+      enduranceDuration: DEFAULT_ENDURANCE_DURATION,
     },
     tt: { layoutId: '', regulation: '2025', ghost: true, teamId: DEFAULT_PLAYER_TEAM, driverId: DEFAULT_PLAYER_DRIVER },
     split: {
@@ -159,6 +164,7 @@ export function sanitizeProfile(v: unknown): ProfileSave {
       rules: sanitizeRules(gp.rules, d.gp.rules),
       raceFormat: oneOf(gp.raceFormat, RACE_FORMATS, d.gp.raceFormat),
       eliminationInterval: ELIMINATION_INTERVALS.includes(gp.eliminationInterval as number) ? (gp.eliminationInterval as number) : d.gp.eliminationInterval,
+      enduranceDuration: ENDURANCE_DURATIONS.includes(gp.enduranceDuration as number) ? (gp.enduranceDuration as number) : d.gp.enduranceDuration,
     },
     tt: {
       ...seat(tt, d.tt),
