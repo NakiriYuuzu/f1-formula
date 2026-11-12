@@ -91,6 +91,11 @@ interface Visit {
   maxLaneSpeed: number;
   manualSeen: boolean;
   cancelled: boolean;
+  /** largest one-step speed change (m/s) and yaw change (rad) while the box autopilot drives a manual visit */
+  autoSpeedStep: number;
+  autoYawStep: number;
+  /** distance (m) from the speed-limit line the driver drove before the box autopilot took over */
+  laneDriven: number;
 }
 
 function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; human?: boolean; driver?: DriverOpts; maxTime?: number } = {}): Visit {
@@ -104,6 +109,9 @@ function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; h
   let manualSeen = false;
   let cancelled = false;
   let requests = 0;
+  let autoSpeedStep = 0;
+  let autoYawStep = 0;
+  let laneDriven = Number.NaN;
   while (!isSessionOver(world) && world.time < (o.maxTime ?? 600)) {
     const c = world.cars[0];
     if (c.timing.lap === 2 && c.pit.stops === 0 && !c.pit.requested && c.pit.phase === 'none' && requests === 0) {
@@ -111,6 +119,7 @@ function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; h
       requests++;
     }
     const before = c.pit.phase;
+    const was = { auto: c.race.pitAuto, speed: c.phys.speed, yaw: c.phys.yaw };
     stepWorld(world, track, o.human === false ? [] : drive(world), SIM_DT);
     for (const e of world.events) if (e.type !== 'shift') events.push(e);
     world.events.length = 0;
@@ -119,9 +128,14 @@ function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; h
     if (before === 'entry' && c.pit.phase === 'none' && c.pit.stops === 0) cancelled = true;
     if (c.pit.phase === 'entry') maxEntrySpeed = Math.max(maxEntrySpeed, c.phys.speed);
     if (c.pit.phase === 'lane' && !c.race.pitAuto) maxLaneSpeed = Math.max(maxLaneSpeed, c.phys.speed);
+    if (c.race.pitAuto && !was.auto) laneDriven = forwardDistance(track, track.pit.entry, c.phys.s) - pitRampLength(track);
+    if (c.race.pitAuto || was.auto) {
+      autoSpeedStep = Math.max(autoSpeedStep, Math.abs(c.phys.speed - was.speed));
+      autoYawStep = Math.max(autoYawStep, Math.abs(Math.atan2(Math.sin(c.phys.yaw - was.yaw), Math.cos(c.phys.yaw - was.yaw))));
+    }
     if (o.driver?.missEntry && cancelled) break;
   }
-  return { world, events, phases, maxEntrySpeed, maxLaneSpeed, manualSeen, cancelled };
+  return { world, events, phases, maxEntrySpeed, maxLaneSpeed, manualSeen, cancelled, autoSpeedStep, autoYawStep, laneDriven };
 }
 
 const LIMIT = 80 / 3.6;
@@ -166,6 +180,22 @@ describe('manual pit lane (pit assist off)', () => {
       expect(v.maxEntrySpeed).toBeGreaterThan(LIMIT * 1.5);
       expect(v.maxLaneSpeed).toBeLessThanOrEqual(LIMIT + 0.6);
       expect(car.status).toBe('finished');
+    },
+    60_000,
+  );
+
+  test(
+    'the box autopilot takes the car over without a jolt, after the driver has driven some of the lane',
+    () => {
+      // the autopilot's own entry-road braking (24 m/s²) is the most it changes the speed in one step
+      const brakeStep = 24 * SIM_DT;
+      for (const [id, laneSpeed, limiter] of [['monaco', 20, true], ['porto-lumen', 20, true], ['porto-lumen', 30, false]] as const) {
+        const v = visit(id, { driver: { limiter, laneSpeed } });
+        expect(v.world.cars[0].pit.stops).toBe(1);
+        expect(v.autoSpeedStep).toBeLessThanOrEqual(brakeStep);
+        expect(v.autoYawStep).toBeLessThan(0.02);
+        expect(v.laneDriven).toBeGreaterThan(laneSpeed > LIMIT ? 0 : 5);
+      }
     },
     60_000,
   );

@@ -220,7 +220,7 @@ function stuckWatchdog(world: WorldState, track: BuiltTrack, car: CarEntry, dt: 
 }
 
 function postCar(world: WorldState, track: BuiltTrack, car: CarEntry, t0: number, dt: number): void {
-  if (car.pit.phase === 'none' && shouldEngagePit(world, track, car, car.race.lastS)) engagePit(world, car);
+  if (car.pit.phase === 'none' && shouldEngagePit(world, track, car, car.race.lastS)) engagePit(world, track, car);
   updateCarTiming(world, track, car, t0, dt);
   updateTrackLimits(world, track, car, dt);
   stuckWatchdog(world, track, car, dt);

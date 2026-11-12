@@ -7,12 +7,15 @@
  * box, queue behind a team-mate) → stopped (held, 2.0–3.5 s seeded + repair of every damaged part; a bent suspension is
  * only straightened back to SUSPENSION_PIT_RESIDUAL) → lane → exit ramp
  * (accelerate from the line, merge at the road edge) → control handed back at pit.exit.
+ * Its speed changes at bounded rates (nextSpeed: a stop or a slower point ahead is met at one constant deceleration)
+ * and its path turns at a bounded yaw rate (followPath), whatever state it takes the car over in.
  *
  * Manual (humans without the pit assist, CarRaceInternal.pitManual): the driver drives the lane with full physics and
  * toggles the limiter; exceeding the limit between the lines costs PIT_SPEEDING_PENALTY in a race (a radio warning
- * otherwise). Only the box manoeuvre is automatic: from BOX_APPROACH before the stop spot the autopilot takes over
- * (pitAuto), stops, services and drives back to the lane centre, then hands back with the limiter on. Not steering
- * into the lane after the entry cancels the visit (the request stays for the next lap).
+ * otherwise). Only the box manoeuvre is automatic: where the autopilot has to start braking at BOX_TAKEOVER_DECEL for
+ * the stop spot (at least BOX_SWING_START before it) it takes over (pitAuto), stops, services and drives back to the
+ * lane centre, then hands back with the limiter on. Not steering into the lane after the entry cancels the visit (the
+ * request stays for the next lap).
  *
  * Every step leaves a consistent CarPhysicsState (pose, velocity, gear, rpm, limiter).
  */
@@ -32,6 +35,7 @@ import {
 } from '../track/track';
 import { isDry } from '../ai/index';
 import { applyProjection, emit, fin, isHuman } from './events';
+import type { CarRaceInternal } from './types';
 import { applyTimePenalty } from './legality';
 import { radioPitExit, radioPitSpeeding } from './radio';
 
@@ -56,10 +60,23 @@ const REPAIR_FULL = 0.3;
 export const SUSPENSION_PIT_RESIDUAL = 0.25;
 /** Extra stationary time (s) to straighten a suspension from just short of breaking (less for a lighter bend). */
 const SUSPENSION_REPAIR_TIME = 10;
-/** Manual pit: distance (m) before the stop spot where the autopilot takes over the box manoeuvre. */
-const BOX_APPROACH = 30;
+/**
+ * Manual pit: the box autopilot takes over where it has to start braking at this deceleration (m/s², a firm stop into
+ * the box) to stop on the spot; a car arriving faster is braked harder from there, at one constant deceleration.
+ */
+const BOX_TAKEOVER_DECEL = 16;
+/** Box swing: the path leaves the lane centre this far (m) before the stop spot, is in the box this far before it, and
+ * is back on the lane centre this far past it. */
+const BOX_SWING_START = 14;
+const BOX_SWING_END = 2;
+const BOX_SWING_OUT = 12;
 /** Manual pit: distance (m) past the box where the car, back on the lane centre, is handed back to the driver. */
 const BOX_HANDBACK = 14;
+/** Kinematic path: lateral gain (1/m; the path closes on its plan within a few times 1/PATH_GAIN metres), steepest
+ * slope against the track, fastest yaw rate (rad/s). */
+const PATH_GAIN = 0.3;
+const PATH_SLOPE = 0.5;
+const PATH_YAW_RATE = 2;
 /** Speed (m/s) above the pit limit that counts as speeding (≈ 2 km/h). */
 const PIT_SPEED_TOLERANCE = 0.6;
 /** Race time penalty (s) for speeding in the pit lane. */
@@ -171,7 +188,7 @@ export function shouldEngagePit(world: WorldState, track: BuiltTrack, car: CarEn
   return d < pitRampLength(track) && Math.sign(p.lateral) === track.pit.side;
 }
 
-export function engagePit(world: WorldState, car: CarEntry): void {
+export function engagePit(world: WorldState, track: BuiltTrack, car: CarEntry): void {
   const p = car.phys;
   const r = car.race;
   car.pit.requested = true;
@@ -180,6 +197,7 @@ export function engagePit(world: WorldState, car: CarEntry): void {
   if (car.status === 'running') car.status = 'pitting';
   r.pitStartLat = p.lateral;
   r.pitLat = p.lateral;
+  r.pitSlope = headingSlope(track, car);
   r.pitSpeed = Math.max(0, Math.min(p.speed, 95));
   r.pitStopS = car.pit.boxS;
   r.pitStopTotal = 0;
@@ -219,11 +237,8 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
   const d = forwardDistance(track, tp.entry, p.s);
   const limit = tp.speedLimit;
   const boxD = forwardDistance(track, tp.entry, pit.boxS);
-  // outside the zone (last exit step) keep the current lateral rather than jumping back to the lane centre
-  const laneLat = (s: number): number => pitLaneOffsetAt(track, s) ?? r.pitLat;
   const boxLat = tp.laneOffset + tp.side * BOX_LATERAL;
-  let v = Math.max(0, r.pitSpeed);
-  let accel = 0;
+  const v = Math.max(0, r.pitSpeed);
 
   if (d >= zone - 0.01 || !isInPitZone(track, p.s)) {
     releaseCar(world, track, car);
@@ -237,15 +252,14 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
     return;
   }
 
+  let nv = v;
+  // metres driven this step (the stop spot is not overshot)
+  let step = -1;
   switch (pit.phase) {
     case 'entry': {
-      // the entry road is free: hold speed, brake (ENTRY_DECEL, harder if it arrives above that curve) to reach the
-      // limit on the speed-limit line (entry + ramp)
-      const toLine = Math.max(0, ramp - d - v * dt);
-      const brakeTarget = Math.sqrt(limit * limit + 2 * ENTRY_DECEL * toLine);
-      const nv = Math.max(limit, Math.min(v, Math.max(brakeTarget, v - ENTRY_DECEL_MAX * dt)));
-      accel = (nv - v) / dt;
-      v = nv;
+      // the entry road is free: hold speed (a slow car picks up to the limit), brake to reach the limit on the
+      // speed-limit line (entry + ramp)
+      nv = nextSpeed(v, dt, LANE_ACCEL, Math.max(v, limit), [{ x: ramp - d, u: limit, decel: ENTRY_DECEL }]);
       if (d >= ramp) pit.phase = 'lane';
       p.limiter = d >= ramp - 1;
       break;
@@ -257,57 +271,100 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
         const stopD = occupied ? boxD - QUEUE_GAP : boxD;
         r.pitStopS = occupied ? wrapS(track, pit.boxS - QUEUE_GAP) : pit.boxS;
         const remain = stopD - d;
-        const target = remain > 0 ? Math.min(limit, Math.sqrt(2 * BOX_DECEL * remain)) : 0;
-        const nv = target > v ? Math.min(target, v + LANE_ACCEL * dt) : target;
-        accel = (nv - v) / dt;
-        v = nv;
-        if (remain <= 0.05 && !occupied) {
-          v = 0;
-          startStop(world, car);
+        nv = nextSpeed(v, dt, LANE_ACCEL, limit, [{ x: remain, u: 0, decel: BOX_DECEL }]);
+        step = Math.min(nv * dt, Math.max(0, remain));
+        // on the spot (within a millimetre) and braked to a crawl: it stands
+        if (remain - step <= 1e-3 && nv <= 1e-3) {
+          nv = 0;
+          if (!occupied) startStop(world, car);
         }
       } else {
-        const nv = Math.min(limit, v + LANE_ACCEL * dt);
-        accel = (nv - v) / dt;
-        v = nv;
+        nv = nextSpeed(v, dt, LANE_ACCEL, limit, []);
         if (d >= zone - ramp) pit.phase = 'exit';
       }
       break;
     }
     case 'stopped': {
-      v = 0;
+      nv = 0;
       pit.timer = Math.max(0, pit.timer - dt);
       if (pit.timer <= 0) serviceDone(world, car);
       break;
     }
     case 'exit': {
       p.limiter = false;
-      const nv = v + EXIT_ACCEL * dt;
-      accel = (nv - v) / dt;
-      v = nv;
+      nv = nextSpeed(v, dt, EXIT_ACCEL, Infinity, []);
       break;
     }
     default:
       break;
   }
+  if (step < 0) step = nv * dt;
 
-  // lateral path
-  const sNext = wrapS(track, p.s + v * dt);
-  const dNext = Math.min(zone, d + v * dt);
-  let lat: number;
-  if (pit.phase === 'entry') {
-    lat = lerp(r.pitStartLat, laneLat(sNext), smoothstep(0, ramp * 0.85, dNext));
-  } else if (pit.phase === 'exit') {
-    lat = laneLat(sNext);
-  } else if (r.pitStopTotal <= 0) {
-    const stopD = forwardDistance(track, tp.entry, r.pitStopS);
-    const toBox = r.pitStopS === pit.boxS ? stopD - dNext : Infinity;
-    lat = lerp(laneLat(sNext), boxLat, smoothstep(14, 2, toBox));
-  } else {
-    lat = lerp(boxLat, laneLat(sNext), smoothstep(0, 12, dNext - boxD));
+  // lateral path, planned per distance from the entry (outside the zone, at the last exit step: the current lateral)
+  const laneLat = (dd: number): number => pitLaneOffsetAt(track, wrapS(track, tp.entry + dd)) ?? r.pitLat;
+  const stopD = forwardDistance(track, tp.entry, r.pitStopS);
+  const intoBox = r.pitStopS === pit.boxS;
+  const plan = (dd: number): number => {
+    if (pit.phase === 'entry') return lerp(r.pitStartLat, laneLat(dd), smoothstep(0, ramp * 0.85, dd));
+    if (pit.phase === 'exit') return laneLat(dd);
+    if (r.pitStopTotal <= 0) return intoBox ? lerp(laneLat(dd), boxLat, smoothstep(BOX_SWING_START, BOX_SWING_END, stopD - dd)) : laneLat(dd);
+    return lerp(boxLat, laneLat(dd), smoothstep(0, BOX_SWING_OUT, dd - boxD));
+  };
+  const lat = step > 0 ? followPath(r, plan, d, step, Math.max(v, nv)) : r.pitLat;
+  moveAlong(track, car, wrapS(track, p.s + step), lat, nv, (nv - v) / dt, dt, r.pitSlope);
+}
+
+/** A point ahead the autopilot has to pass at `u` m/s at most: `x` m on, normally braked for at `decel` m/s². */
+interface SpeedHold {
+  x: number;
+  u: number;
+  decel: number;
+}
+
+/**
+ * Next autopilot speed: accelerate at `accel` up to `vmax` while every hold ahead can still be met braking at its own
+ * deceleration after this step; past that point brake at the one constant deceleration that meets the most demanding
+ * hold exactly as the steps move the car (at most ENTRY_DECEL_MAX). Above `vmax` (with nothing to brake for) it slows to
+ * it at ENTRY_DECEL.
+ */
+function nextSpeed(v: number, dt: number, accel: number, vmax: number, holds: readonly SpeedHold[]): number {
+  let brake = 0;
+  let cap = vmax;
+  for (const h of holds) {
+    const x = Math.max(0, h.x);
+    const easy = Math.sqrt(h.u * h.u + 2 * h.decel * Math.max(0, x - v * dt));
+    // braking from this step on at a, the steps cover (v² − u²) / 2a − (v − u)·dt/2 to reach u
+    if (v > easy) brake = Math.max(brake, (v * v - h.u * h.u) / (2 * x + (v - h.u) * dt));
+    else cap = Math.min(cap, easy);
   }
-  if (pit.phase === 'stopped') lat = r.pitLat;
-  else lat = moveToward(r.pitLat, lat, (1 + 0.35 * v) * dt);
-  moveAlong(track, car, sNext, lat, v, accel, dt);
+  if (brake > 0) return Math.max(0, v - Math.min(brake, ENTRY_DECEL_MAX) * dt);
+  if (v > cap) return Math.max(cap, v - ENTRY_DECEL * dt);
+  return Math.min(cap, v + accel * dt);
+}
+
+/**
+ * The kinematic path's lateral after `step` m from `d`: it closes on `plan` (lateral per distance from the entry)
+ * critically damped, with the plan's own curvature fed forward; its slope stays within PATH_SLOPE and turns no faster
+ * than PATH_YAW_RATE at speed `v`. Updates r.pitSlope.
+ */
+function followPath(r: CarRaceInternal, plan: (dd: number) => number, d: number, step: number, v: number): number {
+  const h = 0.5;
+  const at = plan(d);
+  const behind = plan(d - h);
+  const ahead = plan(d + h);
+  const slope = (ahead - behind) / (2 * h);
+  const curvature = (ahead - 2 * at + behind) / (h * h);
+  const turn = curvature - 2 * PATH_GAIN * (r.pitSlope - slope) - PATH_GAIN * PATH_GAIN * (r.pitLat - at);
+  const most = PATH_YAW_RATE / Math.max(v, 1);
+  r.pitSlope = clamp(r.pitSlope + clamp(turn, -most, most) * step, -PATH_SLOPE, PATH_SLOPE);
+  return r.pitLat + r.pitSlope * step;
+}
+
+/** The car's heading against the track as a path slope (lateral m per m), for the autopilot taking it over. */
+function headingSlope(track: BuiltTrack, car: CarEntry): number {
+  const p = car.phys;
+  const along = poseAt(track, p.s, p.lateral).yaw;
+  return clamp(Math.tan(wrapAngle(along - p.yaw)), -PATH_SLOPE, PATH_SLOPE);
 }
 
 /**
@@ -348,9 +405,10 @@ export function stepManualPit(world: WorldState, track: BuiltTrack, car: CarEntr
   if (pit.phase === 'lane' && pit.requested && r.pitStopTotal <= 0) {
     const boxD = forwardDistance(track, tp.entry, pit.boxS);
     const stopD = boxOccupied(world, track, car, d) ? boxD - QUEUE_GAP : boxD;
-    if (stopD - d <= BOX_APPROACH) {
+    if (stopD - d <= Math.max(BOX_SWING_START, (p.speed * p.speed) / (2 * BOX_TAKEOVER_DECEL))) {
       r.pitAuto = true;
       r.pitLat = p.lateral;
+      r.pitSlope = headingSlope(track, car);
       r.pitSpeed = Math.max(0, p.speed);
     }
   }
@@ -436,13 +494,16 @@ function serviceDone(world: WorldState, car: CarEntry): void {
   emit(world, { type: 'pitStop', carId: car.id, duration: r.pitStopTotal, compound });
 }
 
-/** Place the car on the kinematic path with a consistent physics state (pit lane, grid parking). */
-export function moveAlong(track: BuiltTrack, car: CarEntry, s: number, lat: number, v: number, accel: number, dt: number): void {
+/**
+ * Place the car on the kinematic path with a consistent physics state (pit lane, grid parking). `slope` = the path's
+ * slope there (its heading against the track); by default the lateral moved over the step.
+ */
+export function moveAlong(track: BuiltTrack, car: CarEntry, s: number, lat: number, v: number, accel: number, dt: number, slope?: number): void {
   const p = car.phys;
   const r = car.race;
   const pose = poseAt(track, s, lat);
   const step = v * dt;
-  const slope = step > 1e-3 ? clamp((lat - r.pitLat) / step, -0.5, 0.5) : 0;
+  if (slope === undefined) slope = step > 1e-3 ? clamp((lat - r.pitLat) / step, -0.5, 0.5) : 0;
   const yaw = wrapAngle(pose.yaw - Math.atan(slope));
   const prevYaw = p.yaw;
   p.x = pose.x;
