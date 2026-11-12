@@ -7,7 +7,8 @@
  *
  * All colour values are linear, scene-referred HDR (before exposure and ACES, which only OutputPass applies).
  * Reference levels: a sun-lit white surface reaches ~1.1–1.3 by day, ~0.7 under night floodlights; the LDR
- * emissives (lamp heads, start lights, rain light, brake glow) peak at 1.0 in their brightest channel.
+ * emissives (lamp heads, start lights, brake glow) peak at 1.0 in their brightest channel, the rain light at
+ * RAIN_LIGHT_HDR (car/carMaterials.ts) so it blooms in the spray even under the day threshold.
  * The bright pass therefore tests the brightest channel (red lamps qualify) against a per-time-of-day threshold.
  */
 import type { Biome, QualityLevel, TimeOfDay } from '../../core/types';

@@ -629,7 +629,7 @@ export class RaceScene {
     // cars
     this.stateById.clear();
     this.seen.clear();
-    const ctxApply = { time, rain: Number.isFinite(weather.rain) ? weather.rain : 0 };
+    const ctxApply = { time, rain: Number.isFinite(weather.rain) ? weather.rain : 0, wetness: this.wetness };
     for (const s of frame.cars ?? []) {
       this.stateById.set(s.carId, s);
       const model = this.cars.get(s.ghost ? -1 : s.carId);

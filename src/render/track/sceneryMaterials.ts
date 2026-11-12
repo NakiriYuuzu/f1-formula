@@ -19,6 +19,7 @@
  * Every patch sets a distinct customProgramCacheKey so programs are shared only between identical variants.
  */
 import * as THREE from 'three';
+import type { TimeOfDay } from '../../core/types';
 import * as CM from './crowdMotion';
 
 /** Scene fog is capped at this factor on backdrop surfaces while the fog is thin (clear / dusk / night). */
@@ -240,6 +241,12 @@ vec4 bdNoiseD( vec3 x ) {
   const prevKey = material.customProgramCacheKey;
   material.customProgramCacheKey = () => `${prevKey.call(material)}|nova-backdrop-land-${octaves}`;
 }
+
+/**
+ * Diffuse factor of building facades by time of day: after dark the walls fall back into the night so the lit windows
+ * (emissive, untouched) carry the buildings instead of a wall lit like an overcast day by the ambient fill.
+ */
+export const FACADE_LIGHT: Record<TimeOfDay, number> = { day: 1, dusk: 0.75, night: 0.4 };
 
 /** Window facades blend to their average colour between these view distances (m). */
 export const WINDOW_FADE: readonly [number, number] = [110, 340];

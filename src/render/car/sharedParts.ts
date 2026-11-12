@@ -178,7 +178,7 @@ const v3 = (x: number, y: number, z: number): THREE.Vector3 => new THREE.Vector3
 const CARBON: UVMap = { kind: 'swatch', name: 'carbon' };
 const SATIN: UVMap = { kind: 'swatch', name: 'satin' };
 const BLACK: UVMap = { kind: 'swatch', name: 'black' };
-const WHITE: UVMap = { kind: 'swatch', name: 'white' };
+const LAMP: UVMap = { kind: 'swatch', name: 'lamp' };
 const HALO: UVMap = { kind: 'swatch', name: 'halo' };
 const FRONT_WING: UVMap = { kind: 'swatch', name: 'frontWing' };
 const REAR_WING: UVMap = { kind: 'swatch', name: 'rearWing' };
@@ -386,8 +386,8 @@ export function addRearEnd(list: PartList, d: CarDims, fine: boolean): void {
   const zEnd = d.rainLightZ + 0.008;
   const zFront = rz - 0.33;
   list.add(new THREE.BoxGeometry(0.2, 0.16, zFront - zEnd).translate(0, 0.34, (zFront + zEnd) / 2), SATIN);
-  list.add(new THREE.BoxGeometry(0.14, 0.078, 0.016).translate(0, d.rainLightY, d.rainLightZ), WHITE);
-  list.add(new THREE.BoxGeometry(0.1, 0.05, 0.02).translate(0, d.rainLightY, d.rainLightZ), BLACK);
+  list.add(new THREE.BoxGeometry(0.14, 0.078, 0.016).translate(0, d.rainLightY, d.rainLightZ), BLACK);
+  list.add(new THREE.BoxGeometry(0.1, 0.05, 0.02).translate(0, d.rainLightY, d.rainLightZ), LAMP);
   if (!fine) return;
   const x = d.rearHalfTrack - d.rearTyreWidth / 2 - 0.08;
   const zc = rz - 0.23;

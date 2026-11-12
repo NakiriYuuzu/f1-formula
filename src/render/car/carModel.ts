@@ -44,6 +44,7 @@ import {
   CAR_FINISH,
   CAR_LOD_HYSTERESIS,
   CAR_PAINT,
+  CAR_WET,
   CAR_SURFACE,
   LOD_FADE_MARGIN,
   PAINT_FLAKE,
@@ -84,6 +85,8 @@ export interface CarApplyContext {
   time?: number;
   /** current rain intensity 0..1 */
   rain?: number;
+  /** track wetness 0..1 (the spray keeps the cars wet after the rain) */
+  wetness?: number;
 }
 
 export interface CarNodes {
@@ -560,6 +563,8 @@ export function createCarModel(opts: CarModelOptions): CarModel {
   let heat = 0;
   let flap = 0;
   let localTime = 0;
+  let finish = opts.livery.finish;
+  let wetLook = 0;
   let detail = true;
   let disposed = false;
 
@@ -684,8 +689,19 @@ export function createCarModel(opts: CarModelOptions): CarModel {
       glowMat.color.setRGB(1, 0.18 + 0.4 * heat, 0.05 + 0.1 * heat);
       for (const g of glows) g.visible = glowOn;
 
-      // rain / limiter light: 4 Hz blink
+      // wet paint: darker and glossier
       const rain = fin(ctx?.rain);
+      const wet = ghost ? 0 : clamp01(Math.max(rain, fin(ctx?.wetness)));
+      if (Math.abs(wet - wetLook) > 0.004) {
+        wetLook = wet;
+        const dry = (CAR_FINISH[finish ?? 'gloss'] ?? CAR_FINISH.gloss).roughness;
+        for (const m of liveryMats) {
+          m.roughness = dry * (1 - CAR_WET.gloss * wet);
+          m.color.setScalar(1 - CAR_WET.darken * wet);
+        }
+      }
+
+      // rain / limiter light: 4 Hz blink
       const lit = state.rainLight || state.limiter || rain > 0.1;
       rainLight.visible = !ghost && lit && Math.floor(localTime * 8) % 2 === 0;
 
@@ -708,6 +724,8 @@ export function createCarModel(opts: CarModelOptions): CarModel {
         applyFinish(m, livery.finish, ghost);
         m.needsUpdate = true;
       }
+      finish = livery.finish;
+      wetLook = 0;
       livTex.dispose();
       livTex = next;
     },

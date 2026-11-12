@@ -151,6 +151,7 @@ export const CAR_SURFACE: Record<Swatch | 'paint' | 'fin' | 'helmet' | 'undersid
   frontWing: [0.3, 0.05, 1],
   rearWing: [0.3, 0.05, 1],
   rearFlap: [0.3, 0.05, 1],
+  lamp: [0.12, 0, 1],
 };
 
 /**
@@ -162,6 +163,9 @@ export const CAR_FINISH: Record<LiveryFinish, { roughness: number; clearcoat: nu
   satin: { roughness: 1.6, clearcoat: 0.4 },
   matte: { roughness: 2.3, clearcoat: 0 },
 };
+
+/** A car in the wet (rain or spray): livery roughness × (1 − gloss), colour × (1 − darken) at full wetness. */
+export const CAR_WET = { gloss: 0.55, darken: 0.2 } as const;
 
 /** Tyre atlas rows: [roughness, metalness]. Rubber stays matte. */
 export const TYRE_SURFACE: Record<'rubber' | 'band' | 'chequer' | 'rim' | 'nut' | 'disc', readonly [number, number]> = {
