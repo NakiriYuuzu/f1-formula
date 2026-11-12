@@ -81,6 +81,7 @@ function carView(c: CarEntry, own: boolean): { [k: string]: Json } {
       pitSpeeding: c.race.pitSpeeding,
       pitStopTotal: c.race.pitStopTotal,
       pitHold: c.race.pitHold,
+      pitRepair: c.race.pitRepair,
       parking: c.race.parking,
       formationAuto: c.race.formationAuto,
       retiredAt: c.race.retiredAt,

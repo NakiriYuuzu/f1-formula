@@ -4,21 +4,12 @@
  * gaps to the cars ahead/behind (race) and the pit status pill.
  */
 import type { CarEntry, SpeedUnit, WorldState } from '../../core/types';
-import { COMPOUND_INFO } from '../../core/defaults';
 import { formatLapTime } from '../../core/math';
 import { AttrSlot, ShowSlot, TextSlot, el } from './dom';
-import {
-  classifySector,
-  displaySpeed,
-  fin,
-  formatClock,
-  formatDelta,
-  formatSectorTime,
-  formatSeconds,
-  unitLabel,
-} from './labels';
+import { classifySector, fin, formatClock, formatDelta, formatSectorTime, formatSeconds } from './labels';
 import type { SectorState } from './labels';
 import { controlOf, sectorFlagLabel, sectorFlagLevels } from './raceControl';
+import { pitGuideLabel, type PitGuide } from './pitGuide';
 
 /** How long the previous lap's sectors stay on screen after crossing the line (s). */
 const LAST_LAP_HOLD = 4;
@@ -32,8 +23,8 @@ export interface TimingContext {
   delta: number | null;
   deltaRef: 'ghost' | 'best' | null;
   units: SpeedUnit;
-  /** pit-lane speed limit (m/s) */
-  pitLimit: number;
+  /** what the pit status pill says (pitGuide) */
+  pit: PitGuide;
 }
 
 interface SectorSlot {
@@ -214,7 +205,7 @@ export class TimingPanel {
       this.gapBehind.set(behind && behind.status !== 'retired' ? gapText(behind.timing.interval) : '—');
     }
 
-    this.updatePit(car, ctx);
+    this.updatePit(ctx);
   }
 
   private updateSectors(car: CarEntry, lap: number, live: boolean, overall: readonly (number | null)[]): void {
@@ -266,37 +257,11 @@ export class TimingPanel {
     }
   }
 
-  private updatePit(car: CarEntry, ctx: TimingContext): void {
-    const pit = car.pit;
-    const label = COMPOUND_INFO[pit.nextCompound]?.label ?? '';
-    let text = '';
-    let state: string | null = null;
-    switch (pit.phase) {
-      case 'entry':
-        text = car.assists.pitAssist === false && !car.phys.limiter ? '限速線前開啟限速器' : '進入維修道';
-        state = 'lane';
-        break;
-      case 'lane':
-        text = `維修道限速 ${displaySpeed(ctx.pitLimit, ctx.units)} ${unitLabel(ctx.units)}`;
-        state = 'lane';
-        break;
-      case 'stopped':
-        text = `停站中 ${Math.max(0, fin(pit.timer)).toFixed(1)} 秒`;
-        state = 'stop';
-        break;
-      case 'exit':
-        text = '駛出維修道';
-        state = 'lane';
-        break;
-      default:
-        if (pit.requested && car.status !== 'finished' && car.status !== 'retired') {
-          text = `本圈進站 · ${label}`;
-          state = 'box';
-        }
-    }
-    this.pitPill.set(state !== null);
-    this.pitState.set(state);
-    this.pitText.set(text);
+  private updatePit(ctx: TimingContext): void {
+    const label = pitGuideLabel(ctx.pit, ctx.units);
+    this.pitPill.set(label !== null);
+    this.pitState.set(label?.state ?? null);
+    this.pitText.set(label?.text ?? '');
   }
 }
 

@@ -760,6 +760,14 @@
   color: #fff;
   background: var(--nv-c-green);
 }
+.nvh-pitstat[data-state='hold'] {
+  color: #fff;
+  background: var(--nv-c-orange);
+}
+.nvh-pitstat[data-state='warn'] {
+  color: #fff;
+  background: var(--nv-c-red);
+}
 .nvh-view[data-compact] .nvh-tp-laps,
 .nvh-view[data-compact] .nvh-tp-gaps,
 .nvh-view[data-compact] .nvh-sec-label {
