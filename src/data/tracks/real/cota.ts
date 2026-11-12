@@ -16,6 +16,8 @@ export const COTA: TrackDef = {
   country: '美國',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Texas hill country: live oaks and scrub on sun-dried grass, clear dry air
+  look: { grass: '#fff0c4', trees: { oak: 2, pine: 0.3, spruce: 0.1, bush: 1.4 }, air: { haze: '#e0dccc', amount: 0.12, fog: 1.15 } },
   street: false,
   width: 15,
   fullLaps: 56,

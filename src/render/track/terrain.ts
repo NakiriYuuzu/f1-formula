@@ -255,7 +255,7 @@ export function buildTerrain(ctx: SceneryContext): TerrainParts {
   const normals = gridNormals(pos, nx, nz);
   const tex = disposer.add(groundTexture(ctx.biome, ctx.anisotropy));
   const detail = disposer.add(groundDetailTexture(ctx.anisotropy));
-  const mat = disposer.add(new THREE.MeshStandardMaterial({ name: 'terrain', map: tex, vertexColors: true, roughness: 0.96, metalness: 0 }));
+  const mat = disposer.add(new THREE.MeshStandardMaterial({ name: 'terrain', color: ctx.track.def.look?.grass ?? '#ffffff', map: tex, vertexColors: true, roughness: 0.96, metalness: 0 }));
   patchGroundMaterial(mat, {
     detail,
     terrain: true,
@@ -288,7 +288,7 @@ export function buildTerrain(ctx: SceneryContext): TerrainParts {
   const farGeo = disposer.add(new THREE.PlaneGeometry(16000, 16000, 1, 1));
   farGeo.rotateX(-Math.PI / 2);
   const farMat = disposer.add(
-    new THREE.MeshStandardMaterial({ name: 'far-ground', color: new THREE.Color(GROUND_STYLES[ctx.biome].base).multiplyScalar(0.92), roughness: 1 }),
+    new THREE.MeshStandardMaterial({ name: 'far-ground', color: new THREE.Color(GROUND_STYLES[ctx.biome].base).multiplyScalar(0.92).multiply(new THREE.Color(ctx.track.def.look?.grass ?? '#ffffff')), roughness: 1 }),
   );
   const far = new THREE.Mesh(farGeo, farMat);
   far.position.set(cx, farY - 0.05, cz);

@@ -187,6 +187,18 @@ export interface TrackDef {
   description: string;
   /** Real-world circuit metadata. Absent on the original fictional circuits. */
   real?: RealCircuitInfo;
+  /** Per-circuit scenery look over the biome's own (absent = the biome look). */
+  look?: TrackLook;
+}
+
+/** Scenery tones of one circuit; every field is optional and an absent one keeps the biome default. */
+export interface TrackLook {
+  /** colour multiplier (sRGB hex, '#ffffff' = none) of the grass and ground: verge, terrain, far ground and backdrop hills */
+  grass?: string;
+  /** weight multipliers of the biome's plant species by name (temperate: pine, spruce, oak, bush); unnamed ones keep 1 */
+  trees?: Record<string, number>;
+  /** air over the circuit: horizon haze colour (sRGB hex) and how much of the horizon it takes (0..1), fog distance multiplier (< 1 = hazier), extra clear-sky cloud cover (0..1) */
+  air?: { haze?: string; amount?: number; fog?: number; cloud?: number };
 }
 
 /** A named place along a real circuit, in forward lap fractions (reverse layouts convert them). */

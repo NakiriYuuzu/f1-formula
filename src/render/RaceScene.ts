@@ -212,7 +212,7 @@ export class RaceScene {
     const anisotropy = Math.min(this.quality.anisotropy, gr.renderer.capabilities.getMaxAnisotropy() || 1);
 
     this.frame = new TrackFrame(track);
-    this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
+    this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35, air: track.def.look?.air });
     this.env.hemiGain = this.quality.hemiGain;
     // the far cascade light joins the scene in applyShadows(), and only while it shades
     this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);

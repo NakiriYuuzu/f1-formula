@@ -1068,7 +1068,7 @@ function buildForest(ctx: SceneryContext, ft: LayoutFeature, group: THREE.Group,
   const side = (ft.side || -f.pitSign) as 1 | -1;
   const length = Math.max(60, ft.length);
   const rect = terrainRect(t);
-  const species = speciesFor(ctx.biome).filter((sp) => sp.shadow && sp.name !== 'boulder' && sp.name !== 'cactus');
+  const species = speciesFor(ctx.biome, ctx.track.def.look?.trees).filter((sp) => sp.shadow && sp.name !== 'boulder' && sp.name !== 'cactus');
   if (species.length === 0) return;
   const budget = Math.min(FOREST_CAP[ctx.quality.level] ?? 500, Math.round((length * FOREST_DEPTH) / FOREST_AREA_PER_TREE));
   const rng = e.rng;

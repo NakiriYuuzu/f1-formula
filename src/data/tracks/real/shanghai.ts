@@ -18,6 +18,8 @@ export const SHANGHAI: TrackDef = {
   country: '中國',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Jiading lowland: planted broadleaves and shrubs, a grey-yellow city haze
+  look: { grass: '#e8ecd6', trees: { oak: 1.3, pine: 0.4, spruce: 0.2, bush: 1.2 }, air: { haze: '#cfcfc8', amount: 0.38, fog: 0.7 } },
   street: false,
   width: 14,
   fullLaps: 56,

@@ -119,6 +119,34 @@ describe('scenery fixes', () => {
     }
   });
 
+  test('circuit looks name real species and override only what they name', async () => {
+    const { speciesFor } = await import('../src/render/track/props');
+    const { Environment } = await import('../src/render/environment');
+    const looked = REAL.map((id) => getLayout(id).def).filter((d) => d.look);
+    expect(looked.length).toBeGreaterThanOrEqual(7);
+    for (const def of looked) {
+      const names = speciesFor(def.biome).map((sp) => sp.name);
+      for (const name of Object.keys(def.look?.trees ?? {})) expect(names).toContain(name);
+    }
+    const base = speciesFor('temperate');
+    const oaky = speciesFor('temperate', { oak: 2 });
+    base.forEach((sp, i) => {
+      const k = sp.name === 'oak' ? 2 : 1;
+      expect(oaky[i].weight).toBe(sp.weight * k);
+      expect(oaky[i].cluster).toBe(sp.cluster * k);
+    });
+    installFakeDom();
+    const env = (air?: { fog?: number; cloud?: number }) => new Environment({ biome: 'temperate', timeOfDay: 'day', weather: 'clear', air });
+    const plain = env();
+    const empty = env({});
+    const hazy = env({ fog: 0.7, cloud: 0.2 });
+    expect(empty.fog.far).toBe(plain.fog.far);
+    expect(empty.skyMaterial.uniforms.cloudCover.value).toBe(plain.skyMaterial.uniforms.cloudCover.value);
+    expect(hazy.fog.far).toBeCloseTo(plain.fog.far * 0.7, 3);
+    expect(hazy.skyMaterial.uniforms.cloudCover.value).toBeGreaterThan(plain.skyMaterial.uniforms.cloudCover.value);
+    for (const e of [plain, empty, hazy]) e.dispose();
+  });
+
   test('sun shadow depth bias is at most 10 cm', async () => {
     const { sunShadowBiasMetres } = await import('../src/render/environment');
     expect(sunShadowBiasMetres()).toBeLessThanOrEqual(0.1);

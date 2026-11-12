@@ -17,6 +17,8 @@ export const SUZUKA: TrackDef = {
   country: '日本',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Mie hills: pine woods, soft humid haze
+  look: { grass: '#e6f2d4', trees: { pine: 1.8, spruce: 0.6, oak: 0.9 }, air: { haze: '#ccd8dc', amount: 0.25, fog: 0.85 } },
   street: false,
   width: 12,
   fullLaps: 53,

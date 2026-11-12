@@ -336,6 +336,8 @@ export const SILVERSTONE: TrackDef = {
   country: '英國',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Open Northamptonshire farmland: hedgerow bushes, scattered oaks, a cool sky
+  look: { grass: '#eef6dc', trees: { oak: 1, pine: 0.5, spruce: 0.4, bush: 1.5 }, air: { haze: '#c9d3dc', amount: 0.15, cloud: 0.12 } },
   street: false,
   width: 15,
   fullLaps: 52,

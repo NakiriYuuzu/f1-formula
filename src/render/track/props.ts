@@ -755,7 +755,12 @@ function agave(crown: readonly string[], weight: number, cluster: number): Speci
   };
 }
 
-export function speciesFor(biome: Biome): Species[] {
+/** The biome's plant species, their weights scaled by a circuit's TrackLook.trees (by species name). */
+export function speciesFor(biome: Biome, trees: Record<string, number> = {}): Species[] {
+  return biomeSpecies(biome).map((sp) => ({ ...sp, weight: sp.weight * (trees[sp.name] ?? 1), cluster: sp.cluster * (trees[sp.name] ?? 1) }));
+}
+
+function biomeSpecies(biome: Biome): Species[] {
   switch (biome) {
     case 'desert':
       return [
@@ -847,7 +852,7 @@ export function buildProps(
   const group = new THREE.Group();
   group.name = 'props';
   const rng = new Rng(ctx.seed + 9001);
-  const species = speciesFor(ctx.biome);
+  const species = speciesFor(ctx.biome, ctx.track.def.look?.trees);
   const buildings = buildingsFor(ctx.biome);
   const density = Math.max(0.05, ctx.quality.propDensity);
   const total = Math.min(VEGETATION_MAX[ctx.quality.level] ?? 2200, Math.round((t.length / 1000) * (VEGETATION_PER_KM[ctx.biome] ?? 300) * (VEGETATION_LUSH[ctx.quality.level] ?? 1) * density));
