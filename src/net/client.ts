@@ -47,7 +47,7 @@ import { clamp } from '../core/math';
 import { isCarHeld } from '../physics/index';
 import { buildRenderFrame, createWorld, getPlayerCarId, predictHumanStep } from '../race/index';
 import { forwardDistance, projectToTrack } from '../track/track';
-import { Follower, MAX_CARRY, shownTime, type Fix, type Pose } from './follow';
+import { Follower, MAX_CARRY, shownTime, type Fix, type Ground, type Pose } from './follow';
 import { applyMirrorPatch, applyMirrorToWorld } from './mirror';
 import {
   INPUT_REDUNDANCY,
@@ -594,17 +594,30 @@ export class ClientSession {
     else this.hostClock += (clock - this.hostClock) * CLOCK_GAIN;
     if (this.view === null) this.advanceView();
     const view = this.view ?? s.time;
-    const follow = (id: number, at: Pose, motion: Motion, grade: number): void => {
-      const fix: Fix = { time: s.time, x: at.x, y: at.y, z: at.z, yaw: at.yaw, speed: at.speed, ...motion, climb: Math.tan(grade) };
+    const follow = (id: number, at: Pose, motion: Motion): void => {
+      const fix: Fix = { time: s.time, x: at.x, y: at.y, z: at.z, yaw: at.yaw, speed: at.speed, ...motion };
       const f = this.followers.get(id);
       if (f) f.take(fix, view);
-      else this.followers.set(id, new Follower(fix, view));
+      else this.followers.set(id, new Follower(fix, view, this.ground()));
     };
-    s.frame.cars.forEach((c, i) => follow(c.carId, c, s.motion[i] as Motion, c.groundPitch ?? 0));
+    s.frame.cars.forEach((c, i) => follow(c.carId, c, s.motion[i] as Motion));
     const sc = s.frame.safetyCar;
-    if (sc && s.safetyCarMotion) follow(SAFETY_CAR, sc, s.safetyCarMotion, sc.pitch ?? 0);
+    if (sc && s.safetyCarMotion) follow(SAFETY_CAR, sc, s.safetyCarMotion);
     else this.followers.delete(SAFETY_CAR);
     this.syncOthers();
+  }
+
+  /**
+   * The ground one follower stands on: the road's height under it, as the host takes a car's (race applyProjection).
+   * Its last place on the track is the next search's hint.
+   */
+  private ground(): Ground {
+    let index: number | undefined;
+    return (p) => {
+      const place = projectToTrack(this.track, p.x, p.z, index, p.y);
+      index = place.index;
+      return { ...p, y: place.height };
+    };
   }
 
   /**

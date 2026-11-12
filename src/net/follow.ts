@@ -8,7 +8,8 @@
  *   offset fades out (RATE), so a correction shows as a drift of a fraction of a second, never as a jump. Only a car
  *   the host put somewhere else (further than it could have driven since the last fix), or a view time that was set
  *   rather than run (ClientSession), is shown at once.
- * Pure: no track, no world.
+ * Both stand on the Ground the guest gives it (the road's height under them: the host takes a car's from there too).
+ * Pure: no world.
  */
 import { SIM_DT } from '../core/defaults';
 import { angleDiff, clamp, wrapAngle } from '../core/math';
@@ -18,6 +19,7 @@ export interface Fix {
   /** host time (s) */
   time: number;
   x: number;
+  /** (which of two roads that cross it is on) */
   y: number;
   z: number;
   yaw: number;
@@ -28,8 +30,6 @@ export interface Fix {
   accel: number;
   turn: number;
   spin: number;
-  /** height gained per metre travelled (the road's grade) */
-  climb: number;
 }
 
 export interface Pose {
@@ -39,6 +39,9 @@ export interface Pose {
   yaw: number;
   speed: number;
 }
+
+/** A pose put on the ground: at the height of the road under it. */
+export type Ground = (p: Pose) => Pose;
 
 /** A fix is carried at most this far (s) past its time: a host silent for longer leaves its cars standing there. */
 export const MAX_CARRY = 0.6;
@@ -84,31 +87,31 @@ export function carry(f: Fix, t: number): Pose {
     dx = (f.speed * cos0 - v1 * cos1) / w + (f.accel * (sin1 - sin0)) / (w * w);
     dz = (v1 * sin1 - f.speed * sin0) / w + (f.accel * (cos1 - cos0)) / (w * w);
   }
-  return { x: f.x + dx, y: f.y + f.climb * dist, z: f.z + dz, yaw: wrapAngle(f.yaw + f.spin * spun), speed: v };
+  return { x: f.x + dx, y: f.y, z: f.z + dz, yaw: wrapAngle(f.yaw + f.spin * spun), speed: v };
 }
 
 /** The host time a fix of `time` is shown at when the view time is `view` (within what it is carried). */
 export const shownTime = (time: number, view: number): number => time + clamp(view - time, -MAX_BACK, MAX_CARRY);
 
-const carryTo = (f: Fix, view: number): Pose => carry(f, shownTime(f.time, view) - f.time);
-
 export class Follower {
   /** the newest fix carried to the view time: where the host most likely has it then */
   at: Pose;
-  /** drawn − at */
-  private readonly offset = { x: 0, y: 0, z: 0, yaw: 0 };
+  /** drawn − at, across the ground */
+  private readonly offset = { x: 0, z: 0, yaw: 0 };
 
   constructor(
     private fix: Fix,
     view: number,
+    private readonly ground: Ground,
   ) {
-    this.at = carryTo(fix, view);
+    this.at = this.carryTo(view);
   }
 
   /** What is drawn at the view time. */
   get drawn(): Pose {
     const o = this.offset;
-    return { x: this.at.x + o.x, y: this.at.y + o.y, z: this.at.z + o.z, yaw: wrapAngle(this.at.yaw + o.yaw), speed: this.at.speed };
+    const a = this.at;
+    return this.ground({ ...a, x: a.x + o.x, z: a.z + o.z, yaw: wrapAngle(a.yaw + o.yaw) });
   }
 
   /** A newer fix (older ones are dropped): the arc moves to it, what is drawn stays and fades over. */
@@ -119,7 +122,7 @@ export class Follower {
     const put = Math.hypot(fix.x - expected.x, fix.z - expected.z) > TELEPORT + 0.5 * MAX_ACCEL * dt * dt;
     const was = this.at;
     this.fix = fix;
-    this.at = carryTo(fix, view);
+    this.at = this.carryTo(view);
     if (put) this.show();
     else this.shift(was);
   }
@@ -129,36 +132,37 @@ export class Follower {
     const keep = Math.exp(-RATE * SIM_DT);
     const o = this.offset;
     o.x *= keep;
-    o.y *= keep;
     o.z *= keep;
     o.yaw *= keep;
-    this.at = carryTo(this.fix, view);
+    this.at = this.carryTo(view);
   }
 
   /** The view time was set to `view` (not run there): shown where it is then, at once. */
   jump(view: number): void {
-    this.at = carryTo(this.fix, view);
+    this.at = this.carryTo(view);
     this.show();
   }
 
   /** Something else was drawn in this one's place until now (the own car as predicted): it goes on from there. */
-  resume(drawn: { x: number; y: number; z: number }): void {
+  resume(drawn: { x: number; z: number }): void {
     this.show();
     this.offset.x = drawn.x - this.at.x;
-    this.offset.y = drawn.y - this.at.y;
     this.offset.z = drawn.z - this.at.z;
   }
 
   /** Shown where the host has it, at once. */
   show(): void {
     const o = this.offset;
-    o.x = o.y = o.z = o.yaw = 0;
+    o.x = o.z = o.yaw = 0;
+  }
+
+  private carryTo(view: number): Pose {
+    return this.ground(carry(this.fix, shownTime(this.fix.time, view) - this.fix.time));
   }
 
   private shift(was: Pose): void {
     const o = this.offset;
     o.x += was.x - this.at.x;
-    o.y += was.y - this.at.y;
     o.z += was.z - this.at.z;
     o.yaw += angleDiff(this.at.yaw, was.yaw);
   }

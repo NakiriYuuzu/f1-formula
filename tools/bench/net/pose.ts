@@ -146,7 +146,10 @@ export function spin(netSeed = 9, at = 20) {
   };
 }
 
-/** Every other car's drawn height against the host's, from 12 s to `secs`. */
+/**
+ * Every other car's drawn height against the host's, from 12 s to `secs`, and against the road's under the drawn place
+ * (a car floating or sunk in the road; the host takes a car's height from there).
+ */
 export function height(layout = 'spa', netSeed = 9, secs = 70, weather = 'clear') {
   const s = session({ layout, weather, netSeed });
   const frames: Frame[] = [];
@@ -155,14 +158,16 @@ export function height(layout = 'spa', netSeed = 9, secs = 70, weather = 'clear'
     if (s.steps % 2 === 0 && s.world.time >= 12) frames.push(s.frame());
   }
   const dy: number[] = [];
+  let float = 0;
   for (const fr of frames) {
     for (const [id, c] of fr.cars) {
       if (id === s.guest.carId || !c.visible) continue;
+      float = Math.max(float, Math.abs(c.y - T.projectToTrack(s.track, c.x, c.z, undefined, c.y).height));
       const h = s.truth(fr.time, id);
       if (h) dy.push(Math.abs(c.y - h.y));
     }
   }
-  return { dyMean: mean(dy), dyP99: pct(dy, 0.99), dyMax: max(dy), over20cm: dy.filter((x) => x > 0.2).length };
+  return { dyMean: mean(dy), dyP99: pct(dy, 0.99), dyMax: max(dy), over20cm: dy.filter((x) => x > 0.2).length, floatMax: float };
 }
 
 /** How far (m) a car body at this pose reaches past the barrier (race/contact.ts barrierContact; ≤ 0: inside). */

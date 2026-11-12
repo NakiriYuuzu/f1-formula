@@ -3,9 +3,11 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { SIM_DT } from '../src/core/defaults';
-import { Follower, MAX_CARRY, carry, type Fix } from '../src/net/follow';
+import { Follower, MAX_CARRY, carry, type Fix, type Ground } from '../src/net/follow';
 
-const fix = (o: Partial<Fix> = {}): Fix => ({ time: 10, x: 100, y: 5, z: -40, yaw: 0.4, speed: 60, course: 0.42, accel: 0, turn: 0, spin: 0, climb: 0, ...o });
+const fix = (o: Partial<Fix> = {}): Fix => ({ time: 10, x: 100, y: 5, z: -40, yaw: 0.4, speed: 60, course: 0.42, accel: 0, turn: 0, spin: 0, ...o });
+/** flat ground at the fix's height */
+const flat: Ground = (p) => p;
 
 /** The same motion taken in small steps: speed changing at `accel`, the course turning at `turn`. */
 function stepped(f: Fix, t: number): { x: number; z: number; speed: number } {
@@ -54,10 +56,6 @@ describe('carrying a fix', () => {
     expect(dist(stop, f)).toBeCloseTo(0.6, 2);
     expect(later).toEqual(stop);
   });
-
-  test('it climbs with the road', () => {
-    expect(carry(fix({ climb: 0.1 }), 0.5).y).toBeCloseTo(5 + 0.1 * 30, 9);
-  });
 });
 
 describe('a follower', () => {
@@ -73,7 +71,7 @@ describe('a follower', () => {
 
   test('a newer fix off the old arc is faded in: no jump when it arrives, most of it shown half a second later', () => {
     const view = 10.15;
-    const f = new Follower(fix(), view);
+    const f = new Follower(fix(), view, flat);
     const before = f.drawn;
     // the car braked and turned since: 0.45 m short and 0.2 m aside of where the old fix was heading
     const off = { x: -0.45 * Math.sin(0.42) + 0.2 * Math.cos(0.42), z: -0.45 * Math.cos(0.42) - 0.2 * Math.sin(0.42) };
@@ -96,7 +94,7 @@ describe('a follower', () => {
 
   test('a car the host put somewhere else is shown there at once; so is everything when the view time is set', () => {
     const view = 10.15;
-    const f = new Follower(fix(), view);
+    const f = new Follower(fix(), view, flat);
     const was = carry(fix(), 0.1);
     f.take(fix({ time: 10.1, x: was.x + 20, z: was.z }), view);
     expect(dist(f.drawn, f.at)).toBe(0);
@@ -108,15 +106,23 @@ describe('a follower', () => {
   });
 
   test('a fix no newer than the one held is dropped', () => {
-    const f = new Follower(fix(), 10.1);
+    const f = new Follower(fix(), 10.1, flat);
     const at = f.at;
     f.take(fix({ x: 0, z: 0 }), 10.1);
     f.take(fix({ time: 9.9, x: 0, z: 0 }), 10.1);
     expect(f.at).toEqual(at);
   });
 
+  test('it is drawn on its ground: a grade under it lifts what is drawn, wherever the offset puts it', () => {
+    const grade: Ground = (p) => ({ ...p, y: 0.1 * p.x });
+    const f = new Follower(fix(), 10.1, grade);
+    f.resume({ x: f.at.x + 2, z: f.at.z });
+    expect(f.at.y).toBeCloseTo(0.1 * f.at.x, 9);
+    expect(f.drawn.y).toBeCloseTo(0.1 * (f.at.x + 2), 9);
+  });
+
   test('it goes on from where something else was drawn in its place', () => {
-    const f = new Follower(fix(), 10.1);
+    const f = new Follower(fix(), 10.1, flat);
     const drawn = { x: f.at.x + 1.2, y: f.at.y, z: f.at.z - 0.5 };
     f.resume(drawn);
     expect(dist(f.drawn, drawn)).toBeLessThan(1e-9);
@@ -126,7 +132,7 @@ describe('a follower', () => {
   });
 
   test('a host silent for longer than MAX_CARRY leaves its cars standing where the last fix was heading', () => {
-    const f = new Follower(fix(), 10);
+    const f = new Follower(fix(), 10, flat);
     f.step(10 + MAX_CARRY + 1);
     expect(dist(f.at, carry(fix(), MAX_CARRY))).toBeLessThan(1e-9);
   });
