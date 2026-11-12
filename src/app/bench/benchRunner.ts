@@ -6,9 +6,9 @@
 import { Vector2 } from 'three';
 import type { QualityLevel } from '../../core/types';
 import type { GameRenderer } from '../../render/GameRenderer';
+import { guessQuality, isSoftwareGpu } from '../../render/core/autoQuality';
 import type { QualityProfile } from '../../render/core/quality';
 import {
-  isSoftwareRenderer,
   summarize,
   type BenchCounters,
   type BenchEnv,
@@ -67,7 +67,8 @@ function readEnv(gr: GameRenderer): BenchEnv {
   return {
     userAgent: navigator.userAgent,
     gpu,
-    software: isSoftwareRenderer(gpu),
+    software: isSoftwareGpu(gpu),
+    autoPick: guessQuality(gpu),
     deviceDpr: window.devicePixelRatio || 1,
     maxSamples: gr.renderer.capabilities.maxSamples || 0,
     startedAt: new Date().toISOString(),

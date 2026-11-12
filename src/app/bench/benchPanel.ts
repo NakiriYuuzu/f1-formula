@@ -1,5 +1,6 @@
 /** On-screen panel of the benchmark: start button, progress, per-cell summary, the raw rows and a copy button. */
 import { baseQualityProfile } from '../../render/core/quality';
+import { QUALITY_LABEL } from '../../ui/menus/labels';
 import { summarize, type BenchParams, type BenchResult, type BenchRow } from './benchSpec';
 
 const STYLE = `
@@ -118,6 +119,7 @@ export class BenchPanel {
     if (Object.keys(p.tune).length > 0) lines.push(`調整欄位：${JSON.stringify(p.tune)}${p.ab ? '（與預設交替比較）' : ''}`);
     if (result) {
       lines.push(`GPU：${result.env.gpu}`);
+      lines.push(`自動畫質依顯卡名稱的首選：${QUALITY_LABEL[result.env.autoPick]}`);
       if (result.env.software) lines.push('偵測到軟體繪圖（無獨立或內建 GPU 加速）。');
     }
     this.info.replaceChildren(...lines.map((l) => Object.assign(document.createElement('p'), { textContent: l, className: l.startsWith('偵測') ? 'warn' : '' })));

@@ -5,7 +5,8 @@
 import { describe, expect, test } from 'bun:test';
 import { titleLine, rowsToText } from '../src/app/bench/benchPanel';
 import { buildBenchSession } from '../src/app/bench/benchSession';
-import { BENCH_SCENARIOS, BENCH_SEED, isSoftwareRenderer, parseBench, parseTune, summarize, type BenchResult, type BenchRow } from '../src/app/bench/benchSpec';
+import { BENCH_SCENARIOS, BENCH_SEED, parseBench, parseTune, summarize, type BenchResult, type BenchRow } from '../src/app/bench/benchSpec';
+import { isSoftwareGpu } from '../src/render/core/autoQuality';
 import { baseQualityProfile, qualityProfile, resetQualityTuning, tuneQuality } from '../src/render/core/quality';
 
 describe('parseBench', () => {
@@ -135,7 +136,7 @@ describe('panel encodings', () => {
   });
   const result: BenchResult = {
     version: 1,
-    env: { userAgent: 'x', gpu: 'SwiftShader', software: true, deviceDpr: 2, maxSamples: 4, startedAt: '' },
+    env: { userAgent: 'x', gpu: 'SwiftShader', software: true, autoPick: 'low', deviceDpr: 2, maxSamples: 4, startedAt: '' },
     params: { qualities: ['low'], scenarios: ['grid-monza'], dprs: [1], scale: 1, cssWidth: 1280, cssHeight: 720, frames: 300, warmup: 45, runs: 1, antialias: true, tune: {}, ab: false },
     rows: [row({}), row({ variant: 'tuned', frameMs: { median: 1.5, p95: 2, p99: 2.2, mean: 1.6, min: 1, max: 3 } })],
     done: true,
@@ -154,9 +155,9 @@ describe('panel encodings', () => {
   });
 
   test('software renderers are recognised by name', () => {
-    expect(isSoftwareRenderer('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), SwiftShader driver)')).toBe(true);
-    expect(isSoftwareRenderer('llvmpipe (LLVM 15.0.7, 256 bits)')).toBe(true);
-    expect(isSoftwareRenderer('ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)')).toBe(false);
-    expect(isSoftwareRenderer('ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)')).toBe(false);
+    expect(isSoftwareGpu('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0)), SwiftShader driver)')).toBe(true);
+    expect(isSoftwareGpu('llvmpipe (LLVM 15.0.7, 256 bits)')).toBe(true);
+    expect(isSoftwareGpu('ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro, Unspecified Version)')).toBe(false);
+    expect(isSoftwareGpu('ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0)')).toBe(false);
   });
 });

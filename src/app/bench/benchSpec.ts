@@ -200,6 +200,8 @@ export interface BenchEnv {
   gpu: string;
   /** the GPU string names a software rasteriser (SwiftShader, llvmpipe, ...) */
   software: boolean;
+  /** the tier automatic quality starts with on this GPU, by its name (guessQuality) */
+  autoPick: QualityLevel;
   deviceDpr: number;
   maxSamples: number;
   startedAt: string;
@@ -224,8 +226,4 @@ export interface BenchResult {
   };
   rows: BenchRow[];
   done: boolean;
-}
-
-export function isSoftwareRenderer(gpu: string): boolean {
-  return /swiftshader|llvmpipe|software|softpipe|basic render/i.test(gpu);
 }
