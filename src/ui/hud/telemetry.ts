@@ -350,7 +350,10 @@ export class TelemetryPanel {
       this.fuelLaps.set(`可跑 ${laps.toFixed(1)} 圈`);
       if (tank > 0 && trackLength > 0 && car.status !== 'finished' && car.status !== 'retired') {
         // the flag, or by when to box (nothing in the pit lane: the fill is coming)
-        const call = car.pit.phase === 'none' ? enduranceFuelCall(laps, lapsToGo(world, track, car), forwardDistance(track, car.phys.s, track.pit.entry) / trackLength) : null;
+        const toGo = lapsToGo(world, track, car);
+        const call = car.pit.phase === 'none' ? enduranceFuelCall(laps, toGo, forwardDistance(track, car.phys.s, track.pit.entry) / trackLength) : null;
+        // by when to box has the row to itself: it says the laps of fuel, and the two do not fit side by side
+        if (call && laps < toGo) this.fuelLaps.set('');
         this.fuelMargin.set(call?.text ?? '');
         this.fuelMarginState.set(call?.state ?? null);
         this.fuelBarState.set(call?.state ?? null);
