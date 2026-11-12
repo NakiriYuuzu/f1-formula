@@ -391,6 +391,11 @@ export type KeyAction =
 
 export interface Settings {
   quality: QualityLevel;
+  /**
+   * The game maintains `quality` (a first pick for this GPU, then steps down when races run slow) until the player turns it
+   * off or picks a tier. Absent in settings saved before it existed: those keep the saved tier.
+   */
+  qualityAuto?: boolean;
   /** 0.5..1.0 render resolution multiplier */
   resolutionScale: number;
   shadows: boolean;

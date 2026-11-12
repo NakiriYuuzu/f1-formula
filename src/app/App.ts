@@ -8,7 +8,7 @@
  * while the settings overlay or a text field has focus, and exposes the test hooks window.render_game_to_text()
  * and window.advanceTime(ms).
  */
-import type { SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
+import type { QualityLevel, SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
 import { AudioEngine } from '../audio/index';
 import { getLayout, hasLayout } from '../data/tracks/index';
@@ -16,10 +16,13 @@ import { InputManager, isTextEntryTarget } from '../input/index';
 import type { SessionContext } from '../meta/context';
 import { loadSettings } from '../meta/save';
 import { buildQuickStart } from '../meta/sessionBuilder';
+import { readRecord, writeRecord } from '../meta/storage';
 import { GameRenderer } from '../render/GameRenderer';
+import { bootQuality, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
 import { resetQualityTuning, tuneQuality } from '../render/core/quality';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
+import { QUALITY_LABEL } from '../ui/menus/labels';
 import { BackgroundTicker } from './backgroundTicker';
 import { BenchPanel } from './bench/benchPanel';
 import { runBench, type BenchHost } from './bench/benchRunner';
@@ -105,6 +108,10 @@ export class App {
   private readonly bench: BenchParams | null;
   private started = false;
   private destroyed = false;
+  /** WebGL renderer string, the input of the automatic quality pick */
+  private readonly gpu: string;
+  /** the tier automatic quality keeps (Settings.qualityAuto): a first pick for this GPU, stepped down when races run slow */
+  private autoLevel: QualityLevel = 'high';
 
   private readonly sessionDeps: SessionDeps;
   private readonly replayDeps: ReplayDeps;
@@ -116,14 +123,20 @@ export class App {
   /** Throws if WebGL 2 is unavailable (GameRenderer). */
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
     this.bench = parseBench(window.location.search);
+    this.gpu = readGpuName();
     this.settings = loadSettings();
     // the benchmark never reads the player's quality and never saves what it sets
     if (this.bench) {
       // the context's canvas MSAA follows the first tier listed unless the URL forces it
       this.settings = { ...this.settings, quality: this.bench.qualities[0] ?? 'low', resolutionScale: this.bench.scale };
       if (this.bench.antialias !== null) this.settings.antialias = this.bench.antialias;
+    } else if (this.settings.qualityAuto === true) {
+      this.autoLevel = this.pickAutoLevel();
+      this.settings = { ...this.settings, quality: this.autoLevel };
     }
     this.gr = new GameRenderer(canvas, this.settings);
+    // after the frame: the step re-applies the settings, which must not happen in the middle of a draw
+    this.gr.onStarved = () => queueMicrotask(() => this.stepAutoQuality());
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.settings);
     const getSettings = (): Settings => this.settings;
@@ -710,7 +723,36 @@ export class App {
 
   // ───────────────────────────── settings / platform ─────────────────────────────
 
+  /** The recorded pick for this GPU, else the guess (and record it). `fresh`: the player just turned automatic quality on, so start from the guess again. */
+  private pickAutoLevel(fresh = false): QualityLevel {
+    const record = parseAutoRecord(readRecord('autoQuality'));
+    const level = fresh ? guessQuality(this.gpu) : bootQuality(record, this.gpu);
+    if (record === null || record.gpu !== this.gpu || record.level !== level) writeRecord('autoQuality', { gpu: this.gpu, level });
+    return level;
+  }
+
+  /** The race stays too slow at the lowest resolution: one tier down, kept for the next start. Only while the game owns the tier. */
+  private stepAutoQuality(): void {
+    if (this.bench || this.settings.qualityAuto !== true) return;
+    const lower = lowerQuality(this.autoLevel);
+    if (lower === null) return;
+    this.autoLevel = lower;
+    writeRecord('autoQuality', { gpu: this.gpu, level: lower });
+    this.menus.updateSettings({ ...this.settings, quality: lower });
+    this.gr.resetAdaptiveResolution();
+    this.session?.notify('已自動調降畫質', `畫質：${QUALITY_LABEL[lower]}（設定中可關閉自動畫質）`, 'warn');
+  }
+
   private applySettings(settings: Settings): void {
+    // automatic quality: the tier shown in the menus is the one in use (turned on, or defaults restored, while it was
+    // somewhere else: the menus get it back and apply it from there)
+    if (!this.bench && settings.qualityAuto === true) {
+      if (this.settings.qualityAuto !== true) this.autoLevel = this.pickAutoLevel(true);
+      if (settings.quality !== this.autoLevel) {
+        this.menus.updateSettings({ ...settings, quality: this.autoLevel });
+        return;
+      }
+    }
     this.settings = settings;
     this.gr.applySettings(settings);
     this.audio.applySettings(settings);

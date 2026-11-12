@@ -3,6 +3,7 @@
  * survives a restart (same GPU) or is dropped (another GPU).
  */
 import { describe, expect, test } from 'bun:test';
+import { defaultSettings, sanitizeSettings } from '../src/meta/save';
 import { bootQuality, guessQuality, isSoftwareGpu, lowerQuality, parseAutoRecord } from '../src/render/core/autoQuality';
 
 const ANGLE = (vendor: string, name: string): string => `ANGLE (${vendor}, ${name}, Unspecified Version)`;
@@ -65,5 +66,19 @@ describe('record', () => {
     expect(parseAutoRecord({ level: 'low' })).toBeNull();
     expect(parseAutoRecord(null)).toBeNull();
     expect(parseAutoRecord('low')).toBeNull();
+  });
+});
+
+describe('Settings.qualityAuto', () => {
+  test('a new player starts with it on; a save from before the option existed keeps its tier', () => {
+    expect(defaultSettings().qualityAuto).toBe(true);
+    const old = sanitizeSettings({ quality: 'ultra' });
+    expect(old.qualityAuto).toBe(false);
+    expect(old.quality).toBe('ultra');
+  });
+
+  test('it round-trips through the sanitiser either way', () => {
+    expect(sanitizeSettings({ ...defaultSettings(), qualityAuto: true }).qualityAuto).toBe(true);
+    expect(sanitizeSettings({ ...defaultSettings(), qualityAuto: false }).qualityAuto).toBe(false);
   });
 });
