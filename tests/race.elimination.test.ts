@@ -2,7 +2,7 @@
  * Elimination race (race/elimination.ts), headless with the real track, physics, race runtime and AI: a 20-car race to
  * its end (one car out per interval of green-flag racing, classified in reverse order of elimination, over when one car
  * is left, the same for a seed), the car in the pit lane, a mechanical retirement mid-countdown, the countdown frozen
- * by the safety car / VSC / red flag, the player eliminated and a 2-car race.
+ * by the safety car / VSC / red flag, the player eliminated, a 2-car race, and the car at risk spending its battery.
  */
 import { describe, expect, test } from 'bun:test';
 import { SIM_DT, DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP } from '../src/core/defaults';
@@ -21,6 +21,7 @@ import {
   isSessionOver,
   requestPit,
   retireCar,
+  snapshotWorld,
   stepWorld,
 } from '../src/race/index';
 
@@ -268,5 +269,29 @@ describe('elimination rules', () => {
     expect(rows[0]).toMatchObject({ position: 1, status: 'finished', points: 25 });
     expect(rows[1]).toMatchObject({ carId: behind, position: 2, gapText: '淘汰', eliminated: true, points: 18 });
     expect(r.world.session.chequeredAt).toBeCloseTo(r.outs[0]!.time, 6);
+  }, 60_000);
+});
+
+describe('the AI at risk', () => {
+  test('the car last in the order with the countdown low holds the overtake mode on more of the lap', () => {
+    const r = start({ cars: 8, interval: 30, grace: 900 });
+    run(r, 30, (w) => w.session.phase === 'running');
+    run(r, 40);
+    const id = runningOrder(r.world).at(-1)!;
+    /** seconds the car spends with its overtake mode on over the next 12 s, the countdown set to `secondsLeft` */
+    const boost = (secondsLeft: number): number => {
+      const w = snapshotWorld(r.world);
+      w.session.elimination!.dueAt = w.time + secondsLeft;
+      const probe: Run = { world: w, track: r.track, events: [], outs: [], green: 0 };
+      let on = 0;
+      run(probe, 12, (pw) => {
+        if (pw.cars[id]!.phys.ers.overtakeActive) on += SIM_DT;
+        return false;
+      });
+      return on;
+    };
+    const calm = boost(600);
+    const atRisk = boost(14);
+    expect(atRisk).toBeGreaterThan(calm + 1);
   }, 60_000);
 });

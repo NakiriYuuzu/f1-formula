@@ -14,6 +14,7 @@ import { PACE_MODE_FACTOR, difficulty01, highSpeedMargin, limitShare, wetBrakeFa
 import { REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
 import { aeroWake } from '../race/wake';
+import { eliminationRisk } from '../race/elimination';
 import { EDGE_MARGIN, TRAIN_DRS_KEEP, planTraffic } from './traffic';
 
 /** A control input with every field neutral. */
@@ -106,6 +107,8 @@ const TRAIL_SLIDE = 0.06;
 const PUSH_CLEAR = 3;
 /** Pace mode push: hold the ERS overtake mode on straights while the battery is above this charge. */
 const PUSH_ERS_CHARGE = 0.5;
+/** Elimination race: the car last in the order pushes, spending its battery on every straight, from this many s left. */
+const RISK_PUSH = 15;
 /**
  * Pace mode conserve: lift off when braking is due within LIFT_COAST s (coast into the braking zone). Most of the slip
  * work that wears the tyres is drive slip, so this — not the −1.5 % corner / braking use alone (≈ −0.5 % wear) —
@@ -436,14 +439,17 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   const push = chasing(world, car) ? 1 + CHASE_PUSH * (0.5 + 0.5 * ai.aggression) : 1;
   // following a DRS train it cannot pass: conserve while within DRS range (beyond it the standard pace closes back in)
   const gap = car.timing.interval;
-  const wanted = ai.inTrain && ai.paceMode === 'standard' && gap > 0 && gap < TRAIN_DRS_KEEP ? 'conserve' : ai.paceMode;
+  const risk = eliminationRisk(world);
+  const atRisk = risk !== null && risk.car === car && risk.left <= RISK_PUSH;
+  const wanted = atRisk ? 'push' : ai.inTrain && ai.paceMode === 'standard' && gap > 0 && gap < TRAIN_DRS_KEEP ? 'conserve' : ai.paceMode;
   // pushing is for clean air (PUSH_CLEAR): closing in on a car it arrives too fast (and chasing it the chase push
   // replaces it), and with a car chasing us it would take that car's edge away (−17 % overtakes in 32 short races) —
-  // but a pit-stop move pushes regardless (within CHASE_GAP of the car ahead the chase push still stands in for it)
+  // but a pit-stop move pushes regardless (within CHASE_GAP of the car ahead the chase push still stands in for it),
+  // and the car about to be eliminated pushes on top of any chase
   const pushOk =
     wanted === 'push' &&
-    push === 1 &&
-    (pitMovePush(car, track) || ((car.timing.position === 1 || !(gap > 0) || gap > PUSH_CLEAR) && !chased(world, car, CHASE_GAP)));
+    (atRisk ||
+      (push === 1 && (pitMovePush(car, track) || ((car.timing.position === 1 || !(gap > 0) || gap > PUSH_CLEAR) && !chased(world, car, CHASE_GAP)))));
   const paceMode = wanted === 'push' && !pushOk ? 'standard' : wanted;
   const modeF = PACE_MODE_FACTOR[paceMode] ?? 1;
   const latF = Math.min(1, ai.latFactor * push * modeF * ai.rhythm) * wetF * damageFactor * offPenalty * (ai.mistakeTimer > 0 ? 1.02 : 1);
@@ -606,7 +612,7 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   }
   // pushing: deploy the overtake mode on the straights while the battery allows
   const straight = Math.abs(lineCurvatureAt(track, p.s)) < 1 / 300 && Math.abs(lineCurvatureAt(track, sAhead)) < 1 / 300;
-  const pushErs = paceMode === 'push' && straight && input.throttle > 0.9 && p.ers.charge > PUSH_ERS_CHARGE;
+  const pushErs = paceMode === 'push' && straight && input.throttle > 0.9 && (atRisk || p.ers.charge > PUSH_ERS_CHARGE);
   input.overtakeHeld = (traffic.overtake || pushErs) && !neutral.noOvertake && p.ers.overtakeAvailable && p.ers.charge > 0.2;
 
   // stuck detection → recovery
