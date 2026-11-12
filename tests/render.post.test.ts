@@ -50,6 +50,13 @@ describe('quality profile pixel and sample budget', () => {
   });
 });
 
+describe('pixel-ratio cap by tier', () => {
+  test('only the low tier draws at most one pixel per CSS pixel; the others keep the old cap of 2', () => {
+    expect(qualityProfile('low').maxPixelRatio).toBe(1);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).maxPixelRatio).toBe(2);
+  });
+});
+
 describe('quality profile post fields', () => {
   test('low renders directly, medium has half-resolution bloom, high / ultra the full chain', () => {
     expect(qualityProfile('low').post).toBe(false);

@@ -101,7 +101,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     smaa: false,
     wetReflections: false,
     lampLights: 0,
-    maxPixelRatio: 2,
+    maxPixelRatio: 1,
     canvasMsaa: true,
     ibl: true,
     adaptiveMinScale: 0.6,

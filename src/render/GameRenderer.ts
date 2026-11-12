@@ -1,6 +1,6 @@
 /**
  * GameRenderer: owns the single WebGLRenderer bound to the game canvas. ACES filmic tone mapping,
- * sRGB output, PCF shadows by quality, pixel ratio = min(devicePixelRatio, 2) × resolutionScale × adaptive scale,
+ * sRGB output, PCF shadows by quality, pixel ratio = min(devicePixelRatio, the tier's maxPixelRatio) × resolutionScale × adaptive scale,
  * full-viewport sizing on window resize / fullscreen changes, and WebGL context-loss tolerance
  * (rendering is skipped while the context is lost; three.js re-uploads buffers / textures afterwards, and scenes
  * watch `contextVersion` to regenerate GPU-only content such as PMREM environment maps).
@@ -134,7 +134,7 @@ export class GameRenderer {
   }
 
   /**
-   * Match the drawing buffer to the viewport size × devicePixelRatio (≤ 2) × resolutionScale × the adaptive
+   * Match the drawing buffer to the viewport size × devicePixelRatio (≤ the tier's cap) × resolutionScale × the adaptive
    * resolution scale (1 outside races).
    */
   resize(): void {
