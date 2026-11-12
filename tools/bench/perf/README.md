@@ -74,3 +74,17 @@ the bench loads the scenario, runs its warm-up and stops on the frame, with the 
 An Apple-silicon GPU is tile-based: opaque overdraw and MSAA cost far less there than on an Intel integrated GPU, so a
 null result on it says little about those. The software rasteriser is the second proxy: it is bound by fill and vertex
 work, like a weak GPU, but its absolute numbers mean nothing for any real machine.
+
+## Headless counters (no browser)
+
+```sh
+bun run tools/bench/perf/frame-budget.ts low [lod=27,60]   # what a bench frame submits, split into scenery / cars / pit crews
+bun run tools/bench/perf/cull-probe.ts monza,spa low 100 600   # scenery only: what splitting merged meshes into 600 m cells would leave
+bun run tools/bench/perf/scene-breakdown.ts monza low      # triangles of the static scenery per mesh name
+```
+
+`frame-budget.ts` rebuilds the scenery, the 20-car sim, the car models and the pit crews under bun and lets three's own
+frustum decide what is submitted from the bench's chase camera. For the low tier it prints the measured bench row next to it
+(`tools/bench/baseline/perf-frame-budget.txt` has the check and the reading). It says what a cut does to the counters, not what
+it does to a frame time: confirm a counter cut with the page (`tune=`, `ab=1`) before shipping it.
+
