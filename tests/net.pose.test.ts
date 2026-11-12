@@ -48,7 +48,7 @@ describe('the other cars as the guest draws them', () => {
     60_000,
   );
 
-  test.failing(
+  test(
     'a car turned into the wall: never drawn past the barrier, no frame jumps, no further off the road than 9c3e7ea',
     () => {
       // 9c3e7ea: 4 frames more than 1 m further off the road than the host, one 3.84 m jump and 8 frames over 0.5 m;

@@ -40,13 +40,14 @@ import type {
   SessionConfig,
   SessionResult,
   TireCompound,
+  TrackProjection,
   WorldState,
 } from '../core/types';
 import { SIM_DT } from '../core/defaults';
-import { clamp } from '../core/math';
+import { angleDiff, clamp, rightX, rightZ } from '../core/math';
 import { isCarHeld } from '../physics/index';
 import { buildRenderFrame, createWorld, getPlayerCarId, predictHumanStep } from '../race/index';
-import { forwardDistance, projectToTrack } from '../track/track';
+import { barrierLimits, forwardDistance, projectToTrack } from '../track/track';
 import { Follower, MAX_CARRY, shownTime, type Fix, type Ground, type Pose } from './follow';
 import { applyMirrorPatch, applyMirrorToWorld } from './mirror';
 import {
@@ -598,7 +599,7 @@ export class ClientSession {
       const fix: Fix = { time: s.time, x: at.x, y: at.y, z: at.z, yaw: at.yaw, speed: at.speed, ...motion };
       const f = this.followers.get(id);
       if (f) f.take(fix, view);
-      else this.followers.set(id, new Follower(fix, view, this.ground()));
+      else this.followers.set(id, new Follower(fix, view, this.ground(this.world.cars[id]?.spec)));
     };
     s.frame.cars.forEach((c, i) => follow(c.carId, c, s.motion[i] as Motion));
     const sc = s.frame.safetyCar;
@@ -608,15 +609,25 @@ export class ClientSession {
   }
 
   /**
-   * The ground one follower stands on: the road's height under it, as the host takes a car's (race applyProjection).
-   * Its last place on the track is the next search's hint.
+   * The ground one follower stands on, as the host's step leaves a car: a body (none: the safety car) reaching past the
+   * barrier pushed back across the road (race barrierContact; not in the pit lane, where the host moves cars along it
+   * without), at the road's height under it (race applyProjection). Its last place on the track is the next search's
+   * hint.
    */
-  private ground(): Ground {
+  private ground(body?: { length: number; width: number }): Ground {
     let index: number | undefined;
     return (p) => {
-      const place = projectToTrack(this.track, p.x, p.z, index, p.y);
+      let place = projectToTrack(this.track, p.x, p.z, index, p.y);
+      let { x, z } = p;
+      const into = body && place.surface !== 'pitlane' ? intoBarrier(this.track, place, p.yaw, body) : 0;
+      if (into > 0) {
+        const side = place.lateral >= 0 ? 1 : -1;
+        x -= rightX(place.heading) * side * into;
+        z -= rightZ(place.heading) * side * into;
+        place = projectToTrack(this.track, x, z, place.index, p.y);
+      }
       index = place.index;
-      return { ...p, y: place.height };
+      return { ...p, x, z, y: place.height };
     };
   }
 
@@ -681,6 +692,15 @@ function raceDistance(prev: number, laps: number, s: number, length: number): nu
   if (progress < prev - length / 2) progress += length;
   else if (progress > prev + length / 2) progress -= length;
   return Number.isFinite(progress) ? progress : prev;
+}
+
+/** How far (m) a body at this place and yaw reaches past the barrier on its side (≤ 0: inside), as race barrierContact. */
+function intoBarrier(track: BuiltTrack, place: TrackProjection, yaw: number, body: { length: number; width: number }): number {
+  const lim = barrierLimits(track, place.s, place.lateral);
+  const wall = place.lateral >= 0 ? lim.max : -lim.min;
+  if (!(wall > 0)) return 0;
+  const rel = angleDiff(place.heading, yaw);
+  return Math.abs(place.lateral) + Math.abs(Math.sin(rel)) * body.length * 0.5 + Math.abs(Math.cos(rel)) * body.width * 0.5 - wall;
 }
 
 /** A record's input with the one-shots fired since `prev` counters (what the host applies for it). */
