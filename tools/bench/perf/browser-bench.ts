@@ -1,6 +1,7 @@
 // Drives the browser benchmark (?bench=1, src/app/bench) through cua-driver and collects the rows.
 //   gpu  <url> <out.tsv>   run the URL in a driver-owned isolated Chrome (the machine's real GPU); needs `prepare` first
 //   soft <url> <out.tsv>   run the URL in a fresh Chrome instance rendered by SwiftShader (--use-angle=swiftshader)
+//   shot <url> <out.png>   a ?bench=1&hold=1 URL: wait for the frozen frame and save the viewport as a PNG
 //   prepare                launch the isolated Chrome and store its ids in /tmp/f1bench-state.json
 //   close                  end the session (closes the isolated Chrome)
 // Nothing here touches the user's own browser or profile: both instances use a throwaway --user-data-dir.
@@ -65,6 +66,23 @@ async function gpu(url: string, out: string): Promise<void> {
   throw new Error('timeout waiting for the benchmark');
 }
 
+async function shot(url: string, out: string): Promise<void> {
+  const s = JSON.parse(readFileSync(STATE, 'utf8'));
+  cua('browser_navigate', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, url: 'about:blank' });
+  cua('browser_navigate', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, url });
+  const deadline = Date.now() + 5 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await sleep(3000);
+    const snap = cua('get_browser_state', { target_id: s.target_id, tab_id: s.tab_id, session: SESSION, snapshot_format: 'semantic_v2', include_screenshot: true });
+    if (/statictext "hold"/.test(String(snap.outline ?? '')) && snap.screenshot_png_b64) {
+      writeFileSync(out, Buffer.from(snap.screenshot_png_b64 as string, 'base64'));
+      console.log(`${out}: ${snap.screenshot_width}x${snap.screenshot_height}`);
+      return;
+    }
+  }
+  throw new Error('timeout waiting for the held frame');
+}
+
 /** Quit a Chrome instance the driver cannot kill (it was started through LaunchServices) with its own menu item. */
 function quit(pid: number, windowId: number): void {
   const ws = cua('get_window_state', { pid, window_id: windowId, session: SESSION, include_screenshot: false, query: 'terminate' });
@@ -110,5 +128,6 @@ const [cmd, a, b] = process.argv.slice(2);
 if (cmd === 'prepare') prepare();
 else if (cmd === 'gpu' && a && b) await gpu(a, b);
 else if (cmd === 'soft' && a && b) await soft(a, b);
+else if (cmd === 'shot' && a && b) await shot(a, b);
 else if (cmd === 'close') console.log(JSON.stringify(cua('end_session', { session: SESSION })));
-else console.log('usage: browser-bench.ts prepare | gpu <url> <out.tsv> | soft <url> <out.tsv> | close');
+else console.log('usage: browser-bench.ts prepare | gpu <url> <out.tsv> | soft <url> <out.tsv> | shot <url> <out.png> | close');

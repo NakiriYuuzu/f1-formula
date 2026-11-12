@@ -1,0 +1,44 @@
+# Render bench baseline, real GPU (proxy: Apple M2 Pro, Metal via ANGLE, tile-based; not a low-spec machine)
+# build:    8e19876 (before any low-tier cut), served from a frozen copy
+# page:     ?bench=1&quality=low,medium,high,ultra&dpr=1,2&frames=300&warmup=45&autorun=1   (1280x720 CSS, scale 1, adaptive resolution locked)
+# method:   5 runs, one page load each, collected in sequence while 4 other CPU-heavy sessions ran on the machine (load 3.4-4.7);
+#           A med = median of the 5 per-run medians, [min-max] across the 5 runs, p95/p99 = median of the runs' percentiles.
+#           ms per frame includes a 1-pixel readPixels, so it is GPU-inclusive.
+# reading:  every ms figure is a proxy. The Mac GPU is tile-based, so MSAA and overdraw are cheap on it and a fill-rate cut shows small.
+#           Gate fill-rate cuts on the counters (Mpx, smp, pass, postMpx) and on a software-rasteriser run (SwiftShader).
+# columns:  cpu = JS time up to the end of the call, gpuWait = the rest, calls/trisK = draw calls and thousand triangles,
+#           Mpx = canvas megapixels, smp = canvas/scene MSAA samples, pass = full-screen passes after the scene,
+#           postMpx = million pixels those write, shR = shadow-map renders, lights, ibl (1 = environment map in use)
+quality	scenario	dpr	A med	[min-max]	p95	p99	cpu	gpuWait	calls	trisK	Mpx	smp	pass	postMpx	shR	lights	ibl	n
+low	grid-monza	1	2.90	2.80-3.00	4.40	5.30	0.90	2.00	157	522	0.92	4/4	0	0	0	3	1	5
+low	grid-monza	2	4.10	4.00-4.40	5.80	6.70	0.90	3.20	157	522	3.69	4/4	0	0	0	3	1	5
+low	night-singapore	1	3.20	3.10-3.60	4.90	5.30	1.20	2.00	108	427	0.92	4/4	0	0	0	3	1	5
+low	night-singapore	2	4.30	4.20-4.50	5.00	5.50	1.30	3.00	108	427	3.69	4/4	0	0	0	3	1	5
+low	pack-spa	1	3.80	3.60-4.10	5.40	6.10	1.20	2.50	102	329	0.92	4/4	0	0	0	3	1	5
+low	pack-spa	2	4.20	4.00-4.50	5.70	6.20	1.20	2.90	102	329	3.69	4/4	0	0	0	3	1	5
+low	rain-spa	1	3.20	3.10-3.40	4.60	5.30	1.20	2.00	105	327	0.92	4/4	0	0	0	3	1	5
+low	rain-spa	2	4.20	4.00-4.40	5.40	6.70	1.30	2.90	105	327	3.69	4/4	0	0	0	3	1	5
+medium	grid-monza	1	6.80	6.70-6.90	7.70	8.30	1.90	5.00	350	1194	0.92	4/4	15	3.03	1	3	1	5
+medium	grid-monza	2	12.70	12.70-13.20	13.50	14.00	1.90	10.80	350	1194	3.69	4/4	15	12.13	1	3	1	5
+medium	night-singapore	1	6.20	6.10-6.40	7.40	8.10	2.10	4.00	214	649	0.92	4/4	15	3.03	1	3	1	5
+medium	night-singapore	2	12.80	12.40-12.90	13.60	14.20	2.40	10.40	214	649	3.69	4/4	15	12.13	1	3	1	5
+medium	pack-spa	1	6.40	6.30-6.80	7.40	8.20	1.90	4.50	211	835	0.92	4/4	15	3.03	1	3	1	5
+medium	pack-spa	2	12.70	12.50-13.00	13.80	14.50	2.10	10.60	211	835	3.69	4/4	15	12.13	1	3	1	5
+medium	rain-spa	1	6.70	6.50-7.10	8.30	9.20	2.20	4.60	208	880	0.92	4/4	15	3.03	1	3	1	5
+medium	rain-spa	2	13.00	12.80-13.70	14.10	14.70	2.20	10.80	208	880	3.69	4/4	15	12.13	1	3	1	5
+high	grid-monza	1	9.70	9.60-10.10	10.70	11.30	2.10	7.60	401	1832	0.92	4/4	21	7.99	1	3	1	5
+high	grid-monza	2	20.40	19.90-21.00	21.30	22.50	2.40	18.00	401	1832	3.69	4/4	21	31.95	1	3	1	5
+high	night-singapore	1	9.00	8.80-9.60	9.90	10.30	2.50	6.50	262	848	0.92	4/4	21	7.99	1	7	1	5
+high	night-singapore	2	21.80	21.50-22.00	22.80	23.40	2.70	19.00	262	848	3.69	4/4	21	31.95	1	7	1	5
+high	pack-spa	1	9.10	9.00-9.20	10.20	10.60	2.20	6.90	250	1617	0.92	4/4	21	7.99	1	3	1	5
+high	pack-spa	2	20.70	19.90-21.10	22.10	22.50	2.50	18.20	250	1617	3.69	4/4	21	31.95	1	3	1	5
+high	rain-spa	1	9.40	9.30-9.90	10.50	10.90	2.30	7.10	240	1630	0.92	4/4	21	7.99	1	3	1	5
+high	rain-spa	2	20.80	20.40-21.40	21.90	22.40	2.50	18.30	240	1630	3.69	4/4	21	31.95	1	3	1	5
+ultra	grid-monza	1	13.20	12.90-13.30	14.70	15.30	2.20	10.90	413	3175	0.92	4/4	21	8.56	1	3	1	5
+ultra	grid-monza	2	24.90	24.30-25.60	26.90	28.50	2.30	22.50	413	3175	3.69	4/4	21	34.25	1	3	1	5
+ultra	night-singapore	1	10.60	10.50-10.60	11.70	12.30	2.60	7.90	284	979	0.92	4/4	21	8.56	1	9	1	5
+ultra	night-singapore	2	26.10	25.80-26.60	27.40	28.00	2.80	23.20	284	979	3.69	4/4	21	34.25	1	9	1	5
+ultra	pack-spa	1	12.50	12.10-12.60	14.60	15.60	2.40	10.00	283	3116	0.92	4/4	21	8.56	1	3	1	5
+ultra	pack-spa	2	25.00	24.50-25.80	27.50	28.30	2.50	22.50	283	3116	3.69	4/4	21	34.25	1	3	1	5
+ultra	rain-spa	1	13.70	13.40-13.80	16.00	17.00	2.50	11.10	281	3337	0.92	4/4	22	9.48	1	3	1	5
+ultra	rain-spa	2	28.90	28.70-29.10	31.30	32.50	2.60	26.20	281	3337	3.69	4/4	22	37.94	1	3	1	5
