@@ -1,0 +1,82 @@
+# Render bench, real GPU, before and after the low-tier work (proxy: Apple M2 Pro, Metal via ANGLE, tile-based; not a low-spec machine)
+# base:     8e19876 (before any low-tier cut)        head: 19005af (perf/low-tier), each served from a frozen copy
+# page:     ?bench=1&quality=<one tier>&dpr=1,2&frames=300&warmup=45&autorun=1   (1280x720 CSS, scale 1, adaptive resolution locked);
+#           one tier per page, so every page has its own canvas MSAA setting
+# method:   5 runs per side and tier, one page load each, base and head alternating (the order flips every run); med = median of the 5
+#           per-run medians, [min-max] across the 5 runs, p95/p99 = median of the runs' percentiles; change% = head against base.
+#           The machine carried other CPU-heavy sessions: load average 1.7-9.9 over the collection (the low tier was collected first,
+#           at 4.5-9.9). ms per frame includes a 1-pixel readPixels, so it is GPU-inclusive.
+# reading:  every ms figure is a proxy. The Mac GPU is tile-based, so MSAA, overdraw and per-fragment texture work are cheap on it and a
+#           fill-rate cut shows small; gate those on the counters (Mpx, smp, lights, ibl) and on the software-rasteriser run
+#           (perf-render-soft-after.txt). A change whose range overlaps the other side's range is "no measurable difference on this GPU".
+# columns:  as in perf-render-gpu.txt; side = base or head.
+# result:   low, pixel ratio 2 (a retina screen): -33 % to -46 %, ranges do not overlap in any scenario. low, pixel ratio 1: -9 % to -22 %;
+#           the ranges overlap only in rain-spa (base 3.20-3.60, head 2.90-3.40), which is inside the spread. Counters: canvas pixels
+#           3.69 -> 0.92 Mpx at pixel ratio 2 (cap 1), canvas and scene MSAA 4/4 -> 0/0, lights 3 -> 2, ibl 1 -> 0, triangles -23 %
+#           (grid-monza), -33 % (night-singapore, crews), 0 in pack-spa and rain-spa (no crew in view).
+#           medium, high, ultra: counters identical to base in every scenario, change -3.9 % to +1.5 %, every range overlapping: unchanged.
+tier	scenario	dpr	side	med	[min-max]	p95	p99	cpu	gpuWait	calls	trisK	Mpx	smp	pass	postMpx	shR	lights	ibl	n	change%
+low	grid-monza	1	base	2.90	2.80-3.00	4.40	5.40	0.90	2.00	157	522	0.92	4/4	0	0	0	3	1	5	
+low	grid-monza	1	head	2.30	2.30-2.40	4.00	5.10	0.80	1.60	157	401	0.92	0/0	0	0	0	2	0	5	-20.7
+low	grid-monza	2	base	4.10	3.90-4.20	5.70	6.60	0.90	3.20	157	522	3.69	4/4	0	0	0	3	1	5	
+low	grid-monza	2	head	2.20	2.20-2.40	4.00	5.20	0.70	1.50	157	401	0.92	0/0	0	0	0	2	0	5	-46.3
+low	night-singapore	1	base	3.20	3.00-3.50	4.60	5.20	1.20	1.90	108	427	0.92	4/4	0	0	0	3	1	5	
+low	night-singapore	1	head	2.50	2.40-2.80	3.50	4.00	1.10	1.40	107	286	0.92	0/0	0	0	0	2	0	5	-21.9
+low	night-singapore	2	base	4.30	4.30-4.40	5.00	5.40	1.20	3.10	108	427	3.69	4/4	0	0	0	3	1	5	
+low	night-singapore	2	head	2.40	2.30-2.60	3.10	3.60	1.00	1.40	107	286	0.92	0/0	0	0	0	2	0	5	-44.2
+low	pack-spa	1	base	3.70	3.50-4.00	5.30	6.00	1.30	2.40	102	329	0.92	4/4	0	0	0	3	1	5	
+low	pack-spa	1	head	3.00	2.80-3.10	4.40	5.00	1.00	1.90	102	329	0.92	0/0	0	0	0	2	0	5	-18.9
+low	pack-spa	2	base	4.20	4.10-4.30	5.20	5.70	1.10	3.00	102	329	3.69	4/4	0	0	0	3	1	5	
+low	pack-spa	2	head	2.60	2.60-2.70	3.80	4.20	1.00	1.60	102	329	0.92	0/0	0	0	0	2	0	5	-38.1
+low	rain-spa	1	base	3.30	3.20-3.60	5.10	5.60	1.10	2.10	105	327	0.92	4/4	0	0	0	3	1	5	
+low	rain-spa	1	head	3.00	2.90-3.40	4.80	5.40	1.10	1.90	105	327	0.92	0/0	0	0	0	2	0	5	-9.1
+low	rain-spa	2	base	4.20	4.00-4.30	5.10	5.50	1.10	3.00	105	327	3.69	4/4	0	0	0	3	1	5	
+low	rain-spa	2	head	2.80	2.70-2.90	4.30	4.70	1.00	1.70	105	327	0.92	0/0	0	0	0	2	0	5	-33.3
+medium	grid-monza	1	base	6.80	6.70-7.20	7.60	8.30	1.80	5.00	350	1194	0.92	4/4	15	3.03	1	3	1	5	
+medium	grid-monza	1	head	6.80	6.80-6.90	7.70	8.40	1.80	5.00	350	1194	0.92	4/4	15	3.03	1	3	1	5	0.0
+medium	grid-monza	2	base	12.90	12.50-13.30	13.80	14.20	1.90	10.90	350	1194	3.69	4/4	15	12.13	1	3	1	5	
+medium	grid-monza	2	head	12.80	12.40-13.30	13.90	14.80	1.90	10.80	350	1194	3.69	4/4	15	12.13	1	3	1	5	-0.8
+medium	night-singapore	1	base	6.20	6.20-6.40	7.90	8.60	2.10	4.10	214	649	0.92	4/4	15	3.03	1	3	1	5	
+medium	night-singapore	1	head	6.20	6.20-6.40	7.90	8.70	2.10	4.10	214	649	0.92	4/4	15	3.03	1	3	1	5	0.0
+medium	night-singapore	2	base	12.50	12.40-12.80	13.20	13.70	2.20	10.30	214	649	3.69	4/4	15	12.13	1	3	1	5	
+medium	night-singapore	2	head	12.10	12.10-12.90	12.90	13.30	2.00	10.10	214	649	3.69	4/4	15	12.13	1	3	1	5	-3.2
+medium	pack-spa	1	base	6.60	6.60-7.20	8.40	9.20	2.00	4.70	211	835	0.92	4/4	15	3.03	1	3	1	5	
+medium	pack-spa	1	head	6.60	6.50-6.70	8.00	8.90	1.90	4.70	211	835	0.92	4/4	15	3.03	1	3	1	5	0.0
+medium	pack-spa	2	base	12.80	12.40-12.90	13.80	14.30	2.10	10.70	211	835	3.69	4/4	15	12.13	1	3	1	5	
+medium	pack-spa	2	head	12.30	12.30-13.20	13.50	13.90	1.90	10.40	211	835	3.69	4/4	15	12.13	1	3	1	5	-3.9
+medium	rain-spa	1	base	6.50	6.50-6.70	7.80	8.10	1.90	4.60	208	880	0.92	4/4	15	3.03	1	3	1	5	
+medium	rain-spa	1	head	6.60	6.60-6.70	8.10	8.70	1.90	4.60	208	880	0.92	4/4	15	3.03	1	3	1	5	1.5
+medium	rain-spa	2	base	12.90	12.40-13.10	13.90	14.30	2.10	10.70	208	880	3.69	4/4	15	12.13	1	3	1	5	
+medium	rain-spa	2	head	12.60	12.50-13.30	13.50	13.90	2.00	10.50	208	880	3.69	4/4	15	12.13	1	3	1	5	-2.3
+high	grid-monza	1	base	9.60	9.50-9.80	10.40	10.90	1.90	7.60	401	1832	0.92	4/4	21	7.99	1	3	1	5	
+high	grid-monza	1	head	9.60	9.50-9.80	10.60	11.00	2.00	7.60	401	1832	0.92	4/4	21	7.99	1	3	1	5	0.0
+high	grid-monza	2	base	19.90	19.60-20.10	21.00	21.90	2.10	17.70	401	1832	3.69	4/4	21	31.95	1	3	1	5	
+high	grid-monza	2	head	19.80	19.40-20.00	21.00	22.10	2.00	17.70	401	1832	3.69	4/4	21	31.95	1	3	1	5	-0.5
+high	night-singapore	1	base	8.90	8.90-9.00	9.80	10.30	2.40	6.50	262	848	0.92	4/4	21	7.99	1	7	1	5	
+high	night-singapore	1	head	8.80	8.80-9.00	9.70	10.30	2.40	6.50	262	848	0.92	4/4	21	7.99	1	7	1	5	-1.1
+high	night-singapore	2	base	21.20	21.10-21.80	22.60	23.80	2.40	18.80	262	848	3.69	4/4	21	31.95	1	7	1	5	
+high	night-singapore	2	head	21.40	20.90-21.60	22.60	23.00	2.50	18.90	262	848	3.69	4/4	21	31.95	1	7	1	5	0.9
+high	pack-spa	1	base	9.00	9.00-9.10	10.30	10.90	2.10	6.90	250	1617	0.92	4/4	21	7.99	1	3	1	5	
+high	pack-spa	1	head	9.10	9.00-9.10	10.20	10.70	2.20	6.90	250	1617	0.92	4/4	21	7.99	1	3	1	5	1.1
+high	pack-spa	2	base	19.80	19.70-20.10	20.90	21.60	2.10	17.70	250	1617	3.69	4/4	21	31.95	1	3	1	5	
+high	pack-spa	2	head	20.00	19.60-20.20	21.20	21.60	2.20	17.70	250	1617	3.69	4/4	21	31.95	1	3	1	5	1.0
+high	rain-spa	1	base	9.30	9.30-9.40	10.60	11.20	2.20	7.10	240	1630	0.92	4/4	21	7.99	1	3	1	5	
+high	rain-spa	1	head	9.30	9.20-9.40	10.60	11.20	2.20	7.10	240	1630	0.92	4/4	21	7.99	1	3	1	5	0.0
+high	rain-spa	2	base	20.10	20.00-20.30	21.40	22.10	2.10	17.90	240	1630	3.69	4/4	21	31.95	1	3	1	5	
+high	rain-spa	2	head	20.20	20.00-20.40	21.60	22.20	2.20	18.00	240	1630	3.69	4/4	21	31.95	1	3	1	5	0.5
+ultra	grid-monza	1	base	13.10	12.80-13.40	14.50	15.50	2.20	10.80	413	3175	0.92	4/4	21	8.56	1	3	1	5	
+ultra	grid-monza	1	head	13.00	12.80-13.20	14.40	15.10	2.10	10.80	413	3175	0.92	4/4	21	8.56	1	3	1	5	-0.8
+ultra	grid-monza	2	base	24.80	24.20-25.20	27.40	28.60	2.20	22.60	413	3175	3.69	4/4	21	34.25	1	3	1	5	
+ultra	grid-monza	2	head	24.60	24.30-25.00	26.50	27.90	2.20	22.40	413	3175	3.69	4/4	21	34.25	1	3	1	5	-0.8
+ultra	night-singapore	1	base	10.60	10.40-10.70	11.90	12.50	2.50	8.00	284	979	0.92	4/4	21	8.56	1	9	1	5	
+ultra	night-singapore	1	head	10.60	10.40-10.70	11.80	12.40	2.60	8.00	284	979	0.92	4/4	21	8.56	1	9	1	5	0.0
+ultra	night-singapore	2	base	26.00	25.50-26.60	27.40	28.00	2.70	23.30	284	979	3.69	4/4	21	34.25	1	9	1	5	
+ultra	night-singapore	2	head	26.10	25.40-26.10	27.20	27.60	2.70	23.20	284	979	3.69	4/4	21	34.25	1	9	1	5	0.4
+ultra	pack-spa	1	base	12.40	12.00-12.60	14.70	15.90	2.30	10.00	283	3116	0.92	4/4	21	8.56	1	3	1	5	
+ultra	pack-spa	1	head	12.50	12.10-12.70	14.40	15.30	2.30	10.10	283	3116	0.92	4/4	21	8.56	1	3	1	5	0.8
+ultra	pack-spa	2	base	24.90	24.60-25.50	27.30	28.50	2.30	22.60	283	3116	3.69	4/4	21	34.25	1	3	1	5	
+ultra	pack-spa	2	head	24.80	24.30-25.50	27.00	27.80	2.40	22.40	283	3116	3.69	4/4	21	34.25	1	3	1	5	-0.4
+ultra	rain-spa	1	base	13.60	13.40-13.70	16.00	16.50	2.40	11.10	281	3337	0.92	4/4	22	9.48	1	3	1	5	
+ultra	rain-spa	1	head	13.70	13.50-14.20	15.90	16.70	2.40	11.40	281	3337	0.92	4/4	22	9.48	1	3	1	5	0.7
+ultra	rain-spa	2	base	28.80	28.20-29.20	31.30	32.50	2.40	26.20	281	3337	3.69	4/4	22	37.94	1	3	1	5	
+ultra	rain-spa	2	head	28.90	28.20-29.10	31.80	33.30	2.60	26.30	281	3337	3.69	4/4	22	37.94	1	3	1	5	0.3
