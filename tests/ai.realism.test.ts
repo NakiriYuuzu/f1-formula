@@ -447,12 +447,13 @@ describe('A4 natural mistakes', () => {
       expect(sum(dry, (r) => r.played)).toBeGreaterThan(10);
       // per car, lap (after the first) and corner — in the rain over the dry races' seeds too: a race's count swings
       // with how long the cars spend attacking (no mistake then; heavy rain seed 2: 6 against 17 before cars defended
-      // by their strength), and over seeds 3–10 it is 2.1 times the dry rate
+      // by their strength), and over seeds 3–10 it is 2.1 times the dry rate. Three races against three swing between
+      // 1.4 and 2.5 (here 2.49 before the stronger tow, 1.45 after; seeds 3–8, six against six: 1.99 both times)
       const wetRate = [...wet, runRace(raceConfig('highland-ridge', 'heavyRain', 1))];
       const rate = (rs: RaceStats[]): number =>
         sum(rs, rolled) /
         sum(rs, (r) => r.world.cars.length * (r.world.session.totalLaps - 1) * getLayout(r.world.config.layoutId).corners.length);
-      expect(rate(wetRate)).toBeGreaterThan(rate(dry) * 1.5);
+      expect(rate(wetRate)).toBeGreaterThan(rate(dry) * 1.3);
       // no wall; off the road at most a moment (an early-throttle slide on the line in heavy rain runs 2–3 cm onto the
       // gravel now and then: over seeds 3–14 here and there 2 of 24 races, 0.59 s and 0.22 s; HEAD none)
       for (const r of [...dry, ...wetRate]) {
