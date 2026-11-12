@@ -1,4 +1,5 @@
 /** On-screen panel of the benchmark: start button, progress, per-cell summary, the raw rows and a copy button. */
+import { baseQualityProfile } from '../../render/core/quality';
 import { summarize, type BenchParams, type BenchResult, type BenchRow } from './benchSpec';
 
 const STYLE = `
@@ -109,7 +110,11 @@ export class BenchPanel {
   private renderInfo(result: BenchResult | null): void {
     const p = this.params;
     const dpr = p.dprs.map((d) => d ?? '顯示器預設').join(' / ');
-    const lines = [`畫布 ${p.width}×${p.height} CSS · 像素比 ${dpr} · 解析度比例 ${p.scale} · 畫面反鋸齒 ${p.antialias ? '開' : '關'} · 自適應解析度 鎖定`];
+    const lines = [`畫布 ${p.width}×${p.height} CSS · 像素比 ${dpr} · 解析度比例 ${p.scale} · 畫面反鋸齒 ${p.antialias === null ? '依畫質' : p.antialias ? '開' : '關'} · 自適應解析度 鎖定`];
+    const first = p.qualities[0];
+    if (p.antialias === null && first !== undefined && p.qualities.some((q) => baseQualityProfile(q).canvasMsaa !== baseQualityProfile(first).canvasMsaa)) {
+      lines.push(`偵測：畫面反鋸齒在建立畫面時就固定，同頁多個畫質以第一個（${first}）為準；要比較其他畫質請分頁測試。`);
+    }
     if (Object.keys(p.tune).length > 0) lines.push(`調整欄位：${JSON.stringify(p.tune)}${p.ab ? '（與預設交替比較）' : ''}`);
     if (result) {
       lines.push(`GPU：${result.env.gpu}`);

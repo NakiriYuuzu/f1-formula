@@ -118,7 +118,11 @@ export class App {
     this.bench = parseBench(window.location.search);
     this.settings = loadSettings();
     // the benchmark never reads the player's quality and never saves what it sets
-    if (this.bench) this.settings = { ...this.settings, antialias: this.bench.antialias, resolutionScale: this.bench.scale };
+    if (this.bench) {
+      // the context's canvas MSAA follows the first tier listed unless the URL forces it
+      this.settings = { ...this.settings, quality: this.bench.qualities[0] ?? 'low', resolutionScale: this.bench.scale };
+      if (this.bench.antialias !== null) this.settings.antialias = this.bench.antialias;
+    }
     this.gr = new GameRenderer(canvas, this.settings);
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.settings);

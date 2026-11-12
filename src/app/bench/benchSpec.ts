@@ -46,8 +46,8 @@ export interface BenchParams {
   warmup: number;
   runs: number;
   autorun: boolean;
-  /** canvas MSAA of the context (fixed when the page loads) */
-  antialias: boolean;
+  /** canvas MSAA of the context, fixed when the page loads: null = the first listed quality's tier decides, else forced */
+  antialias: boolean | null;
   /** tier fields overridden in the treatment variant (empty = a single, untuned variant) */
   tune: Partial<QualityProfile>;
   /** alternate an untuned and a tuned variant on every run */
@@ -119,7 +119,7 @@ export function parseBench(search: string): BenchParams | null {
     warmup: intIn(q.get('warmup'), 0, 1000, DEFAULTS.warmup),
     runs: intIn(q.get('runs'), 1, 20, DEFAULTS.runs),
     autorun: q.get('autorun') === '1',
-    antialias: q.get('aa') !== '0',
+    antialias: q.get('aa') === '0' ? false : q.get('aa') === '1' ? true : null,
     tune,
     ab: q.get('ab') === '1' && Object.keys(tune).length > 0,
     hold: q.get('hold') === '1',
@@ -218,7 +218,7 @@ export interface BenchResult {
     frames: number;
     warmup: number;
     runs: number;
-    antialias: boolean;
+    antialias: boolean | null;
     tune: Partial<QualityProfile>;
     ab: boolean;
   };

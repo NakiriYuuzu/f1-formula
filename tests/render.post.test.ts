@@ -50,10 +50,15 @@ describe('quality profile pixel and sample budget', () => {
   });
 });
 
-describe('pixel-ratio cap by tier', () => {
+describe('pixel-ratio cap and canvas MSAA by tier', () => {
   test('only the low tier draws at most one pixel per CSS pixel; the others keep the old cap of 2', () => {
     expect(qualityProfile('low').maxPixelRatio).toBe(1);
     for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).maxPixelRatio).toBe(2);
+  });
+
+  test('only the low tier goes without MSAA on the canvas itself (the post chain of the others antialiases its own target)', () => {
+    expect(qualityProfile('low').canvasMsaa).toBe(false);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).canvasMsaa).toBe(true);
   });
 });
 

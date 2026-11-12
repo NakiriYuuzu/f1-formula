@@ -24,7 +24,7 @@ describe('parseBench', () => {
     expect(p?.width).toBe(1280);
     expect(p?.height).toBe(720);
     expect(p?.autorun).toBe(false);
-    expect(p?.antialias).toBe(true);
+    expect(p?.antialias).toBeNull();
   });
 
   test('lists, size, bounds and invalid values', () => {
@@ -40,6 +40,12 @@ describe('parseBench', () => {
     expect(p?.scale).toBe(1);
     expect(p?.antialias).toBe(false);
     expect(p?.autorun).toBe(true);
+  });
+
+  test('aa forces the canvas MSAA either way; without it the first tier decides', () => {
+    expect(parseBench('?bench=1&aa=1')?.antialias).toBe(true);
+    expect(parseBench('?bench=1&aa=0')?.antialias).toBe(false);
+    expect(parseBench('?bench=1&aa=maybe')?.antialias).toBeNull();
   });
 
   test('A/B alternation needs a tuned field', () => {
