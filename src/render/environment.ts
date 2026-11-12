@@ -8,7 +8,7 @@
  * Night is floodlit: bright cool key light + strong hemisphere so the track always stays readable.
  */
 import * as THREE from 'three';
-import type { Biome, TimeOfDay, WeatherKind } from '../core/types';
+import type { Biome, TimeOfDay, TrackLook, WeatherKind } from '../core/types';
 import { clamp01, damp, lerp } from '../core/math';
 import { PROBE_FACES_PER_FRAME } from './core/probeRefresh';
 import { CAMERA_FAR } from './core/quality';
@@ -319,6 +319,8 @@ export interface EnvironmentOptions {
   weather: WeatherKind;
   /** 0..1: how strongly floodlights light the circuit at night (real F1 night races ~1, the original city circuit lower) */
   floodlit?: number;
+  /** the circuit's own air (TrackLook.air): each field present replaces the biome's */
+  air?: TrackLook['air'];
 }
 
 /** Night floodlighting: key / ambient light multipliers and exposure gain at full strength (the sky dome is unlit, so it stays dark). */
@@ -402,11 +404,13 @@ export class Environment {
     const p = TIME[opts.timeOfDay] ?? TIME.day;
     this.preset = p;
     const bh = BIOME_HAZE[opts.biome] ?? BIOME_HAZE.temperate;
-    const haze = new THREE.Color(bh.haze);
-    this.biomeCloud = bh.cloud ?? 0;
-    this.biomeFog = bh.fog ?? 1;
+    const air = opts.air ?? {};
+    const haze = new THREE.Color(air.haze ?? bh.haze);
+    const hazeAmount = air.amount ?? bh.amount;
+    this.biomeCloud = air.cloud ?? bh.cloud ?? 0;
+    this.biomeFog = air.fog ?? bh.fog ?? 1;
     this.base.zenith.set(p.zenith);
-    this.base.horizon.set(p.horizon).lerp(haze, opts.timeOfDay === 'night' ? bh.amount * 0.15 : bh.amount);
+    this.base.horizon.set(p.horizon).lerp(haze, opts.timeOfDay === 'night' ? hazeAmount * 0.15 : hazeAmount);
     this.base.oZenith.set(p.overcastZenith);
     this.base.oHorizon.set(p.overcastHorizon);
     this.base.hemiSky.set(p.hemiSky);

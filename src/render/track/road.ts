@@ -1,7 +1,9 @@
 /**
  * Racing surface: asphalt ribbon (incl. pit lane & apron) with a rubbered racing line (two dark tyre tracks along
- * BuiltTrack.racingLine, heavier in braking zones and corners, glossier when wet), raised striped kerbs, run-off
- * ribbons (grass / gravel / painted asphalt), painted markings (edge lines, grid slots, pit lines & boxes, DRS
+ * BuiltTrack.racingLine, heavier in braking zones and corners, glossier when wet; lighter, dustier edges and a
+ * baked tone drift with resurfaced patches along the lap), raised striped kerbs, run-off
+ * ribbons (grass / gravel / painted asphalt; where the surface changes one eases into the other along a curve, and baked
+ * vertex colours carry broad tone patches), painted markings (edge lines, grid slots, pit lines & boxes, DRS
  * lines) and the chequered start/finish line. Static geometry is merged per material. With surface detail (quality)
  * the surfaces get procedural normal / roughness maps (aggregate, kerb ribs, pebbles, grass) that flatten when wet.
  */
@@ -23,7 +25,8 @@ import {
   pebbleNormalTexture,
   runoffAsphaltTexture,
 } from '../core/surfaceTextures';
-import { GROUND_SATURATION, GROUND_VALUE, hash3 } from './sceneryMath';
+import { fbm2D, GROUND_SATURATION, GROUND_VALUE, groundTint, hash3, periodicNoise1D, valueNoise2D } from './sceneryMath';
+import { GROUND_MACRO_SCALE } from './terrain';
 import { GRID_LAYOUT, segmentRuns, sidePoint, wrapIndex, type SceneryContext } from './context';
 import { PIT_BOX_COUNT, PIT_BOX_LATERAL, PIT_BOX_SPACING, PIT_LANE_HALF } from './trackFrame';
 
@@ -120,11 +123,31 @@ export function rubberIntensity(t: BuiltTrack, k: number): number {
   return clamp01((RUBBER_BASE + 0.55 * Math.max(brake, corner)) * vary);
 }
 
+/** Off-line asphalt near the edges is dustier and less rubbered: brightening at the edge and the width (m) it fades in over. */
+export const ASPHALT_EDGE_DUST = 0.3;
+export const ASPHALT_EDGE_WIDTH = 3;
+
+/**
+ * Sky sheen on wet asphalt without image-based lighting (low quality): RaceScene sets this to the horizon colour ×
+ * wetness × ROAD_SHEEN_GAIN while the scene has no environment map, else black. The road adds it × a per-vertex Fresnel
+ * term, so the far road mirrors the grey sky at grazing angles the way a wet road does and the near road stays dark.
+ */
+export const ROAD_SHEEN: THREE.IUniform<THREE.Color> = { value: new THREE.Color(0, 0, 0) };
+export const ROAD_SHEEN_GAIN = 0.35;
+/** Falloff of the sheen with the view angle ((1 − cos)^n: high = only the far, grazing road shines). */
+export const ROAD_SHEEN_FALLOFF = 8;
+
 const RUBBER_VERT_DECL = /* glsl */ `
-attribute vec3 rubber;
-varying vec3 vRubber;`;
+attribute vec4 rubber;
+varying vec4 vRubber;
+varying float vSheen;`;
 const RUBBER_FRAG_DECL = /* glsl */ `
-varying vec3 vRubber;
+uniform vec3 roadSheen;
+varying vec4 vRubber;
+varying float vSheen;
+float edgeDust() {
+  return vRubber.w > 0.5 ? smoothstep(vRubber.w - ${ASPHALT_EDGE_WIDTH.toFixed(3)}, vRubber.w - 0.25, abs(vRubber.x)) : 0.0;
+}
 float rubberAmount() {
   float dl = vRubber.x - vRubber.y;
   float band = exp(-dl * dl / (2.0 * ${RUBBER_BAND_WIDTH.toFixed(3)} * ${RUBBER_BAND_WIDTH.toFixed(3)}));
@@ -134,20 +157,30 @@ float rubberAmount() {
 }`;
 
 /**
- * Asphalt shader patch: per-vertex `rubber` = (vertex lateral, racing-line lateral, intensity), interpolated across the
- * road row so every fragment knows its distance to the line exactly; darkens the colour and lowers the roughness.
+ * Asphalt shader patch: per-vertex `rubber` = (vertex lateral, racing-line lateral, intensity, half width or 0 off the
+ * track), interpolated across the road row so every fragment knows its distance to the line and to the edge exactly; the
+ * line darkens the colour and lowers the roughness, the dusty edges brighten it.
  */
 function applyRubberShader(material: THREE.MeshStandardMaterial): void {
   material.onBeforeCompile = (sh) => {
+    sh.uniforms.roadSheen = ROAD_SHEEN;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>${RUBBER_VERT_DECL}`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>\n  vSheen = pow( 1.0 - clamp( dot( normalize( - mvPosition.xyz ), normalize( transformedNormal ) ), 0.0, 1.0 ), ${ROAD_SHEEN_FALLOFF.toFixed(1)} );`,
+      );
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>${RUBBER_FRAG_DECL}`)
-      .replace('#include <map_fragment>', `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK;`)
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`);
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= ( 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK ) * ( 1.0 + ${ASPHALT_EDGE_DUST.toFixed(3)} * edgeDust() * ( 1.0 - rubberK ) );`,
+      )
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`)
+      .replace('#include <opaque_fragment>', '  outgoingLight += roadSheen * vSheen;\n#include <opaque_fragment>');
   };
-  material.customProgramCacheKey = () => 'asphalt-rubber';
+  material.customProgramCacheKey = () => 'asphalt-rubber-edge-sheen';
 }
 
 /** Detail maps get their own (finer) repeat; three keeps one transform per map. */
@@ -207,9 +240,10 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   const pitSide = f.pitSign;
 
   // ── asphalt ribbon + pit lane / apron (one material) ──
-  const road = new GeoBuilder();
+  const road = new GeoBuilder(true);
   const tile = 12;
-  // per vertex: (lateral, racing-line lateral, rubber intensity); the pit lane / apron gets no racing-line rubber
+  // per vertex: (lateral, racing-line lateral, rubber intensity, half width); the pit lane / apron gets no racing-line rubber
+  // and no dusty edge
   const rubber: number[] = [];
   const addRow = (i: number, sOff: number, lats: number[], dy = 0, onLine = true): number => {
     const k = wrapIndex(i, n);
@@ -225,10 +259,11 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     const first = road.vertexCount;
     const line = Number.isFinite(t.racingLine?.[k]) ? t.racingLine[k] : 0;
     const amount = onLine ? rubberIntensity(t, k) : 0;
+    road.setColor(_tone.setScalar(onLine ? asphaltTone(t.s[k], t.length, ctx.seed) : 1));
     for (const lat of lats) {
       sidePoint(t, k, lat, dy, _a);
       road.vertex(_a.x, _a.y, _a.z, nx / nl, ny / nl, nz / nl, lat / tile, sOff / tile);
-      rubber.push(lat, line, amount);
+      rubber.push(lat, line, amount, onLine ? t.halfWidth[k] : 0);
     }
     return first;
   };
@@ -256,7 +291,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
     }
   }
   const asphaltTex = disposer.add(asphaltTexture(ctx.anisotropy, 11, ctx.quality.asphaltTexSize));
-  const roadMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'asphalt', map: asphaltTex, roughness: 0.92, metalness: 0 }));
+  const roadMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'asphalt', map: asphaltTex, roughness: 0.92, metalness: 0, vertexColors: true }));
   const asphaltDetail = detail ? asphaltDetailMaps(ctx.anisotropy) : null;
   if (asphaltDetail) {
     roadMat.normalMap = disposer.add(detailRepeat(asphaltDetail.normal, ASPHALT_DETAIL_REPEAT));
@@ -267,7 +302,7 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   addWet(roadMat, 0.92, 0.22, WET_REFLECT_SHARE.asphalt);
   const roadGeo = road.build();
   if (roadGeo) {
-    roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 3));
+    roadGeo.setAttribute('rubber', new THREE.Float32BufferAttribute(rubber, 4));
     disposer.add(roadGeo);
     const m = new THREE.Mesh(roadGeo, roadMat);
     m.receiveShadow = true;
@@ -379,60 +414,66 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   }
 
   // ── run-off ribbons by surface ──
-  const builders = [new GeoBuilder(), new GeoBuilder(), new GeoBuilder()];
+  const builders = [new GeoBuilder(true), new GeoBuilder(true), new GeoBuilder(true)];
   const runoffTile = [6, 5, 8];
+  const toneSeed = ctx.seed % 100000;
   for (const side of [-1, 1] as const) {
-    for (let i = 0; i < n; i++) {
+    const plan = runoffPlan(n, t.spacing, (i) => {
       const i1 = wrapIndex(i + 1, n);
-      if (f.inPit[i] && f.inPit[i1] && side === pitSide) continue;
-      let surf = side > 0 ? t.runoffSurfaceRight[i] : t.runoffSurfaceLeft[i];
-      if (surf > 2) surf = 0;
-      if (ctx.street && surf === 0) surf = 2;
+      if (f.inPit[i] && f.inPit[i1] && side === pitSide) return -1;
       const inner0 = t.halfWidth[i] + kerbVis[side][i];
       const inner1 = t.halfWidth[i1] + kerbVis[side][i1];
-      const outer0 = side > 0 ? f.barrierR[i] : f.barrierL[i];
-      const outer1 = side > 0 ? f.barrierR[i1] : f.barrierL[i1];
-      if (outer0 - inner0 < 0.2 && outer1 - inner1 < 0.2) continue;
+      if ((side > 0 ? f.barrierR[i] : f.barrierL[i]) - inner0 < 0.2 && (side > 0 ? f.barrierR[i1] : f.barrierL[i1]) - inner1 < 0.2) return -1;
+      const surf = side > 0 ? t.runoffSurfaceRight[i] : t.runoffSurfaceLeft[i];
+      return surf > 2 ? (ctx.street ? 2 : 0) : ctx.street && surf === 0 ? 2 : surf;
+    });
+    // one strip of the ribbon between lateral shares [from, to] of the run-off width (and the outer skirt when it reaches the wall)
+    const strip = (i: number, surf: number, from0: number, to0: number, from1: number, to1: number): void => {
+      if (to0 - from0 < 1e-3 && to1 - from1 < 1e-3) return;
+      const i1 = wrapIndex(i + 1, n);
       const b = builders[surf];
       const tileM = runoffTile[surf];
-      const s0 = t.s[i];
-      const s1 = s0 + t.spacing;
-      const lat = (v: number): number => side * v;
-      sidePoint(t, i, lat(inner0), -0.012, _a);
-      sidePoint(t, i, lat(Math.max(inner0, outer0)), -0.012, _b);
-      sidePoint(t, i1, lat(Math.max(inner1, outer1)), -0.012, _c);
-      sidePoint(t, i1, lat(inner1), -0.012, _d);
-      const u0 = inner0 / tileM;
-      const u1 = Math.max(inner0, outer0) / tileM;
-      const v0 = s0 / tileM;
-      const v1 = s1 / tileM;
+      const inner0 = t.halfWidth[i] + kerbVis[side][i];
+      const inner1 = t.halfWidth[i1] + kerbVis[side][i1];
+      const w0 = Math.max(0, (side > 0 ? f.barrierR[i] : f.barrierL[i]) - inner0);
+      const w1 = Math.max(0, (side > 0 ? f.barrierR[i1] : f.barrierL[i1]) - inner1);
+      const lats = [inner0 + from0 * w0, inner0 + to0 * w0, inner1 + to1 * w1, inner1 + from1 * w1];
+      const v0 = t.s[i] / tileM;
+      const v1 = (t.s[i] + t.spacing) / tileM;
       const base = b.vertexCount;
-      b.vertex(_a.x, _a.y, _a.z, 0, 1, 0, u0, v0);
-      b.vertex(_b.x, _b.y, _b.z, 0, 1, 0, u1, v0);
-      b.vertex(_c.x, _c.y, _c.z, 0, 1, 0, u1, v1);
-      b.vertex(_d.x, _d.y, _d.z, 0, 1, 0, u0, v1);
+      lats.forEach((l, c) => {
+        sidePoint(t, c < 2 ? i : i1, side * l, -0.012, _a);
+        b.setColor(runoffTone(surf, ctx.biome, _a.x, _a.z, toneSeed, _tone));
+        b.vertex(_a.x, _a.y, _a.z, 0, 1, 0, l / tileM, c < 2 ? v0 : v1);
+      });
       if (side > 0) b.quad(base, base + 1, base + 2, base + 3);
       else b.quad(base, base + 3, base + 2, base + 1);
+      if (to0 < 1 || to1 < 1) return;
       // outer skirt down into the lowered terrain (no visible step under barriers / from outside)
-      sidePoint(t, i, lat(Math.max(inner0, outer0)), RUNOFF_SKIRT_Y, _a);
-      sidePoint(t, i1, lat(Math.max(inner1, outer1)), RUNOFF_SKIRT_Y, _d);
       const nx = side * t.rx[i];
       const nz = side * t.rz[i];
       const skirt = b.vertexCount;
-      b.vertex(_b.x, _b.y, _b.z, nx, 0, nz, v0, 0);
-      b.vertex(_c.x, _c.y, _c.z, nx, 0, nz, v1, 0);
-      b.vertex(_d.x, _d.y, _d.z, nx, 0, nz, v1, -RUNOFF_SKIRT_Y / tileM);
-      b.vertex(_a.x, _a.y, _a.z, nx, 0, nz, v0, -RUNOFF_SKIRT_Y / tileM);
+      for (const [k, l, y, v] of [[i, lats[1], -0.012, v0], [i1, lats[2], -0.012, v1], [i1, lats[2], RUNOFF_SKIRT_Y, v1], [i, lats[1], RUNOFF_SKIRT_Y, v0]] as const) {
+        sidePoint(t, k, side * l, y, _a);
+        b.setColor(runoffTone(surf, ctx.biome, _a.x, _a.z, toneSeed, _tone));
+        b.vertex(_a.x, _a.y, _a.z, nx, 0, nz, v, -y / tileM);
+      }
       if (side > 0) b.quad(skirt, skirt + 3, skirt + 2, skirt + 1);
       else b.quad(skirt, skirt + 1, skirt + 2, skirt + 3);
+    };
+    for (let i = 0; i < n; i++) {
+      const p = plan[i];
+      if (!p) continue;
+      strip(i, p.inner, 0, p.share0, 0, p.share1);
+      strip(i, p.outer, p.share0, 1, p.share1, 1);
     }
   }
   // mown verge turf: muted, real-world greens (a picked swatch reads neon under full sun)
   const grassBase = ctx.biome === 'desert' ? '#a39256' : ctx.biome === 'autumn' ? '#6a7a3c' : ctx.biome === 'tropical' ? '#4b7a36' : '#557a3c';
   const runoffMats = [
-    new THREE.MeshStandardMaterial({ name: 'runoff-grass', map: disposer.add(grassTexture(ctx.anisotropy, grassBase, 21, GROUND_SATURATION[ctx.biome], GROUND_VALUE[ctx.biome])), roughness: 0.95 }),
-    new THREE.MeshStandardMaterial({ name: 'runoff-gravel', map: disposer.add(gravelTexture(ctx.anisotropy)), roughness: 1 }),
-    new THREE.MeshStandardMaterial({ name: 'runoff-asphalt', map: disposer.add(runoffAsphaltTexture(ctx.anisotropy, RUNOFF_BAND[ctx.biome])), roughness: 0.85 }),
+    new THREE.MeshStandardMaterial({ name: 'runoff-grass', color: ctx.track.def.look?.grass ?? '#ffffff', map: disposer.add(grassTexture(ctx.anisotropy, grassBase, 21, GROUND_SATURATION[ctx.biome], GROUND_VALUE[ctx.biome])), roughness: 0.95, vertexColors: true }),
+    new THREE.MeshStandardMaterial({ name: 'runoff-gravel', map: disposer.add(gravelTexture(ctx.anisotropy)), roughness: 1, vertexColors: true }),
+    new THREE.MeshStandardMaterial({ name: 'runoff-asphalt', map: disposer.add(runoffAsphaltTexture(ctx.anisotropy, RUNOFF_BAND[ctx.biome])), roughness: 0.85, vertexColors: true }),
   ];
   if (detail) {
     runoffMats[0].normalMap = disposer.add(detailRepeat(noiseNormalTexture(ctx.anisotropy, 23, 256, 32, 0.6, 1.6), 2));
@@ -598,6 +639,92 @@ export function buildRoad(ctx: SceneryContext, gridSlots: number): RoadParts {
   }
   return { group, wetMaterials };
 }
+
+/** One run-off segment (sample i to i + 1): the surface on the track side, the one beyond it and the track-side share of the width at both rows. */
+export interface RunoffSegment {
+  inner: number;
+  outer: number;
+  share0: number;
+  share1: number;
+}
+
+/** Where the run-off changes surface the boundary runs diagonally over this many metres (picked per boundary), not straight across. */
+export const RUNOFF_TAPER_M: readonly [number, number] = [8, 16];
+
+/**
+ * Run-off layout of one side: `surfAt(i)` is the surface of segment i (0 grass, 1 gravel, 2 paved; −1 = none). At a change of
+ * surface the higher one (paved > gravel > grass) keeps the track side and its share of the width eases from all to none over
+ * the taper, so traps and paved strips end in a curve instead of a straight cut across the ribbon.
+ */
+export function runoffPlan(n: number, spacing: number, surfAt: (i: number) => number): (RunoffSegment | null)[] {
+  const surf = Array.from({ length: n }, (_, i) => surfAt(i));
+  const plan = surf.map((s) => (s < 0 ? null : { inner: s, outer: s, share0: 1, share1: 1 }));
+  const runLength = (from: number, step: number, s: number): number => {
+    let len = 0;
+    while (len < n && surf[wrapIndex(from + step * len, n)] === s) len++;
+    return len;
+  };
+  for (let b = 0; b < n; b++) {
+    const s0 = surf[wrapIndex(b - 1, n)];
+    const s1 = surf[b];
+    if (s0 < 0 || s1 < 0 || s0 === s1) continue;
+    const want = (RUNOFF_TAPER_M[0] + (RUNOFF_TAPER_M[1] - RUNOFF_TAPER_M[0]) * hash3(b, 5, 77)) / 2 / Math.max(0.01, spacing);
+    const half = Math.min(Math.round(want), Math.floor(runLength(b - 1, -1, s0) / 2), Math.floor(runLength(b, 1, s1) / 2));
+    if (half < 1) continue;
+    const inner = Math.max(s0, s1);
+    const share = (row: number): number => {
+      const x = smoothstep(0, 1, (row - (b - half)) / (2 * half));
+      return inner === s0 ? 1 - x : x;
+    };
+    for (let k = b - half; k < b + half; k++) {
+      plan[wrapIndex(k, n)] = { inner, outer: Math.min(s0, s1), share0: share(k), share1: share(k + 1) };
+    }
+  }
+  return plan;
+}
+
+const _tone = new THREE.Color();
+
+/** Asphalt tone along the lap: a slow drift (± share over ASPHALT_DRIFT_M) and resurfaced patches (one ASPHALT_PATCH_CELL_M cell in
+ * ASPHALT_PATCH_ODDS gets a darker or lighter stretch of fresh binder with edges crisp to one 2 m segment). */
+export const ASPHALT_DRIFT = 0.09;
+export const ASPHALT_DRIFT_M = 60;
+export const ASPHALT_PATCH = 0.2;
+export const ASPHALT_PATCH_CELL_M = 90;
+export const ASPHALT_PATCH_ODDS = 0.4;
+
+/** Colour multiplier of the racing surface at lap distance s (vertex colour of its rows). */
+export function asphaltTone(s: number, length: number, seed: number): number {
+  const drift = periodicNoise1D(s / ASPHALT_DRIFT_M, Math.max(1, Math.round(length / ASPHALT_DRIFT_M)), seed + 61) * 2 - 1;
+  const cell = Math.floor(s / ASPHALT_PATCH_CELL_M);
+  const from = hash3(cell, 1, seed + 67) * 0.4 * ASPHALT_PATCH_CELL_M;
+  const len = (0.3 + 0.3 * hash3(cell, 2, seed + 67)) * ASPHALT_PATCH_CELL_M;
+  const at = s - cell * ASPHALT_PATCH_CELL_M;
+  const patch = hash3(cell, 3, seed + 67) < ASPHALT_PATCH_ODDS && at >= from && at <= from + len ? (hash3(cell, 4, seed + 67) < 0.6 ? -1 : 1) : 0;
+  return 1 + ASPHALT_DRIFT * drift + ASPHALT_PATCH * patch;
+}
+
+/**
+ * Baked colour variation of the run-off (vertex colours, linear multipliers): the verge carries the terrain's own broad patches
+ * (terrain.ts, same noise and seed, so it meets the ground beyond the wall in the same pattern) plus finer mown patches; gravel
+ * has damp, darker beds; paved run-off weathered tones.
+ */
+export function runoffTone(surf: number, biome: Biome, x: number, z: number, seed: number, out: THREE.Color): THREE.Color {
+  if (surf === 0) {
+    const [r, g, b] = groundTint(biome, fbm2D(x / GROUND_MACRO_SCALE[0], z / GROUND_MACRO_SCALE[0], 2, seed), valueNoise2D(x / GROUND_MACRO_SCALE[1], z / GROUND_MACRO_SCALE[1], seed + 17));
+    const k = 1 + RUNOFF_TONE.grass * (valueNoise2D(x / 17, z / 17, seed + 29) * 2 - 1);
+    return out.setRGB(r * k, g * k, b * k);
+  }
+  if (surf === 1) {
+    const damp = 1 - fbm2D(x / 21, z / 21, 2, seed + 41);
+    return out.setRGB(1 - RUNOFF_TONE.gravel * damp, 1 - RUNOFF_TONE.gravel * 0.95 * damp, 1 - RUNOFF_TONE.gravel * 0.75 * damp);
+  }
+  const k = 1 + RUNOFF_TONE.paved * (fbm2D(x / 33, z / 33, 2, seed + 53) * 2 - 1);
+  return out.setRGB(k, k, k);
+}
+
+/** Strength of the run-off tone variation: verge patches (± share), gravel damp darkening (most), paved weathering (± share). */
+export const RUNOFF_TONE = { grass: 0.12, gravel: 0.38, paved: 0.1 } as const;
 
 export function halfWidthAt(ctx: SceneryContext, s: number): number {
   const t = ctx.track;

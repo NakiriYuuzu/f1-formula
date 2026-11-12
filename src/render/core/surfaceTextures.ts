@@ -39,25 +39,32 @@ export function asphaltTexture(anisotropy: number, seed = 11, size = 512): THREE
 }
 
 /**
- * Grass with mowing stripes along v (texture tiles every 2 stripes), clumps, blades and soft tonal variation;
- * `saturation` < 1 mutes the painted greens toward real turf, `value` < 1 darkens them.
+ * Grass with mowing stripes across u (the verge's lateral coordinate, so the bands run along the track like a mower's passes;
+ * the texture tiles every 2 stripes), clumps, short blades and soft tonal variation; `saturation` < 1 mutes the painted greens
+ * toward real turf, `value` < 1 darkens them.
  */
 export function grassTexture(anisotropy: number, base = '#4f7d33', seed = 21, saturation = 1, value = 1): THREE.CanvasTexture {
   const c = createCanvas(256, 256);
   const rng = new Rng(seed);
   c.ctx.fillStyle = base;
   c.ctx.fillRect(0, 0, c.w, c.h);
-  // mowing stripe: a slightly lighter green half (a white overlay reads as grey bands under strong sun)
-  c.ctx.fillStyle = 'rgba(150,205,95,0.07)';
-  c.ctx.fillRect(0, 0, c.w, c.h / 2);
+  // mowing stripes: a lighter (blades laid away) and a darker (blades laid toward the viewer) pass; a white overlay would read
+  // as grey bands under strong sun
+  c.ctx.fillStyle = `rgba(150,205,95,${GRASS_MOW_LIGHT})`;
+  c.ctx.fillRect(0, 0, c.w / 2, c.h);
+  c.ctx.fillStyle = `rgba(16,40,12,${GRASS_MOW_DARK})`;
+  c.ctx.fillRect(c.w / 2, 0, c.w / 2, c.h);
   addBlotches(c, rng, 34, ['#3e6a28', '#5e8f3d', '#6b8a3a', '#47722d'], 10, 56, 0.32);
   // clover / dry clumps
   addBlotches(c, rng, 26, ['#7d9a45', '#355e22', '#8a8f4a'], 3, 9, 0.45);
+  // short blades in every direction (long strokes along v streaked along the track at grazing angles)
   for (let i = 0; i < 4200; i++) {
     const x = rng.next() * c.w;
     const y = rng.next() * c.h;
-    c.ctx.fillStyle = rng.next() < 0.5 ? 'rgba(28,56,18,0.5)' : 'rgba(160,200,95,0.38)';
-    c.ctx.fillRect(x, y, 1, rng.range(1.5, 4.5));
+    c.ctx.fillStyle = rng.next() < 0.5 ? 'rgba(28,56,18,0.45)' : 'rgba(160,200,95,0.32)';
+    const long = rng.range(1, 2.2);
+    if (rng.next() < 0.5) c.ctx.fillRect(x, y, 1, long);
+    else c.ctx.fillRect(x, y, long, 1);
   }
   const tone = tileableFbm(c.w, 4, 4, seed + 5, 0.55);
   const sat = Math.max(0, Math.min(1, saturation));
@@ -71,6 +78,10 @@ export function grassTexture(anisotropy: number, base = '#4f7d33', seed = 21, sa
   addGrain(c, rng, 18, false);
   return canvasTexture(c, { repeat: true, anisotropy });
 }
+
+/** Opacity of the light and the dark mowing pass painted over the verge grass. */
+export const GRASS_MOW_LIGHT = 0.16;
+export const GRASS_MOW_DARK = 0.12;
 
 /** Gravel trap: shaded pebbles of mixed size and tone over damp / dry patches (tileable). */
 export function gravelTexture(anisotropy: number, seed = 31): THREE.CanvasTexture {
@@ -624,20 +635,21 @@ export function foliageAtlasTexture(anisotropy: number, seed = 141): THREE.DataT
     const v = rng.range(lo, hi);
     return `rgb(${Math.round(v * rng.range(0.9, 1.02))},${Math.round(v)},${Math.round(v * rng.range(0.72, 0.9))})`;
   };
-  // broadleaf cluster (512 × 512): twigs, then ~420 leaves densest at the centre
+  // broadleaf cluster (512 × 512): short twigs that stay inside the leaves (bare twigs reaching past them read as dark spikes
+  // round every crown once the small leaves fade in the mips), then leaves filling a ragged disc, densest at the centre
   g.lineCap = 'round';
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 16; i++) {
     const a = rng.range(0, Math.PI * 2);
-    const r = rng.range(60, 200);
+    const r = rng.range(40, 120);
     g.strokeStyle = `rgb(${Math.round(rng.range(70, 95))},${Math.round(rng.range(60, 80))},${Math.round(rng.range(45, 60))})`;
-    g.lineWidth = rng.range(1.5, 3.5);
+    g.lineWidth = rng.range(1.2, 2.6);
     g.beginPath();
     g.moveTo(256, 256);
     g.quadraticCurveTo(256 + Math.cos(a + 0.4) * r * 0.5, 256 + Math.sin(a + 0.4) * r * 0.5, 256 + Math.cos(a) * r, 256 + Math.sin(a) * r);
     g.stroke();
   }
-  for (let i = 0; i < 640; i++) {
-    const rr = Math.min(1, Math.abs(rng.range(-1, 1) * rng.range(0.35, 1)) + 0.04) * 218;
+  for (let i = 0; i < 960; i++) {
+    const rr = Math.min(1, Math.sqrt(rng.next()) * 0.86 + rng.range(0, 0.14)) * 218;
     const a = rng.range(0, Math.PI * 2);
     const x = 256 + Math.cos(a) * rr;
     const y = 256 + Math.sin(a) * rr;

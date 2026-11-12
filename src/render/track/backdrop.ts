@@ -265,7 +265,7 @@ export function buildBackdrop(ctx: SceneryContext, frame: BackdropFrame): THREE.
   const landGeo = land.build(true);
   if (landGeo) {
     disposer.add(landGeo);
-    const mat = disposer.add(new THREE.MeshLambertMaterial({ name: 'backdrop-land', vertexColors: true }));
+    const mat = disposer.add(new THREE.MeshLambertMaterial({ name: 'backdrop-land', color: ctx.track.def.look?.grass ?? '#ffffff', vertexColors: true }));
     patchBackdropFog(mat, BACKDROP_FOG_CAP, false);
     const octaves = BACKDROP_RELIEF_OCTAVES[level] ?? 0;
     if (octaves > 0) {

@@ -374,6 +374,8 @@ export const SPA: TrackDef = {
   country: '比利時',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Ardennes: dark spruce forest, lush grass, grey damp air
+  look: { grass: '#d4e4c8', trees: { spruce: 2.5, pine: 0.8, oak: 0.6 }, air: { haze: '#c2ccd4', amount: 0.18, fog: 0.8, cloud: 0.15 } },
   street: false,
   width: 12,
   fullLaps: 44,

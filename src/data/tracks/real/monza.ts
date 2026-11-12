@@ -298,6 +298,8 @@ export const MONZA: TrackDef = {
   country: '義大利',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Royal park of Monza: oaks and planes, warm hazy Lombardy air
+  look: { grass: '#f7f0d6', trees: { oak: 2.2, pine: 0.6, spruce: 0.3 }, air: { haze: '#d9d4c4', amount: 0.22, fog: 0.85 } },
   street: false,
   width: 12,
   fullLaps: 53,

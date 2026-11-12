@@ -18,6 +18,8 @@ export const INTERLAGOS: TrackDef = {
   country: '巴西',
   biome: 'temperate',
   timeOfDay: 'day',
+  // Sao Paulo: rich green grass and broadleaves, humid haze
+  look: { grass: '#dcf0c0', trees: { oak: 1.6, pine: 0.9, spruce: 0.2 }, air: { haze: '#d2dad4', amount: 0.3, fog: 0.8, cloud: 0.15 } },
   street: false,
   width: 13,
   fullLaps: 71,
