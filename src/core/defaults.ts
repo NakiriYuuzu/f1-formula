@@ -193,6 +193,7 @@ export const DEFAULT_KEY_BINDINGS_P2: Partial<Record<KeyAction, string[]>> = {
 
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'high',
+  qualityAuto: true,
   resolutionScale: 1,
   shadows: true,
   antialias: true,

@@ -75,6 +75,8 @@ export function sanitizeSettings(v: unknown): Settings {
   const hud = asRecord(r.hud);
   return {
     quality: oneOf(r.quality, QUALITY, d.quality),
+    // settings saved before the option existed keep the tier the player saved
+    qualityAuto: bool(r.qualityAuto, false),
     resolutionScale: num(r.resolutionScale, 0.5, 1, d.resolutionScale),
     shadows: bool(r.shadows, d.shadows),
     antialias: bool(r.antialias, d.antialias),

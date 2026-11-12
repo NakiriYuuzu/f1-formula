@@ -36,6 +36,46 @@ function run(ctrl: AdaptiveResolution, frameMs: number, seconds: number): number
   return ctrl.scale;
 }
 
+describe('quality profile pixel and sample budget', () => {
+  test('every tier carries the pixel-ratio cap, canvas MSAA, IBL and adaptive floor fields', () => {
+    for (const l of LEVELS) {
+      const q = qualityProfile(l);
+      expect(q.maxPixelRatio).toBeGreaterThan(0);
+      expect(q.maxPixelRatio).toBeLessThanOrEqual(2);
+      expect(typeof q.canvasMsaa).toBe('boolean');
+      expect(typeof q.ibl).toBe('boolean');
+      expect(q.adaptiveMinScale).toBeGreaterThanOrEqual(0.5);
+      expect(q.adaptiveMinScale).toBeLessThanOrEqual(ADAPTIVE_MIN_SCALE);
+    }
+  });
+});
+
+describe('pixel-ratio cap and canvas MSAA by tier', () => {
+  test('only the low tier draws at most one pixel per CSS pixel; the others keep the old cap of 2', () => {
+    expect(qualityProfile('low').maxPixelRatio).toBe(1);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).maxPixelRatio).toBe(2);
+  });
+
+  test('the low tier lets the adaptive resolution go to half the pixel ratio; the others stop at the default 60 %', () => {
+    expect(qualityProfile('low').adaptiveMinScale).toBe(0.5);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).adaptiveMinScale).toBe(ADAPTIVE_MIN_SCALE);
+  });
+
+  test('only the low tier goes without MSAA on the canvas itself (the post chain of the others antialiases its own target)', () => {
+    expect(qualityProfile('low').canvasMsaa).toBe(false);
+    for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).canvasMsaa).toBe(true);
+  });
+
+  test('only the low tier goes without the environment map, and its hemisphere light carries the ambient fill instead', () => {
+    expect(qualityProfile('low').ibl).toBe(false);
+    expect(qualityProfile('low').hemiGain).toBeGreaterThan(1);
+    for (const l of ['medium', 'high', 'ultra'] as const) {
+      expect(qualityProfile(l).ibl).toBe(true);
+      expect(qualityProfile(l).hemiGain).toBe(1);
+    }
+  });
+});
+
 describe('quality profile post fields', () => {
   test('low renders directly, medium has half-resolution bloom, high / ultra the full chain', () => {
     expect(qualityProfile('low').post).toBe(false);
@@ -261,6 +301,12 @@ describe('adaptive resolution', () => {
     expect(run(c, 8, 4.1)).toBe(1); // 8 s fast in total
   });
 
+  test('the floor is the controller\'s own (a tier may go lower than the default)', () => {
+    const c = new AdaptiveResolution(0.5);
+    expect(run(c, 30, 60)).toBe(0.5);
+    expect(c.minScale).toBe(0.5);
+  });
+
   test('reset returns to the full resolution', () => {
     const c = new AdaptiveResolution();
     run(c, 30, 20);
@@ -268,5 +314,65 @@ describe('adaptive resolution', () => {
     c.reset();
     expect(c.scale).toBe(1);
     expect(Number.isNaN(c.lastAverageMs)).toBe(true);
+  });
+});
+
+describe('adaptive resolution: starved (the tier itself should step down)', () => {
+  /** A controller whose floor is 0.9, already there (one step down and its settle window done). */
+  function atFloor(): AdaptiveResolution {
+    const c = new AdaptiveResolution(0.9);
+    run(c, 25, 2);
+    run(c, 25, 2);
+    expect(c.scale).toBe(0.9);
+    return c;
+  }
+
+  test('three slow windows in a row at the floor', () => {
+    const c = atFloor();
+    run(c, 25, 4);
+    expect(c.starved).toBe(false);
+    run(c, 25, 2);
+    expect(c.starved).toBe(true);
+    c.clearStarved();
+    expect(c.starved).toBe(false);
+  });
+
+  test('a window that keeps up resets the count', () => {
+    const c = atFloor();
+    run(c, 25, 4);
+    run(c, 8, 2);
+    run(c, 25, 4);
+    expect(c.starved).toBe(false);
+    run(c, 25, 2);
+    expect(c.starved).toBe(true);
+  });
+
+  test('slow windows above the floor never count', () => {
+    const c = new AdaptiveResolution();
+    run(c, 25, 8);
+    expect(c.scale).toBeGreaterThan(ADAPTIVE_MIN_SCALE);
+    expect(c.starved).toBe(false);
+  });
+
+  test('a crawl (frames over 0.1 s, six in a row) counts at once; a lone hitch does not', () => {
+    const c = new AdaptiveResolution();
+    for (let i = 0; i < 5; i++) c.sample(0.15);
+    expect(c.starved).toBe(false);
+    c.sample(0.016);
+    for (let i = 0; i < 5; i++) c.sample(0.15);
+    expect(c.starved).toBe(false);
+    c.sample(0.15);
+    expect(c.starved).toBe(true);
+    c.clearStarved();
+    c.sample(1.2);
+    expect(c.starved).toBe(false);
+  });
+
+  test('reset clears it', () => {
+    const c = new AdaptiveResolution();
+    for (let i = 0; i < 6; i++) c.sample(0.2);
+    expect(c.starved).toBe(true);
+    c.reset();
+    expect(c.starved).toBe(false);
   });
 });

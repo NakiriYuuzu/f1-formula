@@ -58,4 +58,4 @@ bun run tools/bench/perf/sim-bench.ts monza,monaco 30 20   # ms of CPU per simul
 bun run tools/bench/perf/scene-stats.ts                    # draw calls and triangles of the static scenery per quality tier
 ```
 
-Frame time on a real GPU is measured in the browser, not here.
+Frame time on a real GPU is measured in the browser, not here: `?bench=1`, see `perf/README.md`. Its baseline is `baseline/perf-render-gpu.txt`.

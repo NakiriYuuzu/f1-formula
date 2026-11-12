@@ -185,18 +185,34 @@ export class SettingsScreen extends Screen {
 
   private graphics(): HTMLElement {
     const s = this.s;
+    const auto = s.qualityAuto === true;
+    const level = cycler<QualityLevel>({
+      label: '畫質等級',
+      options: (['low', 'medium', 'high', 'ultra'] as const).map((q) => ({ value: q, label: QUALITY_LABEL[q] })),
+      value: s.quality,
+      onChange: (v) => this.patch({ quality: v }),
+      description: auto ? '目前由自動畫質決定；要自己選擇請先關閉自動畫質' : '影響陰影解析度、物件密度與特效數量',
+    });
+    level.setDisabled(auto);
     return h(
       'div',
       { class: 'nvm-stack nvm-narrow' },
       panel(
         '畫質',
-        cycler<QualityLevel>({
-          label: '畫質等級',
-          options: (['low', 'medium', 'high', 'ultra'] as const).map((q) => ({ value: q, label: QUALITY_LABEL[q] })),
-          value: s.quality,
-          onChange: (v) => this.patch({ quality: v }),
-          description: '影響陰影解析度、物件密度與特效數量',
-        }).el,
+        toggle(
+          '自動畫質',
+          auto,
+          (v) => {
+            // turned off: keep the tier in use (the menus hold it); turned on: the game picks and hands the tier back
+            this.patch(v ? { qualityAuto: true } : { qualityAuto: false, quality: this.host.settings.quality });
+            this.s = cloneSettings(this.host.settings);
+            this.render();
+            const again = this.body.querySelector<HTMLElement>('.nvm-cycler');
+            if (again) focusElement(again);
+          },
+          '依顯示卡與實際幀率選擇畫質，比賽太卡時自動調降（不會自動調高）',
+        ).el,
+        level.el,
         slider({ label: '解析度比例', min: 0.5, max: 1, step: 0.05, value: s.resolutionScale, format: pct, onChange: (v) => this.patch({ resolutionScale: v }), description: '降低可提升效能' }).el,
         toggle('陰影', s.shadows, (v) => this.patch({ shadows: v })).el,
         toggle('反鋸齒', s.antialias, (v) => this.patch({ antialias: v }), '重新整理頁面後生效').el,

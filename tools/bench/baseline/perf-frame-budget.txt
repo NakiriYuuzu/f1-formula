@@ -1,0 +1,89 @@
+# Headless frame budget of the low tier (no browser, no GPU): what a bench frame submits, split by source
+# build:    baaa9d2 (the head of perf/low-tier when collected); tools: tools/bench/perf/frame-budget.ts, tools/bench/perf/cull-probe.ts
+# method:   the real scenery builders, the real 20-car sim (all cars on the AI) and the real car/crew models, run under bun with the
+#           fake DOM of the render tests; three's own Frustum decides what is submitted. Chase camera 7 m behind and 2.2 m above car 10
+#           (fov 68, 16:9). Pack scenarios sample the bench's timed window (0.75 s to 5.75 s after the 28 s run-up). Sky, rain,
+#           particles, shadow and post passes are not counted, so only the low tier is comparable with the bench.
+# check:    against the measured low-tier rows of perf-render-gpu.txt (DPR 1, same for every DPR): triangles within -4 % to +11 % in
+#           grid-monza, pack-spa and night-singapore. rain-spa overshoots (+30 %): the all-AI sim brings the field to another place
+#           in the rain than the bench's autopilot player does, so its pose differs. Draw calls overshoot by 5-39 %. Use the figures to
+#           rank cuts and to see the shares, not as exact counters.
+# reading:  nothing here is a time. It says what changes in the counters; whether the GPU or the CPU of a weak machine is bound by
+#           triangles or by draw calls is not measured by it (on the M2 Pro the low-tier ms does not follow the triangle count:
+#           grid-monza 522k = 2.9 ms, pack-spa 329k = 3.8 ms).
+#
+# == frame-budget.ts low   (bun run tools/bench/perf/frame-budget.ts low)
+tier low; car LOD1/LOD2 from 35 / 110 m; car LOD calls/triangles 14/17k  7/3k  1/0k
+grid-monza       scenery  78 calls  278k | cars 105 calls   89k | crew 10 calls  140k | total 193 calls  507k | bench 157 calls 522k (-3% triangles, 23% calls) | 1 pose
+pack-spa         scenery  75 calls  305k | cars  50 calls   43k | crew  1 calls   18k | total 126 calls  365k | bench 102 calls 329k (11% triangles, 23% calls) | 40 poses
+rain-spa         scenery  45 calls  262k | cars  95 calls   93k | crew  6 calls   84k | total 146 calls  439k | bench 105 calls 327k (34% triangles, 39% calls) | 40 poses
+night-singapore  scenery  43 calls  230k | cars  66 calls   52k | crew  9 calls  126k | total 118 calls  408k | bench 108 calls 427k (-4% triangles, 9% calls) | 40 poses
+
+# == frame-budget.ts low lod=27,60   (the largest car LOD step considered: LOD1 from 27 m, the lowest the followed-car test allows; LOD2 from 60 m)
+tier low; car LOD1/LOD2 from 27 / 60 m; car LOD calls/triangles 14/17k  7/3k  1/0k
+grid-monza       scenery  78 calls  278k | cars  74 calls   64k | crew 10 calls  140k | total 162 calls  482k | bench 157 calls 522k (-8% triangles, 3% calls) | 1 pose
+pack-spa         scenery  75 calls  305k | cars  35 calls   26k | crew  1 calls   18k | total 111 calls  349k | bench 102 calls 329k (6% triangles, 8% calls) | 40 poses
+rain-spa         scenery  45 calls  262k | cars  78 calls   78k | crew  6 calls   84k | total 129 calls  424k | bench 105 calls 327k (30% triangles, 23% calls) | 40 poses
+night-singapore  scenery  43 calls  230k | cars  43 calls   35k | crew  9 calls  126k | total  96 calls  391k | bench 108 calls 427k (-8% triangles, -12% calls) | 40 poses
+
+# == cull-probe.ts monza,spa,singapore low 100 <cell>: scenery only, merged meshes split in memory into square cells, camera every 100 m along the lap
+# cell 0 = as built. calls/triangles = mean submitted per pose; the crowd (animated instances) is not split.
+monza low: 84 draw calls (84 meshes), 289k triangles in the scene; 58 camera poses
+  submitted per pose   calls mean 50.9 median 49 max 84   triangles mean 246k median 247k max 289k
+spa low: 96 draw calls (96 meshes), 332k triangles in the scene; 70 camera poses
+  submitted per pose   calls mean 54.4 median 51 max 90   triangles mean 273k median 267k max 322k
+singapore low: 58 draw calls (58 meshes), 232k triangles in the scene; 50 camera poses
+  submitted per pose   calls mean 37.5 median 37 max 52   triangles mean 223k median 227k max 231k
+monza low cell 350 m: 722 draw calls (84 meshes), 289k triangles in the scene; 58 camera poses
+  submitted per pose   calls mean 277.8 median 264 max 489   triangles mean 137k median 140k max 254k
+spa low cell 350 m: 751 draw calls (96 meshes), 332k triangles in the scene; 70 camera poses
+  submitted per pose   calls mean 275.0 median 256 max 532   triangles mean 149k median 137k max 288k
+singapore low cell 350 m: 750 draw calls (58 meshes), 232k triangles in the scene; 50 camera poses
+  submitted per pose   calls mean 284.9 median 285 max 431   triangles mean 112k median 115k max 193k
+monza low cell 600 m: 373 draw calls (84 meshes), 289k triangles in the scene; 58 camera poses
+  submitted per pose   calls mean 160.1 median 154 max 279   triangles mean 150k median 143k max 261k
+spa low cell 600 m: 419 draw calls (96 meshes), 332k triangles in the scene; 70 camera poses
+  submitted per pose   calls mean 168.4 median 158 max 311   triangles mean 171k median 165k max 301k
+singapore low cell 600 m: 408 draw calls (58 meshes), 232k triangles in the scene; 50 camera poses
+  submitted per pose   calls mean 172.6 median 171 max 248   triangles mean 129k median 130k max 208k
+monza low cell 1000 m: 211 draw calls (84 meshes), 289k triangles in the scene; 58 camera poses
+  submitted per pose   calls mean 102.4 median 95 max 170   triangles mean 172k median 167k max 273k
+spa low cell 1000 m: 243 draw calls (96 meshes), 332k triangles in the scene; 70 camera poses
+  submitted per pose   calls mean 114.8 median 107 max 213   triangles mean 193k median 175k max 316k
+singapore low cell 1000 m: 219 draw calls (58 meshes), 232k triangles in the scene; 50 camera poses
+  submitted per pose   calls mean 106.1 median 100 max 154   triangles mean 151k median 139k max 225k
+
+# result:   (1) The triangles of a low-tier frame are not only the scenery. At the standing grid in Monza: scenery ~278k (55 %), pit crews
+#               140k (28 %), cars 89k (17 %). The pit crews are rigid 840-triangle figures at low (96k suit + 38k gear for 160 people,
+#               10 draw calls), heavier than the articulated rig of the medium tier (90k): low pays more for the crews than medium.
+#               They are drawn whenever the pit lane is in view (also night-singapore: 126k of 408k).
+#           (2) Splitting the merged scenery meshes into cells so that three can cull them (cull-probe): at a 1000 m cell the mean
+#               submitted triangles fall by 74k (monza), 80k (spa) and 72k (singapore) while the submitted draw calls double
+#               (51 -> 102, 54 -> 115, 38 -> 106). That is 1.0-1.5k triangles saved per draw call added, and smaller cells are worse
+#               (350 m: -109k triangles, +227 calls). Not a win under the rule that a cut must not add more draw calls than it
+#               pays for; dropped. The track-length ribbons (steel, concrete, paint, kerbs, runoff, fence) are in view along the whole
+#               straight, so cells cull little of them.
+#           (3) Car LOD switch distances (lod=27,60 against 35,110): -3 to -5 % triangles and -12 to -19 % draw calls in the frame
+#               (grid-monza 193 -> 162 calls, -25k triangles). The followed-car test limits LOD1 to >= 27 m.
+
+# == after the low-tier pit crew cut (121661a): frame-budget.ts low   (crew figures of 4 sides without the shoulder bar and hands,
+#    a waiting crew drawn only while a camera is within 90 m; a crew at work is always drawn)
+tier low; car LOD1/LOD2 from 35 / 110 m; car LOD calls/triangles 14/17k  7/3k  1/0k
+grid-monza       scenery  78 calls  278k | cars 105 calls   89k | crew 10 calls   30k | total 193 calls  397k | bench 157 calls 522k (-24% triangles, 23% calls) | 1 pose
+pack-spa         scenery  75 calls  305k | cars  50 calls   43k | crew  1 calls    1k | total 126 calls  348k | bench 102 calls 329k (6% triangles, 23% calls) | 40 poses
+rain-spa         scenery  45 calls  262k | cars  95 calls   93k | crew  6 calls    3k | total 146 calls  359k | bench 105 calls 327k (10% triangles, 39% calls) | 40 poses
+night-singapore  scenery  43 calls  230k | cars  66 calls   52k | crew  9 calls    5k | total 118 calls  287k | bench 108 calls 427k (-33% triangles, 9% calls) | 40 poses
+
+# == frame-budget.ts medium, before and after 121661a: identical (the cut is a tier-table field; medium keeps the articulated rig)
+tier medium; car LOD1/LOD2 from 45 / 140 m; car LOD calls/triangles 14/17k  7/3k  1/0k
+grid-monza       scenery 107 calls  584k | cars 112 calls  103k | crew 10 calls   90k | total 229 calls  776k | 1 pose
+pack-spa         scenery 111 calls  612k | cars  50 calls   43k | crew  1 calls   11k | total 162 calls  666k | 40 poses
+rain-spa         scenery  66 calls  444k | cars 107 calls  105k | crew  6 calls   54k | total 179 calls  603k | 40 poses
+night-singapore  scenery  59 calls  275k | cars  79 calls   63k | crew  9 calls   81k | total 146 calls  418k | 40 poses
+
+# result after: the crews fall from 140k / 18k / 84k / 126k triangles to 30k / 1k / 3k / 5k (grid-monza, pack-spa, rain-spa, night-singapore),
+#           which takes the frame to 397k / 348k / 359k / 287k headless. On the page (M2 Pro) the triangle count of the low tier fell by
+#           23 % (grid-monza), 35 % (night-singapore) and 30 % (stop-spa) with no change of the median: that GPU is not triangle-bound.
+#           (3, measured) Car LOD 27 / 60 m against 35 / 110 at the low tier, software proxy, same machine, pages alternating, 3 runs:
+#           -0.6 % (grid-monza), -0.6 % (night-singapore), +0.7 % (pack-spa), -0.8 % (rain-spa); every range overlaps the other side's.
+#           The counters fall (grid-monza 193 -> 162 calls, -25k triangles) but the frame time does not follow: dropped.

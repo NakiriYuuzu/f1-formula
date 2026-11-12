@@ -1,0 +1,19 @@
+# Render bench, software-rasterised proxy (Chrome with --use-angle=swiftshader, CPU): IBL off at the low tier
+# build:    f065a9b plus the change that became c62ac41 (far light out of the low scene); canvas MSAA 4x, DPR 1; tuned variant = `tune=ibl:0`
+# page:     ?bench=1&quality=low&dpr=1&frames=24&warmup=6&runs=3&tune=ibl:0&ab=1&autorun=1   (1280x720 CSS, DPR 1, adaptive resolution locked)
+# method:   3 runs, base and tuned alternating inside one page load (the variant order flips every run); med = median of the 3 per-run medians,
+#           [min-max] across the 3 runs, p95/p99 = median of the runs' percentiles. The machine carried other CPU-heavy sessions (load 4-13),
+#           so the absolute figures drift; only the alternating pairs are comparable. `low*` rows are the tuned variant.
+# reading:  every figure is a proxy. SwiftShader runs on the CPU, is bound by fill and vertex work like a weak GPU, but its absolute numbers
+#           mean nothing for any real machine. Collected by driving the page; the page itself does the measuring.
+# result:   IBL off lowers the median by 23-30 % in every scenario; the ranges of the two variants do not overlap in any scenario
+#           (grid-monza: tuned max 279.8 ms against base min 343.8 ms). Not shipped: the look without the environment map has not been checked.
+quality	scenario	dpr	BASE med	[min-max]	p95	p99	gpuWait	calls	trisK	Mpx	smp	pass	ibl	n
+low	grid-monza	1	386.00	343.80-403.50	427.00	430.90	384.40	157	522	0.92	4/4	0	1	3
+low	night-singapore	1	402.90	398.20-443.90	437.70	454.10	401.00	90	427	0.92	4/4	0	1	3
+low	pack-spa	1	312.40	311.80-314.80	332.70	336.40	310.60	117	356	0.92	4/4	0	1	3
+low	rain-spa	1	358.90	357.60-397.30	451.50	520.60	356.70	125	512	0.92	4/4	0	1	3
+low*	grid-monza	1	278.50	255.60-279.80	299.70	322.50	276.90	157	522	0.92	4/4	0	0	3
+low*	night-singapore	1	282.30	279.30-285.80	299.30	308.70	280.50	90	427	0.92	4/4	0	0	3
+low*	pack-spa	1	228.80	227.60-235.80	235.50	235.80	226.50	117	356	0.92	4/4	0	0	3
+low*	rain-spa	1	276.90	275.50-277.90	289.50	434.40	274.60	125	512	0.92	4/4	0	0	3

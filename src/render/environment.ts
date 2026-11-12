@@ -367,6 +367,8 @@ export class Environment {
   lampLevel: number;
   exposure: number;
   envIntensity: number;
+  /** quality tier's factor on the hemisphere light (QualityProfile.hemiGain); the floodlights' own ambient fades it out at night */
+  hemiGain = 1;
   /** current smoothed cloudiness 0..1 */
   cloud: number;
 
@@ -517,7 +519,7 @@ export class Environment {
     this.sun.intensity = p.sunIntensity * (1 + FLOOD_SUN_GAIN * this.flood) * (1 - dimK * c);
     this.sun.shadow.intensity = 1 - (night ? 0.3 : 0.65) * c;
     this.sunFar.shadow.intensity = this.sun.shadow.intensity;
-    this.hemi.intensity = p.hemiIntensity * (1 + FLOOD_HEMI_GAIN * this.flood) * (1 + 0.18 * c);
+    this.hemi.intensity = p.hemiIntensity * (1 + (this.hemiGain - 1) * (1 - this.flood)) * (1 + FLOOD_HEMI_GAIN * this.flood) * (1 + 0.18 * c);
     this.hemi.color.copy(this.base.hemiSky).lerp(this.tmp.set('#c4c8cf'), night ? 0.1 * c : 0.6 * c);
     this.hemi.groundColor.copy(this.base.hemiGround);
 

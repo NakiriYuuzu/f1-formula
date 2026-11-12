@@ -8,7 +8,7 @@
  * while the settings overlay or a text field has focus, and exposes the test hooks window.render_game_to_text()
  * and window.advanceTime(ms).
  */
-import type { SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
+import type { QualityLevel, SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
 import { AudioEngine } from '../audio/index';
 import { getLayout, hasLayout } from '../data/tracks/index';
@@ -16,10 +16,18 @@ import { InputManager, isTextEntryTarget } from '../input/index';
 import type { SessionContext } from '../meta/context';
 import { loadSettings } from '../meta/save';
 import { buildQuickStart } from '../meta/sessionBuilder';
+import { readRecord, writeRecord } from '../meta/storage';
 import { GameRenderer } from '../render/GameRenderer';
+import { bootQuality, canvasMsaaOutlivesStep, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
+import { resetQualityTuning, tuneQuality } from '../render/core/quality';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
+import { QUALITY_LABEL } from '../ui/menus/labels';
 import { BackgroundTicker } from './backgroundTicker';
+import { BenchPanel } from './bench/benchPanel';
+import { runBench, type BenchHost } from './bench/benchRunner';
+import { buildBenchSession } from './bench/benchSession';
+import { BENCH_FRAME_MS, parseBench, type BenchParams, type BenchResult, type BenchScenario } from './bench/benchSpec';
 import { FpsMeter, MAX_FRAME_DT, clampFrameDt } from './clock';
 import { reportError } from './errorOverlay';
 import { parseQuickStart } from './quickStart';
@@ -41,6 +49,8 @@ declare global {
     debug_force_incident?: (kind: 'yellow' | 'vsc' | 'sc' | 'red') => boolean;
     /** Test hook: renderer statistics of the last rendered frame (performance measurement). */
     render_debug_info?: () => { fps: number; calls: number; triangles: number; geometries: number; textures: number; programs: number };
+    /** Benchmark mode (?bench=1): the rows measured so far, final once `done` is true. */
+    __benchResult?: BenchResult;
   }
 }
 
@@ -94,8 +104,14 @@ export class App {
   /** online host with its page hidden: frames from a worker timer instead of animation frames (see backgroundTicker) */
   private readonly background = new BackgroundTicker(() => this.backgroundFrame());
   private errorStreak = 0;
+  /** benchmark mode (?bench=1): the page runs the scenarios instead of the menus; no auto-pause, no animation loop */
+  private readonly bench: BenchParams | null;
   private started = false;
   private destroyed = false;
+  /** WebGL renderer string, the input of the automatic quality pick */
+  private readonly gpu: string;
+  /** the tier automatic quality keeps (Settings.qualityAuto): a first pick for this GPU, stepped down when races run slow */
+  private autoLevel: QualityLevel = 'high';
 
   private readonly sessionDeps: SessionDeps;
   private readonly replayDeps: ReplayDeps;
@@ -106,8 +122,21 @@ export class App {
 
   /** Throws if WebGL 2 is unavailable (GameRenderer). */
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
+    this.bench = parseBench(window.location.search);
+    this.gpu = readGpuName();
     this.settings = loadSettings();
+    // the benchmark never reads the player's quality and never saves what it sets
+    if (this.bench) {
+      // the context's canvas MSAA follows the first tier listed unless the URL forces it
+      this.settings = { ...this.settings, quality: this.bench.qualities[0] ?? 'low', resolutionScale: this.bench.scale };
+      if (this.bench.antialias !== null) this.settings.antialias = this.bench.antialias;
+    } else if (this.settings.qualityAuto === true) {
+      this.autoLevel = this.pickAutoLevel();
+      this.settings = { ...this.settings, quality: this.autoLevel };
+    }
     this.gr = new GameRenderer(canvas, this.settings);
+    // after the frame: the step re-applies the settings, which must not happen in the middle of a draw
+    this.gr.onStarved = () => queueMicrotask(() => this.stepAutoQuality());
     this.audio = new AudioEngine(this.settings);
     this.input = new InputManager(this.settings);
     const getSettings = (): Settings => this.settings;
@@ -177,6 +206,10 @@ export class App {
       };
     };
 
+    if (this.bench) {
+      this.startBench(this.bench);
+      return;
+    }
     const quick = parseQuickStart(window.location.search, hasLayout);
     let quickStarted = false;
     if (quick) {
@@ -358,6 +391,55 @@ export class App {
     else this.tick(dt, null);
   }
 
+  // ───────────────────────────── benchmark ─────────────────────────────
+
+  /** ?bench=1: run the scenarios on this page and show the result (see app/bench). */
+  private startBench(p: BenchParams): void {
+    this.started = true;
+    const panel = new BenchPanel(document.body, p, () => void run(), () => window.__benchResult ?? null);
+    const host: BenchHost = {
+      gr: this.gr,
+      setQuality: (level, tune) => {
+        resetQualityTuning();
+        tuneQuality(level, tune);
+        this.applySettings({ ...this.settings, quality: level });
+      },
+      load: (scenario) => this.benchLoad(scenario),
+      runUp: (seconds) => this.advanceTime(seconds * 1000),
+      frame: () => this.advanceTime(BENCH_FRAME_MS),
+      phase: () => this.session?.world.session.phase ?? 'none',
+      unload: () => this.disposeActive(),
+    };
+    const run = async (): Promise<void> => {
+      try {
+        const result = await runBench(host, p, {
+          progress: (m) => panel.setStatus(m),
+          row: (r) => {
+            window.__benchResult = r;
+            panel.update(r, false);
+          },
+        });
+        window.__benchResult = result;
+        panel.update(result, true);
+        if (p.hold) panel.hide();
+      } catch (err) {
+        reportError(err, '效能測試');
+        panel.setStatus(`測試中斷：${err instanceof Error ? err.message : String(err)}`);
+      }
+    };
+    if (p.autorun || p.hold) void run();
+  }
+
+  private async benchLoad(sc: BenchScenario): Promise<void> {
+    const { config, ctx } = buildBenchSession(sc);
+    this.startSession(config, ctx);
+    const deadline = performance.now() + 60000;
+    while (!(this.state === 'session' && this.session)) {
+      if (this.state === 'menu' || performance.now() > deadline) throw new Error(`session ${sc.id} did not start`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
   // ───────────────────────────── sessions ─────────────────────────────
 
   private startSession(config: SessionConfig, ctx: SessionContext): void {
@@ -442,7 +524,7 @@ export class App {
       const track = getLayout(config.layoutId);
       session = new SessionRuntime(this.sessionDeps, config, ctx, track, makeNet(track));
       created?.(session);
-      session.autopilot = new URLSearchParams(window.location.search).get('autopilot') === '1';
+      session.autopilot = this.bench !== null || new URLSearchParams(window.location.search).get('autopilot') === '1';
     } catch (err) {
       reportError(err, '載入節次');
       // an online guest's link goes back to the lobby
@@ -463,7 +545,7 @@ export class App {
     this.menus.hide();
     // the tab was hidden / the window lost focus while loading: start paused like a running session would be
     // (online the race runs for everyone regardless)
-    if (!session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
+    if (!this.bench && !session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
     this.syncAway();
   }
 
@@ -641,7 +723,37 @@ export class App {
 
   // ───────────────────────────── settings / platform ─────────────────────────────
 
+  /** The recorded pick for this GPU, else the guess (and record it). `fresh`: the player just turned automatic quality on, so start from the guess again. */
+  private pickAutoLevel(fresh = false): QualityLevel {
+    const record = parseAutoRecord(readRecord('autoQuality'));
+    const level = fresh ? guessQuality(this.gpu) : bootQuality(record, this.gpu);
+    if (record === null || record.gpu !== this.gpu || record.level !== level) writeRecord('autoQuality', { gpu: this.gpu, level });
+    return level;
+  }
+
+  /** The race stays too slow at the lowest resolution: one tier down, kept for the next start. Only while the game owns the tier. */
+  private stepAutoQuality(): void {
+    if (this.bench || this.settings.qualityAuto !== true) return;
+    const lower = lowerQuality(this.autoLevel);
+    if (lower === null) return;
+    this.autoLevel = lower;
+    writeRecord('autoQuality', { gpu: this.gpu, level: lower });
+    this.menus.updateSettings({ ...this.settings, quality: lower });
+    this.gr.resetAdaptiveResolution();
+    const msaa = canvasMsaaOutlivesStep(lower, this.gr.canvasSamples) ? '；重新整理頁面後會再關閉畫面邊緣的抗鋸齒' : '';
+    this.session?.notify('已自動調降畫質', `畫質：${QUALITY_LABEL[lower]}（設定中可關閉自動畫質）${msaa}`, 'warn');
+  }
+
   private applySettings(settings: Settings): void {
+    // automatic quality: the tier shown in the menus is the one in use (turned on, or defaults restored, while it was
+    // somewhere else: the menus get it back and apply it from there)
+    if (!this.bench && settings.qualityAuto === true) {
+      if (this.settings.qualityAuto !== true) this.autoLevel = this.pickAutoLevel(true);
+      if (settings.quality !== this.autoLevel) {
+        this.menus.updateSettings({ ...settings, quality: this.autoLevel });
+        return;
+      }
+    }
     this.settings = settings;
     this.gr.applySettings(settings);
     this.audio.applySettings(settings);
@@ -704,6 +816,7 @@ export class App {
 
   /** Tab hidden or window blurred: pause the running session / replay (an online race runs on for everyone). */
   private autoPause(): void {
+    if (this.bench) return;
     if (this.state === 'session' && this.session && !this.session.fastForwarding && !this.session.onlineRole) this.session.setPaused(true);
     else if (this.state === 'replay') this.replay?.pause();
   }

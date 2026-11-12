@@ -639,6 +639,42 @@ export class PostPipeline {
     this.composer.addPass(this.output);
   }
 
+  /**
+   * What the next render() puts on the GPU besides the scene: enabled full-screen passes and the pixels they write
+   * (every draw into a target, bloom's mip blurs included). For the benchmark panel; cheap enough to call per frame.
+   */
+  cost(): { passes: number; fillPixels: number; sceneSamples: number } {
+    const target = this.composer.renderTarget1;
+    const full = target.width * target.height;
+    const px = (t: THREE.WebGLRenderTarget): number => t.width * t.height;
+    let passes = 0;
+    let fillPixels = 0;
+    const add = (pixels: number, draws = 1): void => {
+      passes += draws;
+      fillPixels += pixels * draws;
+    };
+    if (this.ao?.enabled) {
+      const ao = this.ao.gtao;
+      add(px(ao.gtaoRenderTarget));
+      add(px(ao.pdRenderTarget));
+      add(full);
+    }
+    if (this.ssr?.enabled) add(full);
+    if (this.bloom.enabled) {
+      add(px(this.bloom.renderTargetBright));
+      for (let i = 0; i < this.bloom.nMips; i++) {
+        add(px(this.bloom.renderTargetsHorizontal[i]));
+        add(px(this.bloom.renderTargetsVertical[i]));
+      }
+      add(px(this.bloom.renderTargetsHorizontal[0]));
+      add(full);
+    }
+    add(full);
+    if (this.output instanceof SmaaOutputPass) add(full, 4);
+    else add(full);
+    return { passes, fillPixels, sceneSamples: this.composer.renderTarget2.samples };
+  }
+
   /** Cloud noise of the current sky for the next render() only (cloud shadows of the aerial perspective; null = none). */
   setCloudMap(map: THREE.Texture | null): void {
     this.gradeUniforms.cloudMap.value = map;

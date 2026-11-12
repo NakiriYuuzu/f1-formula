@@ -48,6 +48,7 @@ import { STATIC_SHADOW_LAYER, farCascadeStale, type CascadeFocus } from './core/
 import { Environment, IncrementalProbe, buildEnvironmentMap, type SceneProbe } from './environment';
 import { probeRefreshDue, type ProbeSignature } from './core/probeRefresh';
 import { LAMP_LIGHT, pickLampLights, type LampSlot } from './core/lampLights';
+import type { PostPipeline } from './core/postPipeline';
 import { CarEffects } from './fx/carEffects';
 import { ContactShadows } from './fx/contactShadows';
 import { DebrisFx } from './fx/debris';
@@ -144,6 +145,9 @@ export class RaceScene {
   /** spot lights lent to the lamps nearest each view (QualityProfile.lampLights at dusk / night; none by day) */
   private readonly lampLights: THREE.SpotLight[] = [];
   private readonly lampSlots: LampSlot[] = [];
+  /** every light of the scene graph (frame-cost counters) */
+  private readonly sceneLights: THREE.Light[] = [];
+  private shadowRenders = 0;
   private readonly lampScratch: number[] = [];
   private readonly lampColors = { tower: new THREE.Color(LAMP_LIGHT.tower.color), post: new THREE.Color(LAMP_LIGHT.post.color) };
   private probeAt: THREE.Vector3 | null = null;
@@ -209,8 +213,9 @@ export class RaceScene {
 
     this.frame = new TrackFrame(track);
     this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
-    // the far cascade light must follow the sun in the scene (lights are numbered in scene order)
-    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.sunFar, this.env.sunFar.target, this.env.hemi);
+    this.env.hemiGain = this.quality.hemiGain;
+    // the far cascade light joins the scene in applyShadows(), and only while it shades
+    this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);
     this.staticShadowCam.layers.set(STATIC_SHADOW_LAYER);
     this.staticShadowCam.position.set(0, -1e6, 0);
     this.staticShadowCam.updateMatrixWorld();
@@ -232,7 +237,7 @@ export class RaceScene {
       cloudOffset: [0, 0],
     };
     this.envContext = gr.contextVersion;
-    this.envTarget = buildEnvironmentMap(gr.renderer, this.env);
+    this.envTarget = this.quality.ibl ? buildEnvironmentMap(gr.renderer, this.env) : null;
     if (this.envTarget) this.scene.environment = this.envTarget.texture;
     this.scene.environmentIntensity = this.env.envIntensity;
 
@@ -350,7 +355,7 @@ export class RaceScene {
     this.tagLights();
     this.applyShadows();
     this.precompile();
-    if (this.quality.sceneProbe) this.captureReflections();
+    if (this.probeOn) this.captureReflections();
     this.probeSig = this.probeSignature();
     // every race scene starts at the user's full resolution
     gr.resetAdaptiveResolution();
@@ -402,6 +407,7 @@ export class RaceScene {
   applySettings(settings: Settings): void {
     if (this.disposed) return;
     const prevQuality = this.quality.level;
+    const prevIbl = this.quality.ibl;
     this.settings = settings;
     this.quality = qualityProfile(settings.quality);
     this.rigCtx.settings = settings;
@@ -415,6 +421,8 @@ export class RaceScene {
       this.rain = new RainFx(this.quality.rainStreaks, this.ctx.seed);
       this.scene.add(this.rain.lines);
     }
+    if (prevIbl !== this.quality.ibl) this.rebuildEnvironmentMap();
+    this.env.hemiGain = this.quality.hemiGain;
     this.applyShadows();
   }
 
@@ -443,7 +451,15 @@ export class RaceScene {
     this.farShadowSize = farSize;
     this.farCentre = null;
     this.safetyCar.setCastShadow(enabled);
-    if (changed) {
+    // a second directional light is in every lit material's shader, even at intensity 0: only in the scene while it shades
+    const inScene = far.parent === this.scene;
+    const lightsChanged = (farSize > 0) !== inScene;
+    if (lightsChanged) {
+      if (farSize > 0) this.scene.add(far, far.target);
+      else this.scene.remove(far, far.target);
+      this.tagLights();
+    }
+    if (changed || lightsChanged) {
       this.scene.traverse((o) => {
         const mat = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
         if (!mat) return;
@@ -459,11 +475,16 @@ export class RaceScene {
     this.farCentre = null;
     this.probeJob?.cancel();
     this.envTarget?.dispose();
-    this.envTarget = buildEnvironmentMap(this.gr.renderer, this.env);
+    this.envTarget = this.quality.ibl ? buildEnvironmentMap(this.gr.renderer, this.env) : null;
     this.scene.environment = this.envTarget ? this.envTarget.texture : null;
-    if (this.quality.sceneProbe) this.captureReflections();
+    if (this.probeOn) this.captureReflections();
     this.probeSig = this.probeSignature();
     this.probeAge = 0;
+  }
+
+  /** The scene probe (the circuit in the reflections) rides on the environment map: no map, no probe. */
+  private get probeOn(): boolean {
+    return this.quality.ibl && this.quality.sceneProbe;
   }
 
   private probeSignature(): ProbeSignature {
@@ -491,7 +512,7 @@ export class RaceScene {
   private refreshReflections(dt: number): void {
     this.probeAge += dt;
     const r = this.gr.renderer;
-    if (this.gr.isContextLost()) return;
+    if (!this.quality.ibl || this.gr.isContextLost()) return;
     if (this.probeJob?.running) {
       this.applyLamps(1);
       const probe: SceneProbe = { scene: this.scene, position: this.probeAt ?? this.probePosition(), hide: this.probeHidden(), shadowMapSize: this.shadowSize };
@@ -503,7 +524,7 @@ export class RaceScene {
     if (!probeRefreshDue(this.probeSig, sig, this.probeAge)) return;
     this.probeSig = sig;
     this.probeAge = 0;
-    if (this.quality.sceneProbe) {
+    if (this.probeOn) {
       this.probeJob ??= new IncrementalProbe(r);
       this.probeAt ??= this.probePosition();
       this.probeJob.start(this.probeAt);
@@ -734,6 +755,7 @@ export class RaceScene {
     this.lastCamPos.length = list.length;
     r.setScissorTest(false);
     r.setViewport(0, 0, this.gr.width, this.gr.height);
+    this.writeFrameCost(post);
   }
 
   /** Shadow focus of a view: ahead of its target car (on the car for tv cameras), else its camera (written into this.focus). */
@@ -775,6 +797,7 @@ export class RaceScene {
       r.shadowMap.needsUpdate = pending;
     }
     this.farCentre = { x: focus.x, z: focus.z };
+    this.shadowRenders++;
   }
 
   /** Hand the pooled lamp lights to the lamps nearest `focus` (pickLampLights), at the environment's lamp level. */
@@ -803,9 +826,34 @@ export class RaceScene {
 
   /** Put every light of the scene on STATIC_SHADOW_LAYER as well (see renderFarCascade). */
   private tagLights(): void {
+    this.sceneLights.length = 0;
     this.scene.traverse((o) => {
-      if ((o as THREE.Light).isLight) o.layers.enable(STATIC_SHADOW_LAYER);
+      if (!(o as THREE.Light).isLight) return;
+      o.layers.enable(STATIC_SHADOW_LAYER);
+      this.sceneLights.push(o as THREE.Light);
     });
+  }
+
+  /** Lights, IBL, shadow renders and post passes of the frame just drawn, for GameRenderer.frameCost. */
+  private writeFrameCost(post: PostPipeline | null): void {
+    const c = this.gr.frameCost;
+    const shadows = this.gr.renderer.shadowMap.enabled;
+    let lights = 0;
+    let shadowLights = 0;
+    for (const l of this.sceneLights) {
+      if (!l.visible) continue;
+      lights++;
+      if (shadows && l.castShadow) shadowLights++;
+    }
+    c.lights = lights;
+    c.shadowLights = shadowLights;
+    c.ibl = this.scene.environment !== null;
+    c.shadowRenders = this.shadowRenders;
+    this.shadowRenders = 0;
+    const pc = post ? post.cost() : null;
+    c.fullscreenPasses = pc ? pc.passes : 0;
+    c.postFillPixels = pc ? pc.fillPixels : 0;
+    c.sceneSamples = pc ? pc.sceneSamples : this.gr.canvasSamples;
   }
 
   /** Centre the near shadow cascade ahead of the view's target; re-render it unless the previous view's map covers it. */
@@ -815,6 +863,7 @@ export class RaceScene {
     this.shadowFocus.copy(this.focus);
     this.env.placeSun(this.focus, this.shadowSize);
     this.gr.renderer.shadowMap.needsUpdate = true;
+    this.shadowRenders++;
   }
 
   /** The rect fills the whole canvas (the post chain always draws full screen). */

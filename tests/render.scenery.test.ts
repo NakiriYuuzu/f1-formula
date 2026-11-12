@@ -530,6 +530,22 @@ describe('tropical weather', () => {
       });
     }
   }
+  test('hemiGain brightens the hemisphere light by day and fades out as the floodlights take over', () => {
+    const hemi = (timeOfDay: 'day' | 'dusk' | 'night', gain: number): number => {
+      const env = new Environment({ biome: 'temperate', timeOfDay, weather: 'clear', floodlit: 1 });
+      env.hemiGain = gain;
+      env.update('clear', 0, 0.1, 0);
+      const v = env.hemi.intensity;
+      env.dispose();
+      return v;
+    };
+    expect(hemi('day', 2.5)).toBeCloseTo(hemi('day', 1) * 2.5, 6);
+    expect(hemi('night', 2.5)).toBeCloseTo(hemi('night', 1), 6);
+    const dusk = hemi('dusk', 2.5) / hemi('dusk', 1);
+    expect(dusk).toBeGreaterThan(1);
+    expect(dusk).toBeLessThan(2.5);
+  });
+
   test('tropical air is hazier than temperate (shorter fog, more clear-sky cloud)', () => {
     const a = new Environment({ biome: 'tropical', timeOfDay: 'day', weather: 'clear' });
     const b = new Environment({ biome: 'temperate', timeOfDay: 'day', weather: 'clear' });

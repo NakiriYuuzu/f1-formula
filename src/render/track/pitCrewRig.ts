@@ -10,11 +10,9 @@ import type { QualityLevel } from '../../core/types';
 import { smoothstep } from '../../core/math';
 import { GeoBuilder, addBox, addGeometry } from '../core/geometry';
 import type { Disposer } from '../core/disposer';
+import { qualityProfile } from '../core/quality';
 import { BONE, SHOULDER, type Joints, type V3 } from './pitCrewPose';
 import { patchTintMask } from './sceneryMaterials';
-
-/** Radial segments of the limb cylinders by quality (sphere segments follow). */
-export const CREW_RADIAL: Record<QualityLevel, number> = { low: 0, medium: 6, high: 8, ultra: 10 };
 
 /** Segments of a person, in instance-mesh order. Arms and legs have an instance per side (left = even index). */
 export const SEGMENTS = ['torso', 'head', 'upperArm', 'foreArm', 'thigh', 'shin'] as const;
@@ -77,7 +75,7 @@ const BOOT = '#1c1d20';
 
 /** Geometry of every segment (bone along +Y from the joint, facing +Z). */
 export function buildRigGeometry(level: QualityLevel): Record<Segment, THREE.BufferGeometry> {
-  const radial = Math.max(5, CREW_RADIAL[level] || 6);
+  const radial = Math.max(5, qualityProfile(level).crewRadial);
   const mk = (): PartBuilder => new PartBuilder(radial);
   const torso = mk();
   // origin at the pelvis: hips, belly / chest (wider than deep), shoulder caps, neck
