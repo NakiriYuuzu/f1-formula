@@ -72,6 +72,8 @@ export interface QualityProfile {
   canvasMsaa: boolean;
   /** scene.environment: the PMREM every PBR material samples for ambient light and reflections */
   ibl: boolean;
+  /** factor on the hemisphere light, the scene's ambient fill: where `ibl` is off it stands in for the environment map's ambient light */
+  hemiGain: number;
   /** lowest fraction of the pixel ratio the adaptive resolution may drop to */
   adaptiveMinScale: number;
   /** pit crew bodies are articulated rigs (walk cycle, kneeling, hands on the gear); false = three rigid instanced poses */
@@ -109,7 +111,8 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     lampLights: 0,
     maxPixelRatio: 1,
     canvasMsaa: false,
-    ibl: true,
+    ibl: false,
+    hemiGain: 2.5,
     adaptiveMinScale: 0.5,
     crewRig: false,
     crewRadial: 4,
@@ -142,6 +145,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     maxPixelRatio: 2,
     canvasMsaa: true,
     ibl: true,
+    hemiGain: 1,
     adaptiveMinScale: 0.6,
     crewRig: true,
     crewRadial: 6,
@@ -174,6 +178,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     maxPixelRatio: 2,
     canvasMsaa: true,
     ibl: true,
+    hemiGain: 1,
     adaptiveMinScale: 0.6,
     crewRig: true,
     crewRadial: 8,
@@ -206,6 +211,7 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     maxPixelRatio: 2,
     canvasMsaa: true,
     ibl: true,
+    hemiGain: 1,
     adaptiveMinScale: 0.6,
     crewRig: true,
     crewRadial: 10,

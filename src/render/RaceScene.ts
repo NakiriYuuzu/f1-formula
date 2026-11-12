@@ -213,6 +213,7 @@ export class RaceScene {
 
     this.frame = new TrackFrame(track);
     this.env = new Environment({ biome, timeOfDay: opts.timeOfDay, weather: opts.weather, floodlit: track.def.real ? 1 : 0.35 });
+    this.env.hemiGain = this.quality.hemiGain;
     // the far cascade light joins the scene in applyShadows(), and only while it shades
     this.scene.add(this.env.sky, this.env.sun, this.env.sun.target, this.env.hemi);
     this.staticShadowCam.layers.set(STATIC_SHADOW_LAYER);
@@ -421,6 +422,7 @@ export class RaceScene {
       this.scene.add(this.rain.lines);
     }
     if (prevIbl !== this.quality.ibl) this.rebuildEnvironmentMap();
+    this.env.hemiGain = this.quality.hemiGain;
     this.applyShadows();
   }
 

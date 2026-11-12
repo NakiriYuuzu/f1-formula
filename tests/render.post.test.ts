@@ -65,6 +65,15 @@ describe('pixel-ratio cap and canvas MSAA by tier', () => {
     expect(qualityProfile('low').canvasMsaa).toBe(false);
     for (const l of ['medium', 'high', 'ultra'] as const) expect(qualityProfile(l).canvasMsaa).toBe(true);
   });
+
+  test('only the low tier goes without the environment map, and its hemisphere light carries the ambient fill instead', () => {
+    expect(qualityProfile('low').ibl).toBe(false);
+    expect(qualityProfile('low').hemiGain).toBeGreaterThan(1);
+    for (const l of ['medium', 'high', 'ultra'] as const) {
+      expect(qualityProfile(l).ibl).toBe(true);
+      expect(qualityProfile(l).hemiGain).toBe(1);
+    }
+  });
 });
 
 describe('quality profile post fields', () => {
