@@ -62,10 +62,13 @@ function pitDriver(track: BuiltTrack, opts: DriverOpts): (w: WorldState) => (Con
   return (w) => {
     const car = w.cars[getPlayerCarId(w, 0)];
     const ai = computeAIInput(w, car, track, SIM_DT);
-    if (car.pit.phase === 'none' || car.race.pitAuto || opts.controller) return [ai];
     const p = car.phys;
-    if (opts.missEntry) return [{ ...ai, steer: steerToward(car, track, 0, 30), throttle: 0.5, brake: 0, limiterToggle: false }];
     const d = forwardDistance(track, track.pit.entry, p.s);
+    // (stays on the racing line from 100 m before the entry to past the entry road)
+    if (opts.missEntry && (forwardDistance(track, p.s, track.pit.entry) < 100 || d < ramp + 50)) {
+      return [{ ...ai, steer: steerToward(car, track, 0, 30), throttle: 0.5, brake: 0, limiterToggle: false }];
+    }
+    if (car.pit.phase === 'none' || car.race.pitAuto || opts.controller) return [ai];
     const look = 14;
     const lat = pitLaneOffsetAt(track, p.s + look) ?? p.lateral;
     const target = d < ramp ? Math.max(opts.laneSpeed, Math.sqrt(opts.laneSpeed ** 2 + 2 * 14 * Math.max(0, ramp - d - 8))) : d < zone - ramp ? opts.laneSpeed : 60;
@@ -90,7 +93,15 @@ interface Visit {
   /** highest speed between the lines while the driver (not the box autopilot) drives */
   maxLaneSpeed: number;
   manualSeen: boolean;
+  /** a visit started and was called off */
   cancelled: boolean;
+  /** called in, the car drove past the end of the entry road without a visit */
+  missed: boolean;
+  /** largest one-step speed change (m/s) and yaw change (rad) while the box autopilot drives a manual visit */
+  autoSpeedStep: number;
+  autoYawStep: number;
+  /** distance (m) from the speed-limit line the driver drove before the box autopilot took over */
+  laneDriven: number;
 }
 
 function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; human?: boolean; driver?: DriverOpts; maxTime?: number } = {}): Visit {
@@ -103,7 +114,11 @@ function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; h
   let maxLaneSpeed = 0;
   let manualSeen = false;
   let cancelled = false;
+  let missed = false;
   let requests = 0;
+  let autoSpeedStep = 0;
+  let autoYawStep = 0;
+  let laneDriven = Number.NaN;
   while (!isSessionOver(world) && world.time < (o.maxTime ?? 600)) {
     const c = world.cars[0];
     if (c.timing.lap === 2 && c.pit.stops === 0 && !c.pit.requested && c.pit.phase === 'none' && requests === 0) {
@@ -111,17 +126,25 @@ function visit(layoutId: string, o: { kind?: SessionKind; pitAssist?: boolean; h
       requests++;
     }
     const before = c.pit.phase;
+    const was = { auto: c.race.pitAuto, speed: c.phys.speed, yaw: c.phys.yaw };
     stepWorld(world, track, o.human === false ? [] : drive(world), SIM_DT);
     for (const e of world.events) if (e.type !== 'shift') events.push(e);
     world.events.length = 0;
     if (phases[phases.length - 1] !== c.pit.phase) phases.push(c.pit.phase);
     if (c.race.pitManual) manualSeen = true;
     if (before === 'entry' && c.pit.phase === 'none' && c.pit.stops === 0) cancelled = true;
+    const past = forwardDistance(track, track.pit.entry, c.phys.s) - pitRampLength(track);
+    if (c.pit.requested && c.pit.phase === 'none' && c.pit.stops === 0 && past > 0 && past < 50) missed = true;
     if (c.pit.phase === 'entry') maxEntrySpeed = Math.max(maxEntrySpeed, c.phys.speed);
     if (c.pit.phase === 'lane' && !c.race.pitAuto) maxLaneSpeed = Math.max(maxLaneSpeed, c.phys.speed);
-    if (o.driver?.missEntry && cancelled) break;
+    if (c.race.pitAuto && !was.auto) laneDriven = forwardDistance(track, track.pit.entry, c.phys.s) - pitRampLength(track);
+    if (c.race.pitAuto || was.auto) {
+      autoSpeedStep = Math.max(autoSpeedStep, Math.abs(c.phys.speed - was.speed));
+      autoYawStep = Math.max(autoYawStep, Math.abs(Math.atan2(Math.sin(c.phys.yaw - was.yaw), Math.cos(c.phys.yaw - was.yaw))));
+    }
+    if (o.driver?.missEntry && missed && past > 50) break;
   }
-  return { world, events, phases, maxEntrySpeed, maxLaneSpeed, manualSeen, cancelled };
+  return { world, events, phases, maxEntrySpeed, maxLaneSpeed, manualSeen, cancelled, missed, autoSpeedStep, autoYawStep, laneDriven };
 }
 
 const LIMIT = 80 / 3.6;
@@ -171,6 +194,22 @@ describe('manual pit lane (pit assist off)', () => {
   );
 
   test(
+    'the box autopilot takes the car over without a jolt, after the driver has driven some of the lane',
+    () => {
+      // the autopilot's own entry-road braking (24 m/s²) is the most it changes the speed in one step
+      const brakeStep = 24 * SIM_DT;
+      for (const [id, laneSpeed, limiter] of [['monaco', 20, true], ['porto-lumen', 20, true], ['porto-lumen', 30, false]] as const) {
+        const v = visit(id, { driver: { limiter, laneSpeed } });
+        expect(v.world.cars[0].pit.stops).toBe(1);
+        expect(v.autoSpeedStep).toBeLessThanOrEqual(brakeStep);
+        expect(v.autoYawStep).toBeLessThan(0.02);
+        expect(v.laneDriven).toBeGreaterThan(laneSpeed > LIMIT ? 0 : 5);
+      }
+    },
+    60_000,
+  );
+
+  test(
     'speeding between the lines: one race time penalty per visit',
     () => {
       const v = visit('porto-lumen', { driver: { limiter: false, laneSpeed: 30 } });
@@ -197,15 +236,20 @@ describe('manual pit lane (pit assist off)', () => {
   );
 
   test(
-    'staying on track after the request cancels the visit and keeps the request armed',
+    'staying on track past the entry: no visit at all (lap still valid, not an in-lap), the request stays armed',
     () => {
-      const v = visit('porto-lumen', { driver: { limiter: true, laneSpeed: 20, missEntry: true } });
-      const car = v.world.cars[0];
-      expect(v.cancelled).toBe(true);
-      expect(car.pit.phase).toBe('none');
-      expect(car.pit.requested).toBe(true);
-      expect(car.pit.stops).toBe(0);
-      expect(car.status).toBe('running');
+      for (const kind of ['race', 'qualifying'] as const) {
+        const v = visit('porto-lumen', { kind, driver: { limiter: true, laneSpeed: 20, missEntry: true } });
+        const car = v.world.cars[0];
+        expect(v.missed).toBe(true);
+        expect(v.phases).toEqual(['none']);
+        expect(v.events.some((e) => e.type === 'pitEntry')).toBe(false);
+        expect(car.pit.requested).toBe(true);
+        expect(car.pit.stops).toBe(0);
+        expect(car.status).toBe('running');
+        expect(car.race.pitLap).toBe(false);
+        if (kind === 'qualifying') expect(car.timing.lapValid).toBe(true);
+      }
     },
     60_000,
   );

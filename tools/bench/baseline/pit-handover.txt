@@ -1,12 +1,12 @@
-monza laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -18.9 
-   pitAuto false->true: speed before=22.02 after=21.98 (dv=-0.04 m/s) gLong after=-0.0
-   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
-monza laneSpeed 30 limiter false | stops 1 penalty s 5 minGLong -117.4 
-   pitAuto false->true: speed before=29.99 after=30.00 (dv=0.01 m/s) gLong after=0.0
-   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
-monaco laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -29.7 
-   pitAuto false->true: speed before=21.98 after=22.01 (dv=0.03 m/s) gLong after=0.0
-   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
-silverstone laneSpeed 22 limiter true | stops 1 penalty s 0 minGLong -18.5 
-   pitAuto false->true: speed before=22.01 after=21.97 (dv=-0.04 m/s) gLong after=-0.0
-   pitAuto true->false: speed before=14.00 after=14.00 (dv=0.00 m/s) gLong after=0.7
+monza        manual 22L | stops 1 pen 0 | box d=290 line=120 takeover d=259.8 laneDriven=139.8m | max1tick dv=1.562 m/s (187.4 m/s2) [lane->lane d=260 v=22.0->20.5] minGLong=-19.10 | yaw/tick near box max=0.1032 rad [lane d-box=9.8 v=11.7] | handback v=14.0
+monza        manual 30  | stops 1 pen 5 | box d=290 line=120 takeover d=259.9 laneDriven=139.9m | max1tick dv=9.586 m/s (1150.3 m/s2) [lane->lane d=260 v=30.0->20.4] minGLong=-117.26 | yaw/tick near box max=0.1320 rad [lane d-box=-4.2 v=7.7] | handback v=14.0
+monza        assist      | stops 1 pen 0 | box d=290 line=120 takeover d=- laneDriven=-m | max1tick dv=0.843 m/s (101.2 m/s2) [lane->stopped d=290 v=0.8->0.0] minGLong=-4.59 | yaw/tick near box max=0.1432 rad [lane d-box=-4.2 v=7.7] | handback v=-
+monaco       manual 22L | stops 1 pen 0 | box d=125 line=98 takeover d=97.6 laneDriven=0.0m | max1tick dv=2.354 m/s (282.5 m/s2) [lane->lane d=98 v=22.0->19.6] minGLong=-28.79 | yaw/tick near box max=0.1089 rad [lane d-box=-4.2 v=7.8] | handback v=14.0
+monaco       manual 30  | stops 1 pen 5 | box d=125 line=98 takeover d=97.8 laneDriven=0.2m | max1tick dv=10.408 m/s (1249.0 m/s2) [lane->lane d=98 v=30.0->19.6] minGLong=-127.32 | yaw/tick near box max=0.1025 rad [lane d-box=9.8 v=11.7] | handback v=14.0
+monaco       assist      | stops 1 pen 0 | box d=125 line=98 takeover d=- laneDriven=-m | max1tick dv=2.707 m/s (324.8 m/s2) [lane->lane d=98 v=22.2->19.5] minGLong=-33.11 | yaw/tick near box max=0.1028 rad [lane d-box=9.8 v=11.7] | handback v=-
+silverstone  manual 22L | stops 1 pen 0 | box d=159 line=115 takeover d=129.5 laneDriven=14.5m | max1tick dv=1.551 m/s (186.2 m/s2) [lane->lane d=130 v=22.0->20.4] minGLong=-18.98 | yaw/tick near box max=0.3023 rad [lane d-box=-29.5 v=20.4] | handback v=14.0
+silverstone  manual 30  | stops 1 pen 5 | box d=159 line=115 takeover d=129.6 laneDriven=14.5m | max1tick dv=9.539 m/s (1144.6 m/s2) [lane->lane d=130 v=30.0->20.4] minGLong=-116.68 | yaw/tick near box max=0.3738 rad [lane d-box=-29.7 v=20.4] | handback v=14.0
+silverstone  assist      | stops 1 pen 0 | box d=159 line=115 takeover d=- laneDriven=-m | max1tick dv=0.870 m/s (104.3 m/s2) [lane->stopped d=159 v=0.9->0.0] minGLong=-2.45 | yaw/tick near box max=0.1019 rad [lane d-box=9.8 v=11.7] | handback v=-
+suzuka       manual 22L | stops 1 pen 0 | box d=231 line=120 takeover d=201.4 laneDriven=81.4m | max1tick dv=1.570 m/s (188.4 m/s2) [lane->lane d=202 v=22.0->20.5] minGLong=-19.21 | yaw/tick near box max=0.1032 rad [lane d-box=9.8 v=11.7] | handback v=14.0
+suzuka       manual 30  | stops 1 pen 5 | box d=231 line=120 takeover d=201.5 laneDriven=81.5m | max1tick dv=9.546 m/s (1145.5 m/s2) [lane->lane d=202 v=30.0->20.4] minGLong=-116.77 | yaw/tick near box max=0.1264 rad [lane d-box=-4.2 v=7.7] | handback v=14.0
+suzuka       assist      | stops 1 pen 0 | box d=231 line=120 takeover d=- laneDriven=-m | max1tick dv=0.849 m/s (101.9 m/s2) [lane->stopped d=231 v=0.8->0.0] minGLong=-2.45 | yaw/tick near box max=0.1451 rad [lane d-box=-4.2 v=7.7] | handback v=-

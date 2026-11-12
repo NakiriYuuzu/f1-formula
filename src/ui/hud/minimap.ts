@@ -1,18 +1,22 @@
 /**
  * Minimap (2D canvas): track outline from track px/pz + bounds (top view: +X right, +Z down), DRS zones and
  * start/finish line pre-rendered once per size; team-coloured car dots (players larger, ringed; a spectated car
- * circled) and the time-trial ghost redrawn at most 30 times per second.
+ * circled), the time-trial ghost and the pit lane while a player is called in, redrawn at most 30 times per second.
  */
 import type { BuiltTrack, CarEntry, GhostData, WorldState } from '../../core/types';
 import { el } from './dom';
 import { fin, safeColor } from './labels';
 import { identColor } from '../../meta/roster';
 import { controlOf, sectorFlagLevels } from './raceControl';
+import { pitRampLength, pitZoneLength } from '../../track/pit';
 
 const FRAME = 1 / 30;
 const PLAYER_RING = ['#ff3d8b', '#19d3c5'];
 const YELLOW_FLAG = '#ffd500';
 const SC_COLOR = '#ff8a1f';
+/** the pit lane while a player is called in (the "box" pill's pink), drawn this far (CSS px) to its side of the track */
+const PIT_PATH = '#e6106a';
+const PIT_PATH_SIDE = 3.4;
 /** a car reported by an 'incident' event keeps its warning marker until it moves faster than this (m/s), after INCIDENT_GRACE seconds */
 const INCIDENT_CLEAR_SPEED = 12;
 const INCIDENT_GRACE = 6;
@@ -244,6 +248,7 @@ export class Minimap {
 
     this.drawGhost(ctx, world, r);
     this.drawSectorFlags(ctx, world);
+    this.drawPitPath(ctx, world);
     this.drawIncidents(ctx, world, r);
 
     const players: CarEntry[] = [];
@@ -294,6 +299,41 @@ export class Minimap {
       ctx.strokeStyle = '#ffffff';
       ctx.stroke();
     }
+  }
+
+  /** A player called in or in the pit lane: the lane from entry to exit, beside the track on its side. */
+  private drawPitPath(ctx: CanvasRenderingContext2D, world: WorldState): void {
+    const t = this.track;
+    const pit = t.pit;
+    if (!pit || !(t.length > 0) || t.count < 2) return;
+    const called = world.cars.some(
+      (c) => c.playerIndex >= 0 && c.status !== 'retired' && c.status !== 'finished' && (c.pit.requested || c.pit.phase !== 'none'),
+    );
+    if (!called) return;
+    const zone = pitZoneLength(t);
+    const ramp = Math.max(1, pitRampLength(t));
+    const spacing = t.length / t.count;
+    const first = Math.round(pit.entry / spacing);
+    const steps = Math.ceil(zone / spacing);
+    const { scale, offX, offY } = this.fit;
+    const side = PIT_PATH_SIDE * this.dpr * pit.side;
+    ctx.beginPath();
+    for (let k = 0; k <= steps; k++) {
+      const i = (((first + k) % t.count) + t.count) % t.count;
+      const d = Math.min(zone, k * spacing);
+      // (off the track over the entry road, back onto it over the exit road)
+      const w = side * Math.max(0, Math.min(1, d / ramp, (zone - d) / ramp));
+      const x = t.px[i] * scale + offX + fin(t.rx[i]) * w;
+      const y = t.pz[i] * scale + offY + fin(t.rz[i]) * w;
+      if (k === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.lineWidth = 4.4 * this.dpr;
+    ctx.stroke();
+    ctx.strokeStyle = PIT_PATH;
+    ctx.lineWidth = 2.2 * this.dpr;
+    ctx.stroke();
   }
 
   /** Yellow tint over the flagged sectors (double yellow pulses). */

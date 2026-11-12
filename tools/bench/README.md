@@ -47,9 +47,16 @@ bun run tools/bench/ai/analyze.ts <outDir> <file-prefix>...
 
 ```sh
 bun run tools/bench/pit/probe.ts monza monaco silverstone suzuka   # pit loss against a no-stop control, phase marks, jumps
-bun run tools/bench/pit/handover.ts                                # speed step when the box autopilot takes over
-bun run tools/bench/pit/field.ts                                   # every car pits on the same lap, counts overlaps in the lane
+bun run tools/bench/pit/handover.ts                                # the box autopilot taking over a manual visit
+bun run tools/bench/pit/field.ts                                   # 5, 10 and 20 cars pit on the same lap: overlaps in the lane
+bun run tools/bench/pit/loss.ts                                    # pit loss per segment against estimatePitLoss, three seeds
+bun run tools/bench/pit/race.ts                                    # what lane traffic costs a stop in a 20-car race
 ```
+
+- `handover.ts`, per layout a manual visit at the limit with the limiter, one at 30 m/s without it, and one with the assist: where the autopilot took over (`laneDriven` = metres of lane the driver drove past the speed-limit line), the largest one-step speed change while the autopilot drives and the deceleration it implies, the largest one-step yaw change within 30 m of the box.
+- `field.ts [5,10,20] [layouts]`: the first n cars of the grid are called in on lap 2. `lane` counts steps with two pit cars closer than 2.2 m, `track` a pit car and a car on track; `done` is stops made of stops called.
+- `loss.ts [layouts]` (`SEEDS=11,12,13`): one car's time lost by a stop when it reaches 1000 m past the pit exit, against the same car not stopping, with the stationary time put at its 2.75 s mean; split into before the entry, the pit zone, and after the exit.
+- `race.ts [layouts]` (`SEEDS=42`, `LAPS=12`): a 20-car race with the mandatory stop, every car stopping when its strategy says. Per stop the time from the entry to the exit less the stationary time, against the race's fastest such visit: `traffic extra` is what the other cars in the lane cost it.
 
 ## Perf: what does not need a GPU
 

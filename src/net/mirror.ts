@@ -72,12 +72,16 @@ function carView(c: CarEntry, own: boolean): { [k: string]: Json } {
     // (the receiver's own car: its physics is the own-state datagram's)
     ...(own ? {} : { phys: otherPhys(c.phys) }),
     assists: plain(c.assists),
-    // timing tower / pit HUD read these race internals; the client's prediction checks who drives (pit / formation)
+    // timing tower / pit HUD read these race internals; the client's prediction checks who drives (pit / formation); the
+    // pit crews follow a stop's length and hold (the snapshot leaves CarRenderState.pitService out)
     race: plain({
       usedCompounds: c.race.usedCompounds,
       pitManual: c.race.pitManual,
       pitAuto: c.race.pitAuto,
       pitSpeeding: c.race.pitSpeeding,
+      pitStopTotal: c.race.pitStopTotal,
+      pitHold: c.race.pitHold,
+      pitRepair: c.race.pitRepair,
       parking: c.race.parking,
       formationAuto: c.race.formationAuto,
       retiredAt: c.race.retiredAt,

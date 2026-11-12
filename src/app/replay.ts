@@ -43,7 +43,8 @@ const F_SURFACE = 20;
 const F_FLAGS = 21;
 const F_DMG_FLOOR = 22;
 const F_DMG_SUSPENSION = 23;
-const CAR_FIELDS = 24;
+const F_PIT_SERVICE = 24;
+const CAR_FIELDS = 25;
 
 const FLAG_DRS = 1;
 const FLAG_RAIN = 2;
@@ -53,6 +54,8 @@ const FLAG_VISIBLE = 16;
 const FLAG_GHOST = 32;
 /** bits 6–7 of the flags: the bent suspension's corner (0..3) */
 const CORNER_SHIFT = 6;
+/** F_PIT_SERVICE of a car not standing in its box (pitService is packed within -1..1) */
+export const NO_PIT_SERVICE = -2;
 
 /**
  * Layout of encodeFrame's packed array for the online snapshot, which quantises it field by field
@@ -77,6 +80,7 @@ export const FRAME_LAYOUT = {
   compound: F_COMPOUND,
   surface: F_SURFACE,
   flags: F_FLAGS,
+  pitService: F_PIT_SERVICE,
 } as const;
 
 const fin = (v: number, fallback = 0): number => (Number.isFinite(v) ? v : fallback);
@@ -126,6 +130,7 @@ export function encodeFrame(frame: RenderFrame): Float32Array {
     out[o + F_IMPACT] = fin(c.impact);
     out[o + F_COMPOUND] = codeOf(COMPOUND_CODES, c.compound);
     out[o + F_SURFACE] = codeOf(SURFACE_CODES, c.surface);
+    out[o + F_PIT_SERVICE] = c.pitService === undefined ? NO_PIT_SERVICE : clamp(fin(c.pitService), -1, 1);
     out[o + F_FLAGS] =
       (c.drsOpen ? FLAG_DRS : 0) |
       (c.rainLight ? FLAG_RAIN : 0) |
@@ -153,6 +158,10 @@ function decodeCar(a: Float32Array, oa: number, b: Float32Array | null, ob: numb
   };
   const yawA = fin(a[oa + F_YAW] ?? 0);
   const yaw = b ? wrapAngle(yawA + angleDiff(yawA, fin(b[ob + F_YAW] ?? 0)) * f) : yawA;
+  // in the box in both frames: the service runs on between them; else the nearer frame says whether the car stands there
+  const serviceA = fin(a[oa + F_PIT_SERVICE] ?? NO_PIT_SERVICE, NO_PIT_SERVICE);
+  const serviceB = b ? fin(b[ob + F_PIT_SERVICE] ?? NO_PIT_SERVICE, NO_PIT_SERVICE) : serviceA;
+  const pitService = serviceA >= -1 && serviceB >= -1 ? lerp(serviceA, serviceB, f) : fin(near[on + F_PIT_SERVICE] ?? NO_PIT_SERVICE, NO_PIT_SERVICE);
   return {
     carId: Math.round(fin(a[oa + F_ID] ?? 0)),
     x: v(F_X),
@@ -172,6 +181,7 @@ function decodeCar(a: Float32Array, oa: number, b: Float32Array | null, ob: numb
     compound: valueOf(COMPOUND_CODES, near[on + F_COMPOUND] ?? 0),
     rainLight: (flags & FLAG_RAIN) !== 0,
     limiter: (flags & FLAG_LIMITER) !== 0,
+    ...(pitService >= -1 ? { pitService } : {}),
     damage: {
       frontWing: clamp01(v(F_DMG_FRONT)),
       rearWing: clamp01(v(F_DMG_REAR)),

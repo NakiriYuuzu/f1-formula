@@ -18,6 +18,10 @@ import { MfdPanel } from './mfd';
 import { FlagStack } from './raceControl';
 import { TelemetryPanel, type FuelEstimator } from './telemetry';
 import { TimingPanel } from './timing';
+import { pitGuide, type PitGuide } from './pitGuide';
+import { drivesOwnPitVisit } from '../../race/index';
+import { forwardDistance } from '../../track/loop';
+import { pitRampLength } from '../../track/pit';
 
 export interface ViewRegion {
   playerIndex: 0 | 1;
@@ -66,6 +70,8 @@ export class ViewHud {
   private ownMeasures: { delta: DeltaTracker | null; fuel: FuelEstimator } | null = null;
   private delta: DeltaTracker | null = null;
   private clock = 0;
+  /** last pit guide kind (a missed entry is toasted once) */
+  private pitKind: PitGuide['kind'] = 'none';
   private readonly damageAt: Record<keyof DamageState, number> = {
     frontWing: -Infinity,
     rearWing: -Infinity,
@@ -162,17 +168,46 @@ export class ViewHud {
     const delta = this.delta.update(car.timing, world.time, car.phys.s);
     this.teleShow.set(frame.telemetry);
     if (frame.telemetry) this.telemetry.update(car, world, frame.units, this.track.length);
+    const pit = this.pitGuide(car);
+    if (pit.kind === 'missed' && this.pitKind !== 'missed' && this.watched === null) {
+      this.toast('錯過進站口', '進站指令保留 · 下圈再進站', 'warn');
+    }
+    this.pitKind = pit.kind;
     this.timing.update(car, world, dt, {
       order: frame.order,
       overallBestSectors: frame.overallBestSectors,
       delta,
       deltaRef: this.delta.reference,
       units: frame.units,
-      pitLimit: fin(this.track.pit?.speedLimit, PIT_LIMIT_FALLBACK),
+      pit,
     });
     if (this.watched === null) this.mfd.sync(car, world);
     else this.watchCard.update(car, world);
     this.flags.update(car, world);
+  }
+
+  private pitGuide(car: CarEntry): PitGuide {
+    const track = this.track;
+    const s = car.phys.s;
+    return pitGuide({
+      phase: car.pit.phase,
+      requested: car.pit.requested,
+      active: car.status !== 'finished' && car.status !== 'retired',
+      // (in a visit: who drives it was settled when it began)
+      manual: car.pit.phase === 'none' ? drivesOwnPitVisit(car) : car.race.pitManual,
+      auto: car.race.pitAuto,
+      speed: car.phys.speed,
+      limiter: car.phys.limiter,
+      toEntry: forwardDistance(track, s, track.pit.entry),
+      sinceEntry: forwardDistance(track, track.pit.entry, s),
+      ramp: pitRampLength(track),
+      limit: fin(track.pit?.speedLimit, PIT_LIMIT_FALLBACK),
+      timer: fin(car.pit.timer),
+      stopTotal: fin(car.race.pitStopTotal),
+      hold: fin(car.race.pitHold),
+      repair: car.race.pitRepair === true,
+      compound: car.pit.nextCompound,
+    });
   }
 
   toast(title: string, sub: string, tone: Tone, duration?: number): void {

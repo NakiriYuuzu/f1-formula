@@ -41,7 +41,7 @@ export { RAIN_LEVEL } from './weather';
 export { COLLISION_EVENT_IMPULSE } from './contact';
 export { COAST_INPUT, predictHumanStep } from './step';
 export { ELIMINATED_REASON, eliminationFormat, eliminationLeft, eliminationRisk } from './elimination';
-export { estimatePitLoss, pitLossFactor, PIT_LOSS_FALLBACK, SC_ENDING_PIT_LOSS_FACTOR, SC_PIT_LOSS_FACTOR, VSC_PIT_LOSS_FACTOR } from './pitlane';
+export { drivesOwnPitVisit, estimatePitLoss, pitLossFactor, PIT_LOSS_FALLBACK, SC_ENDING_PIT_LOSS_FACTOR, SC_PIT_LOSS_FACTOR, VSC_PIT_LOSS_FACTOR } from './pitlane';
 
 const ERS_MODES: readonly ErsMode[] = ['none', 'medium', 'hotlap', 'overtake'];
 

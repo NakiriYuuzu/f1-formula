@@ -33,9 +33,13 @@ export interface CarRaceInternal {
   pitSpeed: number;
   /** lateral (m) of the kinematic pit path at the previous step */
   pitLat: number;
+  /** its slope (lateral m per m along the track) at the previous step: the car's heading against the track */
+  pitSlope: number;
   /** s (m) the car stops at: own box or the queue spot behind a team-mate */
   pitStopS: number;
   pitStopTotal: number;
+  /** seconds of the current stop the car stands before its tyres are changed: an unserved time penalty, then repairs */
+  pitHold: number;
   pitRepair: boolean;
   /**
    * driver-driven pit visit (no pit assist): physics + driver inputs except while pitAuto, the kinematic

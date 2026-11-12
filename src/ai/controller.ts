@@ -11,7 +11,7 @@ import { AIR_DENSITY, angleDiff, clamp, clamp01, moveToward, nextRandom, worldTo
 import { isCarHeld, steerInputForAngle, tyreGrip } from '../physics/index';
 import { forwardDistance, inRangeS, pitLaneOffsetAt, pitRampLength, pitZoneLength, poseAt, sampleAt } from '../track/track';
 import { PACE_MODE_FACTOR, difficulty01, highSpeedMargin, limitShare, wetBrakeFactor, wetMistakeFactor, wetPaceFactor, wetTechnique } from './pace';
-import { REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
+import { PIT_LINE_UP, REJOIN_RATE, brakingDecel, capability, kerbLineAt, kerbReachAt, lineCurvatureAt, targetSpeedAt, type SpeedProbe } from './profile';
 import { neutralPlan } from './neutral';
 import { aeroWake } from '../race/wake';
 import { eliminationRisk } from '../race/elimination';
@@ -356,6 +356,14 @@ function recoveryInput(car: CarEntry, track: BuiltTrack, dt: number, input: Cont
   ai.stuckTimer = 0;
 }
 
+/** A human car without the pit assist, called in and past the pit entry: its visit starts once it is on the pit road
+ * (race/pitlane drivesOwnPitVisit, shouldEngagePit). */
+function takingPitRoad(world: WorldState, car: CarEntry, track: BuiltTrack): boolean {
+  if (car.pit.phase !== 'none' || !car.pit.requested || world.config.kind === 'timeTrial') return false;
+  if (car.playerIndex < 0 || car.race.formationAuto || car.assists.pitAssist) return false;
+  return forwardDistance(track, track.pit.entry, car.phys.s) < pitRampLength(track);
+}
+
 /** Compute this step's controls for an AI car. */
 /** Pit visit driven by the controller itself (no pit assist): the entry road down to the limit at the line, the lane
  * at just under the limit with the limiter on, the exit road back up to speed. */
@@ -410,8 +418,9 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
     recoveryInput(car, track, h, input);
     return input;
   }
-  // a driver-driven pit visit (a human car on the AI controller: autopilot): the lane at the limit, limiter on
-  if (car.pit.phase !== 'none' && car.race.pitManual && !car.race.pitAuto) {
+  // a driver-driven pit visit (a human car on the AI controller: autopilot): onto the pit road (the visit starts there),
+  // the lane at the limit, limiter on
+  if ((car.pit.phase !== 'none' && car.race.pitManual && !car.race.pitAuto) || takingPitRoad(world, car, track)) {
     manualPitInput(car, track, input);
     return input;
   }
@@ -512,7 +521,7 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
   if (neutral.yieldSide !== 0) desired = neutral.yieldSide * edgeAhead * 0.85;
   if (car.pit.requested && car.pit.phase === 'none' && world.config.kind !== 'timeTrial') {
     const toEntry = forwardDistance(track, p.s, track.pit.entry);
-    if (toEntry < 420) desired = track.pit.side * edgeAhead;
+    if (toEntry < PIT_LINE_UP) desired = track.pit.side * edgeAhead;
   }
   // a late-braking mistake on our own line: the line opens toward the outside of the corner (missed apex)
   const wide = runWide && desired === null && mistakeCorner ? -mistakeCorner.direction * LATE_BRAKE_WIDE : 0;

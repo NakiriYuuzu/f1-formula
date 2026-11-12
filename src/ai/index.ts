@@ -54,7 +54,7 @@ export {
   type StyleFactors,
 } from './pace';
 export { driverStyle, type DriverStyle } from './personality';
-export { capability, cornerSpeed, brakingDecel, targetSpeedAt, lineCurvatureAt, kerbLineAt, kerbReachAt, KERB_REACH, SPEED_CAP, type Capability } from './profile';
+export { capability, cornerSpeed, brakingDecel, targetSpeedAt, lineCurvatureAt, kerbLineAt, kerbReachAt, KERB_REACH, PATH_EDGE_MARGIN, PIT_LINE_UP, SPEED_CAP, type Capability } from './profile';
 export { naturalMistakeChance, drawNaturalMistake } from './controller';
 export {
   decidePitStop,

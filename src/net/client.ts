@@ -346,6 +346,13 @@ export class ClientSession {
     const target = this.viewTarget();
     if (this.view !== null && target !== null && !(Math.abs(target - this.view) <= VIEW_SNAP)) this.setView(target);
     const frame = this.hostFrame() ?? local;
+    // where each stop is (the pit crews' clock): the snapshot leaves it out, the mirrored pit state has it
+    if (frame !== local) {
+      for (const c of frame.cars) {
+        const service = local.cars.find((l) => l.carId === c.carId)?.pitService;
+        if (service !== undefined) c.pitService = service;
+      }
+    }
     const car = this.car;
     const predicted = this.drive === 'predicted' ? local.cars.find((c) => c.carId === this.carId) : undefined;
     if (!car || !predicted) return frame;

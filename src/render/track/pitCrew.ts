@@ -29,6 +29,7 @@ import {
   crewTarget,
   gunWobble,
   nextBoxPhase,
+  serviceClock,
   walkBob,
   walkToward,
   type BoxPhase,
@@ -263,6 +264,8 @@ interface Box {
   members: Member[];
   /** observations of the current frame */
   stoppedCar: number;
+  /** its pitService (CarRenderState; undefined = not given) */
+  stoppedService: number | undefined;
   approaching: boolean;
 }
 
@@ -340,6 +343,7 @@ export class PitCrew {
         carId: -99,
         members: [],
         stoppedCar: -99,
+        stoppedService: undefined,
         approaching: false,
       };
       for (let i = 0; i < CREW_SLOTS.length; i++) {
@@ -469,12 +473,16 @@ export class PitCrew {
     this.lifts.clear();
     for (const box of this.boxes) {
       const departing = this.departing(box, cars);
-      const next = nextBoxPhase(box.phase, { stopped: box.stoppedCar !== -99, approaching: box.approaching, departing });
+      const service = box.stoppedService;
+      const held = service !== undefined && service < 0;
+      const next = nextBoxPhase(box.phase, { stopped: box.stoppedCar !== -99, approaching: box.approaching, departing, held });
       if (next !== box.phase) {
         box.phase = next;
         box.t = 0;
         this.dirty = true;
       } else box.t += dt;
+      // the stop's own clock where the car says it: the jacks come down as the stop ends
+      if (next === 'service' && service !== undefined) box.t = serviceClock(service);
       if (next === 'service') box.carId = box.stoppedCar;
       const lift = box.phase === 'service' ? crewLift(box.phase, box.t) : 0;
       if (lift > 0) this.lifts.set(box.carId, lift);
@@ -525,6 +533,7 @@ export class PitCrew {
     const { track: t, frame: f } = this.ctx;
     for (const box of this.boxes) {
       box.stoppedCar = -99;
+      box.stoppedService = undefined;
       box.approaching = false;
     }
     const reach = (PIT_BOX_COUNT * PIT_BOX_SPACING) / 2 + CREW_CALL_DISTANCE + 60;
@@ -539,7 +548,10 @@ export class PitCrew {
         const dz = c.z - box.z;
         const along = dx * box.fx + dz * box.fz;
         const across = dx * box.rx + dz * box.rz;
-        if (speed < CREW_STOPPED_SPEED && Math.abs(along) < CREW_BOX_ALONG && Math.abs(across) < CREW_BOX_ACROSS) box.stoppedCar = c.carId;
+        if (speed < CREW_STOPPED_SPEED && Math.abs(along) < CREW_BOX_ALONG && Math.abs(across) < CREW_BOX_ACROSS) {
+          box.stoppedCar = c.carId;
+          box.stoppedService = c.pitService;
+        }
       }
       // a team car in the pit lane short of its box calls its crew out
       if (own === undefined) continue;

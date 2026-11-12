@@ -1,0 +1,4 @@
+monza        stops 20 lane time (no stationary) best 30.12 s; traffic extra mean 0.01 max 0.02 s; >0.5 s: 0
+monaco       stops 20 lane time (no stationary) best 17.07 s; traffic extra mean 0.03 max 0.09 s; >0.5 s: 0
+silverstone  stops 20 lane time (no stationary) best 19.80 s; traffic extra mean 0.07 max 0.14 s; >0.5 s: 0
+suzuka       stops 20 lane time (no stationary) best 26.71 s; traffic extra mean 0.01 max 0.05 s; >0.5 s: 0
