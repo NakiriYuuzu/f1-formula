@@ -20,7 +20,7 @@ http://127.0.0.1:5173/?bench=1&quality=low&dpr=1,2&autorun=1     only low, at pi
 | `scale` | `1` | the resolution-scale setting (0.5 to 1) |
 | `frames`, `warmup` | `300`, `45` | timed frames and discarded frames per scenario |
 | `runs` | `1` | repeat the whole matrix |
-| `aa` | `1` | `0` turns the canvas MSAA off. It is fixed when the WebGL context is created, so one page measures one canvas MSAA setting |
+| `aa` | tier's own | `0` or `1` forces the canvas MSAA. By default the first tier in `quality` decides (`canvasMsaa` in `src/render/core/quality.ts`). It is fixed when the WebGL context is created, so one page measures one canvas MSAA setting: use one tier per page to compare tiers |
 | `tune` | | `field:value,...` overrides fields of the quality table (`src/render/core/quality.ts`) for a tuned variant, e.g. `tune=ibl:0,maxPixelRatio:2` |
 | `ab` | `0` | with `tune`, alternate the shipped table and the tuned one on every run (rows of the tuned variant carry `variant=tuned`) |
 | `hold` | `0` | load the first scenario, run its warm-up, then stop on the frame (for screenshots) |
@@ -52,18 +52,24 @@ included. It is not a frame rate the display can show: a 60 Hz screen shows at m
 Send a report with: the copied JSON (or the raw rows), the browser and the GPU line of the panel, the display's
 resolution and scaling, and whether the machine was on battery.
 
-## Collecting runs from a script
+## Collecting runs
 
-`browser-bench.ts` drives a URL through `cua-driver` in a throwaway Chrome profile and writes the raw rows:
+The page does all the measuring, so any way of opening the URL works: a person, a browser's own command line or a driver
+that can read a page value. A collector needs three things: open the URL, wait until `window.__benchResult.done` is
+`true` (the panel then says `完成`), and read `window.__benchResult` (or press `複製結果` and paste into a file).
 
 ```sh
-bun run tools/bench/perf/browser-bench.ts prepare                      # isolated Chrome on the real GPU
-bun run tools/bench/perf/browser-bench.ts gpu  '<url>' out.tsv         # real GPU
-bun run tools/bench/perf/browser-bench.ts soft '<url>' out.tsv         # a Chrome started with --use-angle=swiftshader (CPU rasteriser)
-bun run tools/bench/perf/browser-bench.ts shot '<url&hold=1>' out.png  # the frozen frame
-bun run tools/bench/perf/bench-table.ts A=a1.tsv,a2.tsv B=b1.tsv,b2.tsv  # medians, spread and the change B vs A
-python3 -I tools/bench/perf/imgdiff.py a.png b.png [diff.png]          # pixel difference of two screenshots
+bun run tools/bench/perf/bench-table.ts A=a1.json,a2.json B=b1.json,b2.json   # medians, spread and the change B vs A
+python3 -I tools/bench/perf/imgdiff.py a.png b.png [diff.png]                  # pixel difference of two screenshots
 ```
+
+`bench-table.ts` takes the copied JSON (`.json`) or the panel's raw rows saved as a text file (`.tsv`), one file per page
+load. Alternate the two sides (A, B, A, B, ...) and use one tier per page when comparing tiers, so every page has its own
+canvas MSAA setting.
+
+A software-rasterised run (the second proxy) is a browser started with its GPU turned off, for example Chrome with
+`--use-angle=swiftshader --enable-unsafe-swiftshader`. For a screenshot of one frame add `hold=1&scenario=<id>` to the URL:
+the bench loads the scenario, runs its warm-up and stops on the frame, with the panel hidden.
 
 An Apple-silicon GPU is tile-based: opaque overdraw and MSAA cost far less there than on an Intel integrated GPU, so a
 null result on it says little about those. The software rasteriser is the second proxy: it is bound by fill and vertex

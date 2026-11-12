@@ -1,6 +1,7 @@
-// Aggregates benchmark rows collected by browser-bench.ts (tab-separated, one file per page load).
-//   bench-table.ts A=a1.tsv,a2.tsv            one table: median of the per-run medians, spread, counters
-//   bench-table.ts A=a1.tsv,a2.tsv B=b1.tsv   the same plus B and the change B vs A per cell
+// Aggregates benchmark runs: the tab-separated raw rows of the panel, or the JSON its copy button puts on the clipboard.
+//   bench-table.ts A=a1.tsv,a2.json            one table: median of the per-run medians, spread, counters
+//   bench-table.ts A=a1.tsv,a2.json B=b1.tsv   the same plus B and the change B vs A per cell
+// One file per page load. Save the clipboard of the copy button as a .json file, or the raw rows as a .tsv file.
 import { readFileSync } from 'node:fs';
 
 interface Cell {
@@ -28,15 +29,35 @@ function cellOf(cells: Map<string, Cell>, key: string, first: Record<string, str
   return c;
 }
 
-function loadTsv(files: string[]): Map<string, Cell> {
+/** Rows of a copied `window.__benchResult`, keyed like the raw-row header of the panel. */
+function rowsOfJson(file: string): Record<string, string>[] {
+  const result = JSON.parse(readFileSync(file, 'utf8')) as { rows: Record<string, any>[] };
+  return result.rows.map((r) => ({
+    run: String(r.run), variant: r.variant, quality: r.quality, dpr: r.dpr ?? 'device', pixelRatio: String(r.pixelRatio), scenario: r.scenario, frames: String(r.frames),
+    medianMs: String(r.frameMs.median), p95Ms: String(r.frameMs.p95), p99Ms: String(r.frameMs.p99), meanMs: String(r.frameMs.mean),
+    cpuMedianMs: String(r.cpuMs.median), gpuWaitMedianMs: String(r.gpuWaitMs.median),
+    drawCalls: String(r.counters.drawCalls), triangles: String(r.counters.triangles), programs: String(r.counters.programs), canvasPixels: String(r.counters.canvasPixels),
+    canvasSamples: String(r.counters.canvasSamples), sceneSamples: String(r.counters.sceneSamples), fullscreenPasses: String(r.counters.fullscreenPasses),
+    postFillMpx: String(r.counters.postFillMpx), shadowRenders: String(r.counters.shadowRenders), lights: String(r.counters.lights), shadowLights: String(r.counters.shadowLights),
+    ibl: r.counters.ibl ? '1' : '0', phaseEnd: r.phaseEnd, errors: String(r.errors),
+  }));
+}
+
+function rowsOfTsv(file: string): Record<string, string>[] {
+  const lines = readFileSync(file, 'utf8').trim().split('\n');
+  const head = (lines[0] ?? '').split('\t');
+  return lines.slice(1).map((line) => {
+    const v = line.split('\t');
+    const r: Record<string, string> = {};
+    head.forEach((h, i) => (r[h] = v[i] ?? ''));
+    return r;
+  });
+}
+
+function loadRuns(files: string[]): Map<string, Cell> {
   const cells = new Map<string, Cell>();
   for (const file of files) {
-    const lines = readFileSync(file, 'utf8').trim().split('\n');
-    const head = (lines[0] ?? '').split('\t');
-    for (const line of lines.slice(1)) {
-      const v = line.split('\t');
-      const r: Record<string, string> = {};
-      head.forEach((h, i) => (r[h] = v[i] ?? ''));
+    for (const r of file.endsWith('.json') ? rowsOfJson(file) : rowsOfTsv(file)) {
       if (r.errors !== '0') console.error(`warning: ${file} ${r.quality} ${r.scenario} had ${r.errors} errors`);
       const c = cellOf(cells, `${r.variant === 'tuned' ? `${r.quality}*` : r.quality}\t${r.scenario}\t${r.dpr}`, r);
       c.med.push(Number(r.medianMs));
@@ -52,7 +73,7 @@ function loadTsv(files: string[]): Map<string, Cell> {
 const args = process.argv.slice(2);
 const sets = args
   .filter((a) => a.includes('='))
-  .map((a) => ({ name: a.split('=')[0] ?? '', cells: loadTsv((a.split('=')[1] ?? '').split(',')) }));
+  .map((a) => ({ name: a.split('=')[0] ?? '', cells: loadRuns((a.split('=')[1] ?? '').split(',')) }));
 const order = ['low', 'medium', 'high', 'ultra'];
 const keys = [...new Set(sets.flatMap((s) => [...s.cells.keys()]))].sort((a, b) => {
   const [qa = '', sa = '', da = ''] = a.split('\t');
