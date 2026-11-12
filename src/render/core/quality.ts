@@ -74,6 +74,12 @@ export interface QualityProfile {
   ibl: boolean;
   /** lowest fraction of the pixel ratio the adaptive resolution may drop to */
   adaptiveMinScale: number;
+  /** pit crew bodies are articulated rigs (walk cycle, kneeling, hands on the gear); false = three rigid instanced poses */
+  crewRig: boolean;
+  /** sides of a mechanic's limbs (rig and rigid poses alike); the head and gloves follow it. Fewer sides = fewer triangles per person */
+  crewRadial: number;
+  /** a crew that is only waiting at its garage is not drawn while every camera is farther than this (m); crews at work always are */
+  crewDrawDistance: number;
 }
 
 const PROFILES: Record<QualityLevel, QualityProfile> = {
@@ -105,6 +111,9 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     canvasMsaa: false,
     ibl: true,
     adaptiveMinScale: 0.5,
+    crewRig: false,
+    crewRadial: 4,
+    crewDrawDistance: 90,
   },
   medium: {
     level: 'medium',
@@ -134,6 +143,9 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     canvasMsaa: true,
     ibl: true,
     adaptiveMinScale: 0.6,
+    crewRig: true,
+    crewRadial: 6,
+    crewDrawDistance: Infinity,
   },
   high: {
     level: 'high',
@@ -163,6 +175,9 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     canvasMsaa: true,
     ibl: true,
     adaptiveMinScale: 0.6,
+    crewRig: true,
+    crewRadial: 8,
+    crewDrawDistance: Infinity,
   },
   ultra: {
     level: 'ultra',
@@ -192,6 +207,9 @@ const PROFILES: Record<QualityLevel, QualityProfile> = {
     canvasMsaa: true,
     ibl: true,
     adaptiveMinScale: 0.6,
+    crewRig: true,
+    crewRadial: 10,
+    crewDrawDistance: Infinity,
   },
 };
 

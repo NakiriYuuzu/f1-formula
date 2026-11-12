@@ -3,7 +3,8 @@
  * and carried tyres, plus two blanket-wrapped spare tyre stacks by every garage door. From medium quality up every
  * mechanic is an articulated rig (pitCrewRig.ts / pitCrewPose.ts: walk / run cycle, smooth stand ↔ kneel ↔ crouch,
  * hands on the tyre / gun / jack, idle weight shifts, head turns, body-size variety); low keeps three rigid instanced
- * poses (standing, kneeling, crouching). Each box follows pitCrewMath: waiting in front of the garage, out to their spots
+ * poses (standing, kneeling, crouching) built from few-sided limbs, and only draws a waiting crew while a camera is near it.
+ * Each box follows pitCrewMath: waiting in front of the garage, out to their spots
  * when a team car comes down the pit lane, kneeling / crouching at the wheels while it stands in the box (jacks up,
  * old tyres off, new tyres on, jacks down), stepping back as it pulls away, then walking home.
  *
@@ -140,49 +141,47 @@ const _e = new THREE.Euler(0, 0, 0, 'YXZ');
 const _hold: PoseV3 = [0, 0, 0];
 const _input: PoseInput = { state: createPoseState(), phase: 0, time: 0, seed: 0, item: 'none', hold: _hold, pitch: 0 };
 
-/** Capsule from `a` to `b` (radius r) appended to a builder. */
-function limb(b: GeoBuilder, a: V3, c: V3, r: number): void {
+/** Prism with `sides` sides from `a` to `b` (radius r), reaching r / 2 past both joints. Open at the ends unless `capped`: the joints and the torso hide them. */
+function limb(b: GeoBuilder, a: V3, c: V3, r: number, sides: number, capped = false): void {
   _a.set(a[0], a[1], a[2]);
   _b.set(c[0], c[1], c[2]);
   const len = Math.max(0.01, _a.distanceTo(_b));
-  const g = new THREE.CapsuleGeometry(r, len, 2, 6);
+  const g = new THREE.CylinderGeometry(r, r, len + r, sides, 1, !capped);
   _q.setFromUnitVectors(_up, _b.clone().sub(_a).normalize());
   _m.compose(_a.add(_b).multiplyScalar(0.5), _q, _s);
   addGeometry(b, g, _m);
   g.dispose();
 }
 
-function sphere(b: GeoBuilder, p: V3, r: number, sx = 1, sy = 1, sz = 1, segments = 8): void {
-  const g = new THREE.SphereGeometry(r, segments, Math.max(4, segments - 2));
+function sphere(b: GeoBuilder, p: V3, r: number, sx: number, sy: number, sz: number, width: number, height: number): void {
+  const g = new THREE.SphereGeometry(r, width, height);
   _m.compose(_a.set(p[0], p[1], p[2]), _q.identity(), _b.set(sx, sy, sz));
   addGeometry(b, g, _m);
   g.dispose();
 }
 
-/** Overalls (white = team colour via instance colour, trousers a darker shade) and the gear (helmet, visor, gloves, boots). */
-function buildPerson(pose: CrewPose): { suit: THREE.BufferGeometry; gear: THREE.BufferGeometry } {
+/** Overalls (white = team colour via instance colour, trousers a darker shade) and the gear (helmet, visor, boots); `sides` = sides of a limb. */
+function buildPerson(pose: CrewPose, sides: number): { suit: THREE.BufferGeometry; gear: THREE.BufferGeometry } {
   const k = SKELETONS[pose];
   const suit = new GeoBuilder(true);
   const gear = new GeoBuilder(true);
   const white = new THREE.Color(1, 1, 1);
   const trousers = new THREE.Color(0.55, 0.55, 0.55);
   suit.setColor(white);
-  limb(suit, k.pelvis, k.chest, 0.15);
-  limb(suit, [0.2, k.chest[1] + 0.03, k.chest[2]], [-0.2, k.chest[1] + 0.03, k.chest[2]], 0.08);
+  limb(suit, k.pelvis, k.chest, 0.15, sides, true);
   for (const [s, e, h] of k.arms) {
-    limb(suit, s, e, 0.058);
-    limb(suit, e, h, 0.05);
+    limb(suit, s, e, 0.058, sides);
+    limb(suit, e, h, 0.05, sides);
   }
   suit.setColor(trousers);
   for (const [hip, knee, ankle] of k.legs) {
-    limb(suit, hip, knee, 0.078);
-    limb(suit, knee, ankle, 0.064);
+    limb(suit, hip, knee, 0.078, sides);
+    limb(suit, knee, ankle, 0.064, sides);
   }
   gear.setColor(new THREE.Color('#eceef0'));
-  sphere(gear, k.head, 0.135, 1, 1.05, 1.08);
+  sphere(gear, k.head, 0.135, 1, 1.05, 1.08, sides + 2, sides);
   gear.setColor(new THREE.Color('#14161a'));
-  sphere(gear, [k.head[0], k.head[1] + 0.005, k.head[2] + 0.075], 0.1, 1.05, 0.55, 0.7);
-  for (const [, , hand] of k.arms) sphere(gear, hand, 0.05, 1, 1, 1, 5);
+  sphere(gear, [k.head[0], k.head[1] + 0.005, k.head[2] + 0.075], 0.1, 1.05, 0.55, 0.7, sides, sides - 1);
   gear.setColor(new THREE.Color('#1c1d20'));
   for (const [, , ankle] of k.legs) addBox(gear, ankle[0], Math.max(0.05, ankle[1] - 0.045), ankle[2] + 0.06, 0, 0.11, 0.1, 0.27);
   const sg = suit.build();
@@ -257,6 +256,8 @@ interface Box {
   garageSide: number;
   phase: BoxPhase;
   t: number;
+  /** drawn this frame: working crews always, waiting ones while a camera is within crewDrawDistance */
+  shown: boolean;
   /** car being serviced / last serviced (-99 = none) */
   carId: number;
   members: Member[];
@@ -273,7 +274,7 @@ export class PitCrew {
   private readonly tyres: THREE.InstancedMesh;
   private readonly guns: THREE.InstancedMesh;
   private readonly jacks: THREE.InstancedMesh;
-  /** articulated bodies (medium quality and up); null = the three rigid poses */
+  /** articulated bodies (quality's crewRig); null = the three rigid poses */
   private readonly rig: CrewRig | null = null;
   private readonly joints = createJoints();
   private now = 0;
@@ -288,6 +289,8 @@ export class PitCrew {
   private readonly centre = new THREE.Vector3();
   private lastTime = Number.NaN;
   private dirty = true;
+  /** the shown set changed: the rig's per-instance team colours follow the draw order, so they are written again */
+  private recolor = false;
 
   constructor(ctx: SceneryContext, dims: CarDims, carBox: Map<number, number>) {
     this.ctx = ctx;
@@ -333,6 +336,7 @@ export class PitCrew {
         garageSide: ps,
         phase: 'idle',
         t: 0,
+        shown: true,
         carId: -99,
         members: [],
         stoppedCar: -99,
@@ -375,7 +379,7 @@ export class PitCrew {
       return m;
     };
     const toolMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-tools', vertexColors: true, roughness: 0.55, metalness: 0.35 }));
-    if (ctx.quality.level !== 'low') {
+    if (ctx.quality.crewRig) {
       this.rig = new CrewRig(ctx.quality.level, people, disposer, mesh);
       this.boxes.forEach((box, bi) => box.members.forEach((_, i) => this.rig?.setColor(bi * CREW_SLOTS.length + i, box.color)));
       this.rig.setCount(this.boxes.length * CREW_SLOTS.length);
@@ -383,7 +387,7 @@ export class PitCrew {
       const suitMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-suit', vertexColors: true, roughness: 0.82 }));
       const gearMat = disposer.add(new THREE.MeshStandardMaterial({ name: 'crew-gear', vertexColors: true, roughness: 0.32, metalness: 0.05 }));
       for (const pose of POSES) {
-        const g = buildPerson(pose);
+        const g = buildPerson(pose, ctx.quality.crewRadial);
         this.suits.push(mesh(g.suit, suitMat, people, `crewSuit-${pose}`));
         this.gears.push(mesh(g.gear, gearMat, people, `crewGear-${pose}`));
       }
@@ -500,7 +504,20 @@ export class PitCrew {
     let near = false;
     for (const c of cams) if (c.distanceToSquared(this.centre) < CREW_VIEW_DISTANCE * CREW_VIEW_DISTANCE) near = true;
     this.group.visible = near || cams.length === 0;
+    if (this.group.visible) this.showNearBoxes(cams);
     if (this.group.visible && this.dirty) this.rebuild();
+  }
+
+  private showNearBoxes(cams: readonly THREE.Vector3[]): void {
+    const reach = this.ctx.quality.crewDrawDistance;
+    for (const box of this.boxes) {
+      let shown = box.phase !== 'idle' || cams.length === 0;
+      for (let i = 0; i < cams.length && !shown; i++) shown = Math.hypot(cams[i].x - box.x, cams[i].y - box.y, cams[i].z - box.z) < reach;
+      if (shown === box.shown) continue;
+      box.shown = shown;
+      this.dirty = true;
+      this.recolor = true;
+    }
   }
 
   /** Which box has a car standing in it, and which boxes expect a team car coming down the pit lane. */
@@ -562,6 +579,7 @@ export class PitCrew {
     let guns = 0;
     let jacks = 0;
     for (const box of this.boxes) {
+      if (!box.shown) continue;
       for (const m of box.members) {
         const pose: CrewPose = m.moving ? 'stand' : m.target.pose;
         const pi = POSES.indexOf(pose);
@@ -616,7 +634,9 @@ export class PitCrew {
     let jacks = 0;
     const j = this.joints;
     for (const box of this.boxes) {
+      if (!box.shown) continue;
       for (const m of box.members) {
+        if (this.recolor) rig.setColor(person, box.color);
         const root = rig.beginPerson(box.x + box.fx * m.f + box.rx * m.r, box.y, box.z + box.fz * m.f + box.rz * m.r, box.yaw + m.yaw, m.scale);
         const item = m.target.item;
         const table = item === 'tyre' ? RIG_TYRE_HOLD : item === 'gun' ? RIG_GUN_HOLD : RIG_JACK_HOLD;
@@ -647,6 +667,8 @@ export class PitCrew {
         }
       }
     }
+    this.recolor = false;
+    rig.setCount(person);
     rig.markDirty();
     for (const [mesh, count] of [
       [this.tyres, tyres],

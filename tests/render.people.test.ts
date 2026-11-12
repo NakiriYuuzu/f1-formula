@@ -23,7 +23,8 @@ import {
   type PoseInput,
   type V3,
 } from '../src/render/track/pitCrewPose';
-import { CREW_RADIAL, SEGMENTS, buildRigGeometry } from '../src/render/track/pitCrewRig';
+import { SEGMENTS, buildRigGeometry } from '../src/render/track/pitCrewRig';
+import { baseQualityProfile } from '../src/render/core/quality';
 import { CHEER_CARS, SEAT_HEIGHT, THIGH, selectCheerCars, standingLegs } from '../src/render/track/crowdMotion';
 import { CROWD_DETAIL, CROWD_MOTION } from '../src/render/track/trackside';
 import { CROWD_CARS, patchCrowd } from '../src/render/track/sceneryMaterials';
@@ -196,8 +197,10 @@ describe('rig geometry', () => {
     });
   }
   test('radial detail grows with quality', () => {
-    expect(CREW_RADIAL.medium).toBeLessThan(CREW_RADIAL.high);
-    expect(CREW_RADIAL.high).toBeLessThan(CREW_RADIAL.ultra);
+    const radial = (level: QualityLevel): number => baseQualityProfile(level).crewRadial;
+    expect(radial('low')).toBeLessThan(radial('medium'));
+    expect(radial('medium')).toBeLessThan(radial('high'));
+    expect(radial('high')).toBeLessThan(radial('ultra'));
   });
 });
 
@@ -237,6 +240,69 @@ describe('crews by quality', () => {
       const arms = crew.group.children.find((c) => c.name === 'crewRig-upperArm') as THREE.InstancedMesh;
       expect(arms.count).toBe(torsos.count * 2);
       disposer.dispose();
+    }
+  });
+
+  test('low: a rigid person costs a fraction of its old 840 triangles and less than half a medium rig person', () => {
+    const track = buildTrack(longDef());
+    const { ctx, disposer } = makeContext(track, { level: 'low' });
+    const crew = new PitCrew(ctx, carDims(), new Map());
+    const tris = (m: THREE.Mesh): number => (m.geometry.index ? m.geometry.index.count : m.geometry.getAttribute('position').count) / 3;
+    const meshes = crew.group.children.filter((c) => c.name.startsWith('crewSuit') || c.name.startsWith('crewGear')) as THREE.Mesh[];
+    expect(meshes.length).toBe(6);
+    const rig = buildRigGeometry('medium');
+    let rigTris = 0;
+    for (const seg of SEGMENTS) rigTris += ((rig[seg].index?.count ?? 0) / 3) * (seg === 'torso' || seg === 'head' ? 1 : 2);
+    for (const pose of ['stand', 'kneel', 'crouch']) {
+      const person = meshes.filter((m) => m.name.endsWith(pose)).reduce((n, m) => n + tris(m), 0);
+      expect(person).toBeLessThan(280);
+      expect(person).toBeLessThan(rigTris / 2);
+    }
+    disposer.dispose();
+  });
+
+  test('a waiting crew is drawn only while a camera is within crewDrawDistance; a crew at work always is (rigid poses and rig)', () => {
+    const track = buildTrack(longDef());
+    for (const level of ['low', 'high'] as QualityLevel[]) {
+      const base = makeContext(track, { level });
+      const crew = new PitCrew({ ...base.ctx, quality: { ...base.ctx.quality, crewDrawDistance: 30 } }, carDims(), new Map([[7, 5]]));
+      const people = (): number => {
+        let n = 0;
+        crew.group.traverse((o) => {
+          if ((o as THREE.InstancedMesh).isInstancedMesh && (o.name.startsWith('crewSuit') || o.name === 'crewRig-torso')) n += (o as THREE.InstancedMesh).count;
+        });
+        return n;
+      };
+      const first = crew.boxInfo(0);
+      if (!first) throw new Error('no box 0');
+      const cam = new THREE.Vector3(first.x, first.y + 2, first.z);
+      let within = 0;
+      for (let b = 0; b < crew.boxCount; b++) {
+        const info = crew.boxInfo(b);
+        if (info && Math.hypot(info.x - cam.x, info.y - cam.y, info.z - cam.z) < 30) within++;
+      }
+      expect(within).toBeGreaterThan(0);
+      expect(within).toBeLessThan(crew.boxCount - 1);
+      crew.update([], 1, [cam]);
+      crew.update([], 1.1, [cam]);
+      expect(people()).toBe(within * CREW_SLOTS.length);
+      // no camera at all (replay seek, tests): everyone is drawn
+      crew.update([], 1.2, []);
+      expect(people()).toBe(crew.boxCount * CREW_SLOTS.length);
+      crew.update([], 1.3, [cam]);
+      expect(people()).toBe(within * CREW_SLOTS.length);
+      // a car stands in box 5, out of the camera's reach: that crew is at work and joins the picture
+      const far = crew.boxInfo(5);
+      if (!far) throw new Error('no box 5');
+      expect(Math.hypot(far.x - cam.x, far.y - cam.y, far.z - cam.z)).toBeGreaterThan(30);
+      let time = 2;
+      for (let i = 0; i < 30; i++) {
+        time += 1 / 30;
+        crew.update([carState({ carId: 7, x: far.x, y: far.y, z: far.z, yaw: far.yaw })], time, [cam]);
+      }
+      expect(crew.boxInfo(5)?.phase).toBe('service');
+      expect(people()).toBe((within + 1) * CREW_SLOTS.length);
+      base.disposer.dispose();
     }
   });
 
