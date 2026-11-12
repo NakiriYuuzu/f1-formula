@@ -304,8 +304,9 @@ export class ClientSession {
     this.send({ t: 'cmd', session: this.session, command });
   }
 
-  requestPit(compound: TireCompound): void {
-    this.command({ cmd: 'pit', compound });
+  /** `fuel`: an endurance race's tank (kg) after the stop (undefined: the automatic fill) */
+  requestPit(compound: TireCompound, fuel?: number): void {
+    this.command(fuel === undefined ? { cmd: 'pit', compound } : { cmd: 'pit', compound, fuel });
   }
 
   cancelPit(): void {

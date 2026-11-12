@@ -29,7 +29,7 @@ import type {
 import { FRAME_LAYOUT, NO_PIT_SERVICE, decodeFrame, encodeFrame } from '../app/replay';
 import { TAU, wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -669,7 +669,8 @@ export interface LobbyState {
 }
 
 export type ClientCommand =
-  | { cmd: 'pit'; compound: TireCompound }
+  /** `fuel`: an endurance race's tank (kg) after the stop (absent: the automatic fill) */
+  | { cmd: 'pit'; compound: TireCompound; fuel?: number }
   | { cmd: 'cancelPit' }
   | { cmd: 'ers'; mode: ErsMode }
   | { cmd: 'retire' };
@@ -764,7 +765,7 @@ function isCommand(v: unknown): v is ClientCommand {
   if (!isObj(v)) return false;
   switch (v.cmd) {
     case 'pit':
-      return typeof v.compound === 'string' && ['soft', 'medium', 'hard', 'inter', 'wet'].includes(v.compound);
+      return typeof v.compound === 'string' && ['soft', 'medium', 'hard', 'inter', 'wet'].includes(v.compound) && (v.fuel === undefined || isNum(v.fuel));
     case 'cancelPit':
     case 'retire':
       return true;

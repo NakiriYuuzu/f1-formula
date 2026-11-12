@@ -696,7 +696,7 @@ export class HostSession {
     r.slots = [];
     switch (c.cmd) {
       case 'pit':
-        requestPit(this.world, carId, c.compound);
+        requestPit(this.world, carId, c.compound, c.fuel);
         break;
       case 'cancelPit':
         cancelPit(this.world, carId);

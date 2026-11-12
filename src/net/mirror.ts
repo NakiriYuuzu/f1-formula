@@ -73,7 +73,7 @@ function carView(c: CarEntry, own: boolean): { [k: string]: Json } {
     ...(own ? {} : { phys: otherPhys(c.phys) }),
     assists: plain(c.assists),
     // timing tower / pit HUD read these race internals; the client's prediction checks who drives (pit / formation); the
-    // pit crews follow a stop's length and hold (the snapshot leaves CarRenderState.pitService out)
+    // pit crews follow a stop's length and hold, the pit guide its fill (the snapshot leaves CarRenderState.pitService out)
     race: plain({
       usedCompounds: c.race.usedCompounds,
       pitManual: c.race.pitManual,
@@ -81,6 +81,7 @@ function carView(c: CarEntry, own: boolean): { [k: string]: Json } {
       pitSpeeding: c.race.pitSpeeding,
       pitStopTotal: c.race.pitStopTotal,
       pitHold: c.race.pitHold,
+      pitFuel: c.race.pitFuel,
       pitRepair: c.race.pitRepair,
       parking: c.race.parking,
       formationAuto: c.race.formationAuto,

@@ -510,7 +510,7 @@ export class SessionRuntime {
       restart: this.restartable ? () => this.restart() : undefined,
       quit: () => this.deps.quit(),
       openSettings: () => this.deps.openSettings(),
-      requestPit: (carId, compound) => (this.client ? this.client.requestPit(compound) : requestPit(this.world, carId, compound)),
+      requestPit: (carId, compound, fuel) => (this.client ? this.client.requestPit(compound, fuel) : requestPit(this.world, carId, compound, fuel)),
       cancelPit: (carId) => (this.client ? this.client.cancelPit() : cancelPit(this.world, carId)),
       setErsMode: (carId, mode) => (this.client ? this.client.setErsMode(mode) : setErsMode(this.world, carId, mode)),
       setRacingLine: (mode) => {
@@ -716,17 +716,18 @@ export class SessionRuntime {
     const car = w.cars[carId];
     if (!car) return;
     const compound = this.hud.getMfdCompound(playerIndex) ?? car.pit.nextCompound;
+    const fuel = this.hud.getMfdFuel(playerIndex);
     if (this.client) {
       if (car.pit.requested) {
         if (car.pit.phase === 'none') this.client.cancelPit();
-      } else this.client.requestPit(compound);
+      } else this.client.requestPit(compound, fuel);
       return;
     }
     if (car.pit.requested) {
       if (car.pit.phase === 'none') cancelPit(w, carId);
       return;
     }
-    requestPit(w, carId, compound);
+    requestPit(w, carId, compound, fuel);
   }
 
   private present(dt: number, fps: number): void {
