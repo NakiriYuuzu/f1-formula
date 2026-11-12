@@ -8,10 +8,8 @@ const STYLE = `
 .nvb p{margin:2px 0}
 .nvb button{font:inherit;color:#fff;background:#d64a1a;border:0;border-radius:5px;padding:5px 12px;margin:6px 6px 6px 0;cursor:pointer}
 .nvb button:disabled{background:#4a5163;cursor:default}
-.nvb table{border-collapse:collapse;width:100%;margin:6px 0}
-.nvb th,.nvb td{border-bottom:1px solid #263044;padding:2px 5px;text-align:right;white-space:nowrap}
-.nvb th:first-child,.nvb td:first-child,.nvb th:nth-child(2),.nvb td:nth-child(2){text-align:left}
 .nvb pre{margin:6px 0 0;max-height:7em;overflow:auto;font-size:10px;color:#9fb0c8;white-space:pre}
+.nvb pre#bench-summary{max-height:none;font-size:11px;color:#e6ebf2}
 .nvb .warn{color:#ffb454}
 .nvb.hold{opacity:.0;pointer-events:none}
 `;
@@ -54,7 +52,7 @@ export class BenchPanel {
   private readonly info = document.createElement('div');
   private readonly start = document.createElement('button');
   private readonly copy = document.createElement('button');
-  private readonly table = document.createElement('div');
+  private readonly table = document.createElement('pre');
   private readonly text = document.createElement('pre');
 
   constructor(
@@ -79,8 +77,9 @@ export class BenchPanel {
     this.copy.disabled = true;
     this.copy.addEventListener('click', () => void this.copyJson());
     this.text.id = 'bench-text';
+    this.table.id = 'bench-summary';
     this.status.id = 'bench-status';
-    this.root.append(title, this.status, this.info, this.start, this.copy, this.table, this.text);
+    this.root.append(title, this.status, this.info, this.start, this.copy, this.text, this.table);
     host.append(this.root);
     this.status.textContent = this.params.autorun ? '準備中…' : '按「開始測試」。測試期間請勿切換分頁或最小化視窗。';
     this.renderInfo(null);
@@ -127,9 +126,8 @@ export class BenchPanel {
       if (list) list.push(r);
       else cells.set(key, [r]);
     }
-    const table = document.createElement('table');
-    const head = table.createTHead().insertRow();
-    for (const h of ['畫質', '情境', 'DPR', '中位 ms', 'p95', 'p99', 'FPS', '呼叫', '三角形k']) head.insertCell().textContent = h;
+    const pad = (v: string, n: number): string => v.padStart(n);
+    const lines = [`${'畫質'.padEnd(8)}${'情境'.padEnd(17)}${pad('DPR', 4)}${pad('中位ms', 8)}${pad('p95', 7)}${pad('p99', 7)}${pad('FPS', 6)}${pad('呼叫', 6)}${pad('三角形k', 8)}`];
     for (const rows of cells.values()) {
       const first = rows[0];
       if (!first) continue;
@@ -138,11 +136,10 @@ export class BenchPanel {
       const p99 = summarize(rows.map((r) => r.frameMs.p99)).median;
       const calls = summarize(rows.map((r) => r.counters.drawCalls)).median;
       const tris = summarize(rows.map((r) => r.counters.triangles)).median;
-      const tr = table.insertRow();
       const label = first.variant === 'tuned' ? `${first.quality}*` : first.quality;
-      for (const v of [label, first.scenario, String(first.dpr ?? '顯示器'), fmt(med), fmt(p95), fmt(p99), fmt(1000 / Math.max(med, 0.001), 0), String(calls), fmt(tris / 1000, 0)]) tr.insertCell().textContent = v;
+      lines.push(`${label.padEnd(8)}${first.scenario.padEnd(17)}${pad(String(first.dpr ?? '顯示器'), 4)}${pad(fmt(med), 8)}${pad(fmt(p95), 7)}${pad(fmt(p99), 7)}${pad(fmt(1000 / Math.max(med, 0.001), 0), 6)}${pad(String(calls), 6)}${pad(fmt(tris / 1000, 0), 8)}`);
     }
-    this.table.replaceChildren(table);
+    this.table.textContent = lines.join('\n');
   }
 
   private async copyJson(): Promise<void> {
