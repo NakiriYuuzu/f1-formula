@@ -238,7 +238,17 @@ export function raceOptionsEditor(
     weather: () => cycler<WeatherChoice>({ label: '天氣', options: opts(WEATHER_CHOICES, WEATHER_LABEL), value: value.weather, onChange: set('weather'), description: '動態天氣：比賽中可能轉晴或下雨' }).el,
     timeOfDay: () => cycler<TimeOfDayChoice>({ label: '時段', options: opts(TIME_OF_DAY_CHOICES, TIME_LABEL), value: value.timeOfDay, onChange: set('timeOfDay') }).el,
     regulation: () => cycler<Regulation>({ label: '規則年份', options: REGULATION_OPTIONS, value: value.regulation, onChange: set('regulation'), description: '2026：車身更小更輕、直線模式取代 DRS、1 秒內可用 Overtake' }).el,
-    format: () => cycler<WeekendFormat>({ label: '週末賽制', options: opts(formats, FORMAT_LABEL), value: value.format, onChange: set('format'), description: formats.includes('sprint') ? SPRINT_WEEKEND_DESCRIPTION : undefined }).el,
+    format: () =>
+      cycler<WeekendFormat>({
+        label: '週末賽制',
+        options: opts(formats, FORMAT_LABEL),
+        value: value.format,
+        onChange: (v) => {
+          set('format')(v);
+          showFormatRows();
+        },
+        description: formats.includes('sprint') ? SPRINT_WEEKEND_DESCRIPTION : undefined,
+      }).el,
     qualifying: () => cycler<QualifyingType>({ label: '排位形式', options: opts(QUALIFYING_TYPES, QUALI_LABEL), value: value.qualifying, onChange: set('qualifying'), description: '單圈排位只計 1 個計時圈；短排位最多 3 個計時圈' }).el,
     raceFormat: () =>
       cycler<RaceFormatChoice>({
@@ -269,14 +279,15 @@ export function raceOptionsEditor(
       }).el,
   };
   const built = new Map(fields.map((f) => [f, rows[f]()] as const));
-  // the laps do not apply to an elimination or endurance race, the interval and the duration only to theirs
+  // the laps do not apply to an elimination or endurance race (on a sprint weekend they still set the sprint, a
+  // standard race: sessionBuilder), the interval and the duration only to theirs
   function showFormatRows(): void {
     const elimination = value.raceFormat === 'elimination';
     const endurance = value.raceFormat === 'endurance';
     const laps = built.get('laps');
     const interval = built.get('eliminationInterval');
     const duration = built.get('enduranceDuration');
-    if (laps) laps.hidden = elimination || endurance;
+    if (laps) laps.hidden = (elimination || endurance) && value.format !== 'sprint';
     if (interval) interval.hidden = !elimination;
     if (duration) duration.hidden = !endurance;
   }
