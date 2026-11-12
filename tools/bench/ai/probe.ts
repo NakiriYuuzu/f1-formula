@@ -302,7 +302,7 @@ while (!isSessionOver(world) && world.time < 2400) {
       const pitRel = (c: any): boolean => c.pit.stops > 0 && world.time - lastPitExit[c.id] < 100 || c.pit.requested || c.pit.phase !== 'none';
       events.push({ t: world.time, lead: leaderLaps, lapA: a.timing.lapsCompleted, lapB: b.timing.lapsCompleted, passer: a.id, passed: b.id, pos: e.position, pit: pitRel(a) || pitRel(b), lap1: a.timing.lapsCompleted < 1 || b.timing.lapsCompleted < 1,
         paceA: paceStatic[a.id], paceB: paceStatic[b.id], aiTrick: a.ai.trickTarget === b.id && a.ai.trickTimer > 0 ? a.ai.trickKind : null, mode: a.ai.mode, phase: a.ai.attackPhase,
-        s: a.phys.s, ersA: a.phys.ers.charge, ersB: b.phys.ers.charge, otA: a.phys.ers.overtakeActive, otB: b.phys.ers.overtakeActive, drsA: a.phys.drs.open, drsB: b.phys.drs.open });
+        s: a.phys.s, ersA: a.phys.ers.charge, ersB: b.phys.ers.charge, otA: a.phys.ers.overtakeActive, otB: b.phys.ers.overtakeActive, drsA: a.phys.drs.open, drsB: b.phys.drs.open, modeA: a.phys.ers.mode, modeB: b.phys.ers.mode });
       close(a.id, 'passed');
     }
   }
@@ -366,6 +366,8 @@ while (!isSessionOver(world) && world.time < 2400) {
           if (c.phys.ers.overtakeActive) st.otA = (st.otA ?? 0) + SIM_DT;
           if (b.phys.ers.overtakeActive) st.otB = (st.otB ?? 0) + SIM_DT;
           if (c.phys.ers.charge <= 0.2) st.lowA = (st.lowA ?? 0) + SIM_DT;
+          if (c.phys.ers.mode === 'none') st.noneA = (st.noneA ?? 0) + SIM_DT;
+          if (b.phys.ers.mode === 'none') st.noneB = (st.noneB ?? 0) + SIM_DT;
           if (c.ai.inTrain) st.train += SIM_DT;
           if (c.ai.dbgGate) { st.gate = st.gate ?? {}; st.gate[c.ai.dbgGate] = (st.gate[c.ai.dbgGate] ?? 0) + SIM_DT; }
           if (c.ai.dbgLimited) st.lim = (st.lim ?? 0) + SIM_DT;
