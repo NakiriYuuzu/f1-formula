@@ -130,7 +130,7 @@ export async function runBench(host: BenchHost, p: BenchParams, hooks: BenchHook
               hooks.progress(`${cell}/${total}  ${quality} · ${scenario.id}${variant === 'tuned' ? ' (tuned)' : ''} · run ${run}`);
               host.setQuality(quality, variant === 'tuned' ? p.tune : {});
               await host.load(scenario);
-              if (scenario.runUpSeconds > 0) host.runUp(scenario.runUpSeconds);
+              if (scenario.runUpSeconds > 0) host.runUp(p.runUp ?? scenario.runUpSeconds);
               const frames = Math.max(1, Math.min(p.frames, scenario.maxFrames - p.warmup));
               const ms: number[] = [];
               const cpu: number[] = [];

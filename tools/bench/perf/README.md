@@ -14,7 +14,7 @@ http://127.0.0.1:5173/?bench=1&quality=low&dpr=1,2&autorun=1     only low, at pi
 | --- | --- | --- |
 | `bench` | | `1` turns the mode on |
 | `quality` | `low,medium,high,ultra` | tiers to run, in this order |
-| `scenario` | all | `grid-monza` (20 cars on the standing grid, day), `pack-spa` (mid-pack after 28 s, day), `rain-spa` (the same in heavy rain), `night-singapore` (street circuit, night) |
+| `scenario` | the four below | `grid-monza` (20 cars on the standing grid, day), `pack-spa` (mid-pack after 28 s, day), `rain-spa` (the same in heavy rain), `night-singapore` (street circuit, night). `stop-spa` is only run when named: dry tyres in heavy rain, so the whole field pits after lap 1 and every pit crew works next to the camera (the timed window starts at 189 s, as the player passes the pit lane; `runup=` moves it) |
 | `dpr` | `device` | pixel ratios to run, e.g. `1,2`; `device` is the display's own. The tier's `maxPixelRatio` still caps it |
 | `size` | `1280x720` | canvas CSS size, fixed whatever the window is |
 | `scale` | `1` | the resolution-scale setting (0.5 to 1) |
@@ -23,6 +23,7 @@ http://127.0.0.1:5173/?bench=1&quality=low&dpr=1,2&autorun=1     only low, at pi
 | `aa` | tier's own | `0` or `1` forces the canvas MSAA. By default the first tier in `quality` decides (`canvasMsaa` in `src/render/core/quality.ts`). It is fixed when the WebGL context is created, so one page measures one canvas MSAA setting: use one tier per page to compare tiers |
 | `tune` | | `field:value,...` overrides fields of the quality table (`src/render/core/quality.ts`) for a tuned variant, e.g. `tune=ibl:0,maxPixelRatio:2` |
 | `ab` | `0` | with `tune`, alternate the shipped table and the tuned one on every run (rows of the tuned variant carry `variant=tuned`) |
+| `runup` | scenario's own | seconds of play before the first timed frame of the running scenarios (the grid keeps 0). `scenario=stop-spa&hold=1` stops on the pit lane |
 | `hold` | `0` | load the first scenario, run its warm-up, then stop on the frame (for screenshots) |
 | `autorun` | `0` | start without pressing the button |
 
@@ -78,7 +79,7 @@ work, like a weak GPU, but its absolute numbers mean nothing for any real machin
 ## Headless counters (no browser)
 
 ```sh
-bun run tools/bench/perf/frame-budget.ts low [lod=27,60]   # what a bench frame submits, split into scenery / cars / pit crews
+bun run tools/bench/perf/frame-budget.ts low [lod=27,60] [tune=crewDrawDistance:60]   # what a bench frame submits, split into scenery / cars / pit crews
 bun run tools/bench/perf/cull-probe.ts monza,spa low 100 600   # scenery only: what splitting merged meshes into 600 m cells would leave
 bun run tools/bench/perf/scene-breakdown.ts monza low      # triangles of the static scenery per mesh name
 ```
@@ -86,5 +87,6 @@ bun run tools/bench/perf/scene-breakdown.ts monza low      # triangles of the st
 `frame-budget.ts` rebuilds the scenery, the 20-car sim, the car models and the pit crews under bun and lets three's own
 frustum decide what is submitted from the bench's chase camera. For the low tier it prints the measured bench row next to it
 (`tools/bench/baseline/perf-frame-budget.txt` has the check and the reading). It says what a cut does to the counters, not what
-it does to a frame time: confirm a counter cut with the page (`tune=`, `ab=1`) before shipping it.
+it does to a frame time: confirm a counter cut with the page (`tune=`, `ab=1`) before shipping it. `tune=` overrides tier-table fields
+like the page's own `tune=`.
 

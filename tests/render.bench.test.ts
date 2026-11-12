@@ -5,7 +5,7 @@
 import { describe, expect, test } from 'bun:test';
 import { titleLine, rowsToText } from '../src/app/bench/benchPanel';
 import { buildBenchSession } from '../src/app/bench/benchSession';
-import { BENCH_SCENARIOS, BENCH_SEED, parseBench, parseTune, summarize, type BenchResult, type BenchRow } from '../src/app/bench/benchSpec';
+import { BENCH_SCENARIOS, BENCH_SEED, BENCH_STOP_SCENARIO, parseBench, parseTune, summarize, type BenchResult, type BenchRow } from '../src/app/bench/benchSpec';
 import { isSoftwareGpu } from '../src/render/core/autoQuality';
 import { baseQualityProfile, qualityProfile, resetQualityTuning, tuneQuality } from '../src/render/core/quality';
 
@@ -47,6 +47,14 @@ describe('parseBench', () => {
     expect(parseBench('?bench=1&aa=1')?.antialias).toBe(true);
     expect(parseBench('?bench=1&aa=0')?.antialias).toBe(false);
     expect(parseBench('?bench=1&aa=maybe')?.antialias).toBeNull();
+  });
+
+  test('runup overrides the play time before the first frame of the running scenarios, within bounds', () => {
+    expect(parseBench('?bench=1')?.runUp).toBeNull();
+    expect(parseBench('?bench=1&runup=215')?.runUp).toBe(215);
+    expect(parseBench('?bench=1&runup=0')?.runUp).toBe(1);
+    expect(parseBench('?bench=1&runup=99999')?.runUp).toBe(900);
+    expect(parseBench('?bench=1&runup=x')?.runUp).toBe(28);
   });
 
   test('A/B alternation needs a tuned field', () => {
@@ -105,6 +113,15 @@ describe('scenarios', () => {
       expect(config.grid.length).toBeGreaterThanOrEqual(20);
       expect(config.grid.findIndex((g) => g.playerIndex === 0)).toBe(sc.startPosition - 1);
     }
+  });
+
+  test('the stop scenario is selectable by id only and starts every car on dry tyres in the rain', () => {
+    expect(parseBench('?bench=1')?.scenarios.map((s) => s.id)).not.toContain(BENCH_STOP_SCENARIO.id);
+    expect(parseBench('?bench=1&scenario=stop-spa')?.scenarios).toEqual([BENCH_STOP_SCENARIO]);
+    const { config } = buildBenchSession(BENCH_STOP_SCENARIO);
+    expect(config.weather).toBe('heavyRain');
+    expect(config.grid.every((g) => g.startCompound === 'medium')).toBe(true);
+    expect(buildBenchSession(BENCH_SCENARIOS[2] as (typeof BENCH_SCENARIOS)[number]).config.grid.some((g) => g.startCompound === 'wet')).toBe(true);
   });
 
   test('the standing-grid scenario ends before the lights could go out', () => {

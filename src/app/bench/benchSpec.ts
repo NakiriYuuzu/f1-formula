@@ -2,7 +2,7 @@
  * Benchmark mode, pure parts: URL parameters (`?bench=1&quality=low&...`), the scenario table, the tier-field overrides
  * for A/B runs, frame-time statistics and the result shape shown by the panel and exposed as `window.__benchResult`.
  */
-import type { QualityLevel, TimeOfDay, WeatherKind } from '../../core/types';
+import type { QualityLevel, TimeOfDay, TireCompound, WeatherKind } from '../../core/types';
 import { baseQualityProfile, type QualityProfile } from '../../render/core/quality';
 
 export const BENCH_QUALITIES: readonly QualityLevel[] = ['low', 'medium', 'high', 'ultra'];
@@ -24,6 +24,8 @@ export interface BenchScenario {
   runUpSeconds: number;
   /** most frames (warm-up included) before the scenario must stop; the grid has to end before lights out */
   maxFrames: number;
+  /** every car starts on this compound instead of the weather's own */
+  startCompound?: TireCompound;
 }
 
 export const BENCH_SCENARIOS: readonly BenchScenario[] = [
@@ -32,6 +34,15 @@ export const BENCH_SCENARIOS: readonly BenchScenario[] = [
   { id: 'rain-spa', label: 'Spa 大雨（日間）', layoutId: 'spa', weather: 'heavyRain', timeOfDay: 'day', startPosition: 10, runUpSeconds: 28, maxFrames: 2000 },
   { id: 'night-singapore', label: '新加坡街道賽（夜間）', layoutId: 'singapore', weather: 'clear', timeOfDay: 'night', startPosition: 10, runUpSeconds: 28, maxFrames: 2000 },
 ];
+
+/**
+ * Not in the default matrix (the baselines stay comparable): `scenario=stop-spa`. Dry tyres in the rain send the whole
+ * field into the pits after lap 1 (about 190 to 230 s). The timed window starts at 189 s, where the player passes the
+ * pit lane with the crews at work; the player's own car never stops (its autopilot makes no pit call).
+ */
+export const BENCH_STOP_SCENARIO: BenchScenario = {
+  id: 'stop-spa', label: 'Spa 進站（大雨、乾胎起跑，全場進站）', layoutId: 'spa', weather: 'heavyRain', timeOfDay: 'day', startPosition: 10, runUpSeconds: 189, maxFrames: 2000, startCompound: 'medium',
+};
 
 export interface BenchParams {
   qualities: QualityLevel[];
@@ -54,6 +65,8 @@ export interface BenchParams {
   ab: boolean;
   /** load one scenario, run warm-up frames, then stop on the frame for a screenshot */
   hold: boolean;
+  /** seconds of play before the first timed frame of the running scenarios, instead of the scenario's own (null = its own) */
+  runUp: number | null;
 }
 
 const DEFAULTS = { frames: 300, warmup: 45, runs: 1, width: 1280, height: 720, scale: 1 };
@@ -101,7 +114,7 @@ export function parseBench(search: string): BenchParams | null {
   if (flag === null || flag === '0') return null;
   const qualities = list(q.get('quality')).filter((x): x is QualityLevel => (BENCH_QUALITIES as readonly string[]).includes(x));
   const wanted = list(q.get('scenario'));
-  const scenarios = wanted.length > 0 ? BENCH_SCENARIOS.filter((s) => wanted.includes(s.id)) : [...BENCH_SCENARIOS];
+  const scenarios = wanted.length > 0 ? [...BENCH_SCENARIOS, BENCH_STOP_SCENARIO].filter((s) => wanted.includes(s.id)) : [...BENCH_SCENARIOS];
   const dprs = list(q.get('dpr'))
     .map((x) => (x === 'device' ? null : Number(x)))
     .filter((x): x is number | null => x === null || (Number.isFinite(x) && x > 0));
@@ -123,6 +136,7 @@ export function parseBench(search: string): BenchParams | null {
     tune,
     ab: q.get('ab') === '1' && Object.keys(tune).length > 0,
     hold: q.get('hold') === '1',
+    runUp: q.get('runup') === null ? null : intIn(q.get('runup'), 1, 900, 28),
   };
 }
 

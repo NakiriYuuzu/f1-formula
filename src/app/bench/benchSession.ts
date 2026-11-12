@@ -19,5 +19,7 @@ export function buildBenchSession(sc: BenchScenario): { config: SessionConfig; c
   const plan = ctx.plan;
   if (!plan) throw new Error('bench: quick start produced no plan');
   const config = buildSessionConfig({ ...plan.request, timeOfDay: sc.timeOfDay, playerStartPosition: sc.startPosition });
+  const compound = sc.startCompound;
+  if (compound) config.grid = config.grid.map((g) => ({ ...g, startCompound: compound }));
   return { config, ctx };
 }

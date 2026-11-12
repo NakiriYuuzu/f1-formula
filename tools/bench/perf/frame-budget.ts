@@ -24,7 +24,18 @@ const { PitCrew } = await import(`${T}/src/render/track/pitCrew`);
 installFakeDom();
 
 const level = process.argv[2] ?? 'low';
-const lodArg = (process.argv[3] ?? '').replace(/^lod=/, '');
+const lodArg = (process.argv.find((a) => a.startsWith('lod=')) ?? '').replace(/^lod=/, '');
+// tune=field:value,... overrides fields of the tier table for this run (numbers and true/false), like the page's `tune=`
+const tuneArg = (process.argv.find((a) => a.startsWith('tune=')) ?? '').replace(/^tune=/, '');
+if (tuneArg) {
+  const { tuneQuality } = await import(`${T}/src/render/core/quality`);
+  const patch: Record<string, number | boolean> = {};
+  for (const item of tuneArg.split(',')) {
+    const [key, val] = item.split(':');
+    if (key && val !== undefined) patch[key] = val === 'true' ? true : val === 'false' ? false : Number(val);
+  }
+  tuneQuality(level, patch);
+}
 const RACERS = DRIVERS.filter((d: any) => d.teamId !== '');
 const FOLLOWED = 10;
 const FOV = 68;
