@@ -151,6 +151,7 @@ export const CAR_SURFACE: Record<Swatch | 'paint' | 'fin' | 'helmet' | 'undersid
   frontWing: [0.3, 0.05, 1],
   rearWing: [0.3, 0.05, 1],
   rearFlap: [0.3, 0.05, 1],
+  lamp: [0.12, 0, 1],
 };
 
 /**

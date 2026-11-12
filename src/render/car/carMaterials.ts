@@ -56,6 +56,9 @@ export function lodFadeUniform(thresholds: readonly number[], level: number): TH
   return { value: new THREE.Vector4(...lodFadeWindow(thresholds, level)) };
 }
 
+/** Red level of the lit rain light (scene-referred HDR; post.ts keeps the other emissives at 1.0). */
+export const RAIN_LIGHT_HDR = 2.5;
+
 export class CarSharedResources {
   /** surface map of the layouts without bare carbon (see surfaceMapFor) */
   readonly surfaceMap: THREE.CanvasTexture;
@@ -105,7 +108,8 @@ export class CarSharedResources {
       opacity: 0.35,
       depthWrite: true,
     });
-    this.rainLightMaterial = new THREE.MeshBasicMaterial({ name: 'rain-light', color: new THREE.Color(1, 0.08, 0.06), toneMapped: false });
+    // above the bloom threshold of the post chain; direct rendering clamps it to the old full red
+    this.rainLightMaterial = new THREE.MeshBasicMaterial({ name: 'rain-light', color: new THREE.Color(RAIN_LIGHT_HDR, 0.08, 0.06), toneMapped: false });
   }
 
   private wheelMaterial(c: TireCompound): THREE.MeshStandardMaterial {
