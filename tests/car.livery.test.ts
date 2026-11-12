@@ -54,6 +54,7 @@ function paintRecorded(size: number, livery: Livery): Rect[] {
         if (prop === 'fillStyle') return fillStyle;
         if (prop === 'fillRect') return (x: number, y: number, w: number, h: number) => rects.push({ style: fillStyle, x, y, w, h });
         if (prop === 'measureText') return () => ({ width: 10 });
+        if (prop === 'getImageData') return () => ({ data: new Uint8ClampedArray(4) });
         if (prop === 'createLinearGradient' || prop === 'createRadialGradient') return () => ({ addColorStop() {} });
         return () => undefined;
       },

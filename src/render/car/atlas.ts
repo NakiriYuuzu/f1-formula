@@ -17,6 +17,7 @@ import type { Livery, LiveryParts, LiveryPattern } from '../../core/types';
 import { canvasTexture, createCanvas, fitFont, luminance, mixHex, safeHex, UI_FONT, type Canvas2D } from '../core/canvas';
 import { CAR_SURFACE, VISOR_TINT } from './carQuality';
 import type { CarDims } from './dims';
+import { AD_BRANDS } from '../track/boards';
 
 export const SWATCHES = [
   'primary',
@@ -400,6 +401,40 @@ export function paintLiveryCanvas(size: number, d: CarDims, p: LiveryPaint): Can
   ctx.fillStyle = CARBON;
   ctx.fillRect(0, by(1), W, by(0.94) - by(1));
   ctx.fillRect(0, by(0.06), W, by(0) - by(0.06));
+
+  // panel seams: engine cover / sidepod joint along both sides, cover, cockpit and nose joints across
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  const seam = Math.max(1, W / 512);
+  for (const v of [0.635, 0.365]) ctx.fillRect(bx(uOf(-2.2)), by(v), bx(uOf(d.cockpitZ1)) - bx(uOf(-2.2)), seam);
+  for (const z of [-2.2, d.cockpitZ0 - 0.05, d.cockpitZ1 + 0.45]) ctx.fillRect(bx(uOf(z)), 0, seam, bh);
+
+  // sponsor marks (the circuits' fictional brands, picked by the team code) on the engine cover and nose sides
+  {
+    const hash = [...code].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7);
+    const marks = [0, 1].map((k) => (AD_BRANDS[(hash + k * 5) % AD_BRANDS.length] ?? AD_BRANDS[0]!).name);
+    // [text, z (m), V of the left side, glyph height (share of V), longest run (m)]
+    const spots: [string, number, number, number, number][] = [
+      [marks[0]!, -1.15, 0.69, 0.05, 0.85],
+      [marks[1]!, d.cockpitZ1 + 0.85, 0.6, 0.03, 0.5],
+    ];
+    for (const [text, z, v, height, length] of spots) {
+      const glyphH = height * bh;
+      const run = (length / (d.wrapZMax - d.wrapZMin)) * W;
+      for (const [vv, turn] of [[v, Math.PI], [1 - v, 0]] as const) {
+        const px = ctx.getImageData(Math.round(bx(uOf(z))), Math.round(by(vv)), 1, 1).data;
+        const bright = (0.2126 * (px[0] ?? 0) + 0.7152 * (px[1] ?? 0) + 0.0722 * (px[2] ?? 0)) / 255 > 0.5;
+        ctx.save();
+        ctx.translate(bx(uOf(z)), by(vv));
+        ctx.rotate(turn);
+        fitFont(ctx, text, 'italic 800', glyphH * 1.25, run);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = bright ? 'rgba(18,18,20,0.9)' : 'rgba(246,246,246,0.92)';
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
+      }
+    }
+  }
 
   // nose number: readable from in front of the car (glyph up = towards the rear)
   {
