@@ -1110,8 +1110,8 @@ for (const l of LAYOUTS) {
 | 看台 | 有頂棚與後牆的看台、低多邊形坐姿觀眾（隊色球迷） | `src/render/track/trackside.ts` |
 | 車輛 LOD | 三級細節模型（約 60 m / 180 m 切換），高/極致畫質使用亮光漆材質 | `src/render/car/` |
 | 自動解析度 | 依實際幀時間自動降低/恢復解析度（最低為設定值 60%，低畫質 50%） | `src/render/GameRenderer.ts` |
-| 低畫質的成本 | 像素比上限 1（中畫質以上為 2，高解析螢幕不再以 2 倍繪製）；畫布不用 MSAA；不用環境貼圖，改由半球光 ×2.5 補環境光（夜間隨泛光燈淡出；看台玻璃與車漆不反射天空）；維修人員見 4.2 節 | `src/render/core/quality.ts`、`src/render/RaceScene.ts`、`src/render/environment.ts` |
-| 自動畫質 | 設定「自動畫質」開啟時由遊戲決定畫質等級（新存檔預設開啟；之前的存檔維持原本的等級、自動畫質關閉），「畫質等級」不能手動選。第一次依顯示卡名稱選：Apple 晶片與多數獨立顯卡為高，入門或較舊的獨立顯卡、近幾代內顯與無法辨識的為中，較舊的 Intel 內顯、手機 GPU 與軟體繪製為低；同一張顯卡之後沿用記下的等級。比賽在最低解析度仍連續 3 個取樣窗太慢，或連續 6 個畫格超過 0.1 秒時降一級並通知（「已自動調降畫質」），不會自動調高；降到不用畫布 MSAA 的等級時通知會說明重新整理頁面後才關閉畫面邊緣的抗鋸齒 | `src/render/core/autoQuality.ts`、`src/app/App.ts`、`src/ui/menus/screens/settings.ts` |
+| 低畫質的成本 | 像素比上限 1（中畫質以上為 2）；畫布不用 MSAA；不用環境貼圖，改由半球光 ×2.5 補環境光（夜間隨泛光燈淡出；看台玻璃與車漆不反射天空）；維修人員見 4.2 節 | `src/render/core/quality.ts`、`src/render/RaceScene.ts`、`src/render/environment.ts` |
+| 自動畫質 | 設定「自動畫質」開啟時由遊戲決定畫質等級（新存檔預設開啟；沒有這個設定的舊存檔維持原本的等級、自動畫質關閉），「畫質等級」不能手動選。第一次依顯示卡名稱選：Apple 晶片與多數獨立顯卡為高，入門或較舊的獨立顯卡、近幾代內顯與無法辨識的為中，較舊的 Intel 內顯、手機 GPU 與軟體繪製為低；同一張顯卡之後沿用記下的等級。比賽在最低解析度仍連續 3 個取樣窗太慢，或連續 6 個畫格超過 0.1 秒時降一級並通知（「已自動調降畫質」），不會自動調高；降到不用畫布 MSAA 的等級時通知會說明重新整理頁面後才關閉畫面邊緣的抗鋸齒 | `src/render/core/autoQuality.ts`、`src/app/App.ts`、`src/ui/menus/screens/settings.ts` |
 | 效能測試頁 | 網址加 `?bench=1`：不進選單，在固定的畫布尺寸與像素比下以固定種子跑固定情境（Monza 發車格、Spa 車群、Spa 大雨、新加坡夜間；`scenario=stop-spa` 為全場進站），玩家車由 AI 駕駛；列出每個畫質、情境與像素比的畫格時間（中位數、p95、p99）、繪製呼叫與三角形，可複製成 JSON（`window.__benchResult`）；`tune=欄位:值` 與 `ab=1` 可把畫質表的單一欄位與預設交替比較。參數見 `tools/bench/perf/README.md` | `src/app/bench/*` |
 | 鏡頭手感 | 追焦鏡頭彈性、彎道前瞻、側向 G 傾斜；座艙頭部晃動 | `src/render/cameras.ts` |
 | 鍵盤轉向 | 依車速調整轉向斜率（低速靈敏、高速平穩） | `src/input/` |
