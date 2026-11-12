@@ -40,6 +40,7 @@ import { applyProjection, emit, fin, inGarage, isHuman } from './events';
 import type { CarRaceInternal } from './types';
 import { applyTimePenalty } from './legality';
 import { radioPitExit, radioPitSpeeding } from './radio';
+import { FULL_FILL, fuelTank, stopFill } from './endurance';
 
 /** Kinematic decelerations / accelerations (m/s²). */
 const ENTRY_DECEL = 24;
@@ -379,7 +380,7 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
         // on the spot (within a millimetre) and braked to a crawl: it stands
         if (remain - step <= 1e-3 && nv <= 1e-3) {
           nv = 0;
-          if (!occupied) startStop(world, car);
+          if (!occupied) startStop(world, track, car);
         }
       } else if (v < 0.5 && d - boxD < 0.5 && laneTrafficBehind(world, track, car, d, laneLat)) {
         // served: held in the box until the lane behind is clear
@@ -393,7 +394,7 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
     case 'stopped': {
       nv = 0;
       pit.timer = Math.max(0, pit.timer - dt);
-      if (pit.timer <= 0) serviceDone(world, car);
+      if (pit.timer <= 0) serviceDone(world, track, car);
       break;
     }
     case 'exit': {
@@ -540,7 +541,7 @@ function releaseManual(world: WorldState, car: CarEntry): void {
   radioPitExit(world, car);
 }
 
-function startStop(world: WorldState, car: CarEntry): void {
+function startStop(world: WorldState, track: BuiltTrack, car: CarEntry): void {
   const r = car.race;
   const pit = car.pit;
   pit.phase = 'stopped';
@@ -560,19 +561,31 @@ function startStop(world: WorldState, car: CarEntry): void {
     pen.servedSec = fin(pen.servedSec) + serve;
     emit(world, { type: 'penaltyServed', carId: car.id, seconds: serve });
   }
-  const duration = serve + randRange(world.rng, 2.0, 3.5) + repair;
+  // an endurance race refuels: the stop lasts the longer of the tyre change and the fill, which end together
+  const tyres = randRange(world.rng, 2.0, 3.5);
+  const fuel = stopFill(world, track, car);
+  const duration = serve + Math.max(tyres, fuel) + repair;
   pit.timer = duration;
   r.pitStopTotal = duration;
-  r.pitHold = serve + repair;
+  r.pitHold = serve + repair + Math.max(0, fuel - tyres);
+  r.pitFuel = fuel;
   setCarHeld(car.phys, true);
 }
 
-function serviceDone(world: WorldState, car: CarEntry): void {
+function serviceDone(world: WorldState, track: BuiltTrack, car: CarEntry): void {
   const p = car.phys;
   const r = car.race;
   const pit = car.pit;
   const compound = pit.nextCompound;
   fitTyres(p, compound, r.pitRepair);
+  let fuel = 0;
+  if (r.pitFuel > 0) {
+    const tank = fuelTank(car.spec, track);
+    fuel = Math.min(tank - p.fuelKg, (r.pitFuel / FULL_FILL) * tank);
+    p.fuelKg += fuel;
+    r.pitFuel = 0;
+  }
+  delete pit.fuelTarget;
   // repaired parts report damage again from where they now are (reportedDamage: [frontWing, rearWing, floor,
   // suspension]; the suspension keeps its residual bend)
   if (r.pitRepair) {
@@ -594,7 +607,7 @@ function serviceDone(world: WorldState, car: CarEntry): void {
   car.ai.stintStartProgress = car.timing.progress;
   r.radioWearWarned = false;
   r.radioDamageWarned = p.damage.frontWing > 0.3;
-  emit(world, { type: 'pitStop', carId: car.id, duration: r.pitStopTotal, compound });
+  emit(world, { type: 'pitStop', carId: car.id, duration: r.pitStopTotal, compound, ...(fuel > 0 ? { fuel } : {}) });
 }
 
 /**

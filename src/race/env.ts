@@ -14,9 +14,9 @@ import { aeroWake } from './wake';
 const ASSIST_LAT = 0.9;
 const ASSIST_BRAKE = 0.82;
 
-/** Fuel burn multiplier (≤ 1) that lets the remaining fuel reach the end of the race. */
+/** Fuel burn multiplier (≤ 1) that lets the remaining fuel reach the end of the race (an endurance race refuels instead). */
 function fuelSaving(world: WorldState, track: BuiltTrack, car: CarEntry): number {
-  if (world.session.kind !== 'race') return 1;
+  if (world.session.kind !== 'race' || world.session.endurance) return 1;
   const remainingKm = Math.max(0, world.session.totalLaps * track.length - car.timing.progress) / 1000;
   const needed = remainingKm * fuelPerKm(car.spec);
   if (!(needed > 0)) return 1;

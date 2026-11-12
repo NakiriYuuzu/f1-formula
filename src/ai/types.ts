@@ -23,9 +23,9 @@ export type AIAttackPhase = 'none' | 'stalk' | 'feint' | 'commit' | 'switchback'
 /**
  * Why the strategy called the latest stop: the race-time model's plan, the wear backstop, the mandatory-stop backstop,
  * an undercut, covering a car behind that stopped, a cheaper stop under the (virtual) safety car, the weather
- * crossover, the forecast (a lap early), front-wing repair.
+ * crossover, the forecast (a lap early), front-wing repair, the fuel backstop (endurance race).
  */
-export type AIPitCall = 'none' | 'plan' | 'wear' | 'mandatory' | 'undercut' | 'cover' | 'neutral' | 'weather' | 'forecast' | 'damage';
+export type AIPitCall = 'none' | 'plan' | 'wear' | 'mandatory' | 'undercut' | 'cover' | 'neutral' | 'weather' | 'forecast' | 'damage' | 'fuel';
 
 export interface AIState {
   /** 0..1 driver skill blend used by the controller */
@@ -206,6 +206,8 @@ export interface AIState {
   fuelMark: number;
   fuelMarkLap: number;
   fuelPerLap: number;
+  /** endurance race: the tank (kg) after the stop it called (-1: the automatic fill) */
+  fuelTarget: number;
   /** team orders: evaluations in a row the team-mate right behind was clearly quicker */
   teamFaster: number;
   /** team orders: team-mate (car id) to let by on the next straight (-1 none) and seconds left to do so */

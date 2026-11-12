@@ -41,6 +41,7 @@ export { RAIN_LEVEL } from './weather';
 export { COLLISION_EVENT_IMPULSE } from './contact';
 export { COAST_INPUT, predictHumanStep } from './step';
 export { ELIMINATED_REASON, eliminationFormat, eliminationLeft, eliminationRisk } from './elimination';
+export { autoFuel, enduranceFormat, enduranceLeft, fillTime, fuelFor, fuelTank, lapsToGo } from './endurance';
 export { drivesOwnPitVisit, estimatePitLoss, pitLossFactor, PIT_LOSS_FALLBACK, SC_ENDING_PIT_LOSS_FACTOR, SC_PIT_LOSS_FACTOR, VSC_PIT_LOSS_FACTOR } from './pitlane';
 
 const ERS_MODES: readonly ErsMode[] = ['none', 'medium', 'hotlap', 'overtake'];
@@ -63,10 +64,13 @@ function carById(world: WorldState, carId: number): CarEntry | null {
   return Number.isInteger(carId) && carId >= 0 && carId < world.cars.length ? world.cars[carId] : null;
 }
 
-/** Pit request for the next pass of the pit entry (box this lap). Updates the compound if already queued / in the lane. */
-export function requestPit(world: WorldState, carId: number, compound: TireCompound): void {
+/**
+ * Pit request for the next pass of the pit entry (box this lap). Updates the compound if already queued / in the lane.
+ * `fuel`: an endurance race's tank (kg) after the stop (undefined: the automatic fill).
+ */
+export function requestPit(world: WorldState, carId: number, compound: TireCompound, fuel?: number): void {
   const car = carById(world, carId);
-  if (car) queuePit(world, car, compound);
+  if (car) queuePit(world, car, compound, fuel);
 }
 
 /** Cancel a pit request that has not reached the pit entry yet. */
