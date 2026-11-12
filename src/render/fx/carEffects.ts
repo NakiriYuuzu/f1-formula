@@ -43,6 +43,16 @@ const SPRAY_RATE = 58;
 const SPRAY_ALPHA_BASE = 0.07;
 const SPRAY_ALPHA_WET = 0.12;
 const SPRAY_GROWTH = 3.6;
+const SPRAY_BUDGET_FLOOR = 0.25;
+/**
+ * Opacity of one spray puff when a small pool emits only `budget` of the puffs: the fewer puffs are made denser so
+ * the overlapping trail keeps the opacity the full count would give (1 − (1 − a)^(1 / budget)), so spray still reads on
+ * low quality at the same particle count. The budget is floored at SPRAY_BUDGET_FLOOR.
+ */
+export function sprayAlpha(wet: number, budget: number): number {
+  const a = SPRAY_ALPHA_BASE + SPRAY_ALPHA_WET * wet;
+  return 1 - Math.pow(1 - a, 1 / Math.max(SPRAY_BUDGET_FLOOR, Math.min(1, budget)));
+}
 /**
  * Tyre smoke (wheelspin / lock-up): real F1 starts and lock-ups leave only a thin, short-lived haze, so the cloud
  * stays light enough to see the cars ahead through it (the grid launch used to hide them in one white mass).
@@ -170,7 +180,7 @@ export class CarEffects {
           ep.size = 1.1;
           ep.growth = SPRAY_GROWTH;
           ep.life = this.rng.range(0.7, 1.15);
-          ep.alpha = SPRAY_ALPHA_BASE + SPRAY_ALPHA_WET * wet;
+          ep.alpha = sprayAlpha(wet, budget);
           ep.color = SPRAY;
           ep.gravity = 1.2;
           ep.drag = 2.4;

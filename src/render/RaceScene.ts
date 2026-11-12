@@ -58,7 +58,7 @@ import { inTunnel, type SceneryContext } from './track/context';
 import { PitCrew } from './track/pitCrew';
 import { FOLIAGE_TIME } from './track/sceneryMaterials';
 import { RacingLineOverlay } from './track/racingLine';
-import { WET_NORMAL_SCALE, WET_REFLECTION, type RoadParts } from './track/road';
+import { ROAD_SHEEN, ROAD_SHEEN_GAIN, WET_NORMAL_SCALE, WET_REFLECTION, type RoadParts } from './track/road';
 import { TrackFrame } from './track/trackFrame';
 import { buildStaticScenery } from './track/scenery';
 import type { StartGantry } from './track/pitComplex';
@@ -625,6 +625,7 @@ export class RaceScene {
         if (w.dryNormalScale !== undefined) w.material.normalScale.setScalar(w.dryNormalScale * lerp(1, WET_NORMAL_SCALE, wet));
       }
     }
+    ROAD_SHEEN.value.copy(this.env.skyMaterial.uniforms.horizon.value).multiplyScalar(this.scene.environment ? 0 : this.wetness * ROAD_SHEEN_GAIN);
 
     // cars
     this.stateById.clear();
@@ -907,6 +908,7 @@ export class RaceScene {
     this.scene.fog = null;
     this.staticShadowTarget.dispose();
     WET_REFLECTION.value = 0;
+    ROAD_SHEEN.value.setRGB(0, 0, 0);
     this.probeJob?.dispose();
     this.probeJob = null;
     this.disposer.dispose();

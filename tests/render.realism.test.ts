@@ -11,6 +11,7 @@ import { decodeFrame, encodeFrame } from '../src/app/replay';
 import { qualityProfile } from '../src/render/core/quality';
 import { AO_BY_TIME, aoAmount, createPostLook, showroomLook } from '../src/render/core/post';
 import { ASPHALT_DRIFT, ASPHALT_PATCH, RUBBER_BASE, RUNOFF_TAPER_M, asphaltTone, rubberIntensity, runoffPlan } from '../src/render/track/road';
+import { sprayAlpha } from '../src/render/fx/carEffects';
 import {
   CREW_LIFT,
   CREW_SERVICE,
@@ -110,6 +111,22 @@ describe('rubbered racing line', () => {
     expect(brakeN).toBeGreaterThan(0);
     expect(straightN).toBeGreaterThan(0);
     expect(brake / brakeN).toBeGreaterThan(straight / straightN + 0.2);
+  });
+});
+
+describe('spray on small particle pools', () => {
+  test('fewer puffs are denser so the trail keeps its opacity', () => {
+    for (const wet of [0.3, 1]) {
+      const full = sprayAlpha(wet, 1);
+      expect(sprayAlpha(wet, 2)).toBe(full);
+      for (const budget of [0.34, 0.69]) {
+        const a = sprayAlpha(wet, budget);
+        expect(a).toBeGreaterThan(full);
+        // n·budget puffs at the new opacity cover like n puffs at the full one
+        expect(Math.pow(1 - a, budget)).toBeCloseTo(1 - full, 6);
+      }
+      expect(sprayAlpha(wet, 0.01)).toBe(sprayAlpha(wet, 0.25));
+    }
   });
 });
 

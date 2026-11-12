@@ -127,11 +127,24 @@ export function rubberIntensity(t: BuiltTrack, k: number): number {
 export const ASPHALT_EDGE_DUST = 0.3;
 export const ASPHALT_EDGE_WIDTH = 3;
 
+/**
+ * Sky sheen on wet asphalt without image-based lighting (low quality): RaceScene sets this to the horizon colour ×
+ * wetness × ROAD_SHEEN_GAIN while the scene has no environment map, else black. The road adds it × a per-vertex Fresnel
+ * term, so the far road mirrors the grey sky at grazing angles the way a wet road does and the near road stays dark.
+ */
+export const ROAD_SHEEN: THREE.IUniform<THREE.Color> = { value: new THREE.Color(0, 0, 0) };
+export const ROAD_SHEEN_GAIN = 0.35;
+/** Falloff of the sheen with the view angle ((1 − cos)^n: high = only the far, grazing road shines). */
+export const ROAD_SHEEN_FALLOFF = 8;
+
 const RUBBER_VERT_DECL = /* glsl */ `
 attribute vec4 rubber;
-varying vec4 vRubber;`;
-const RUBBER_FRAG_DECL = /* glsl */ `
 varying vec4 vRubber;
+varying float vSheen;`;
+const RUBBER_FRAG_DECL = /* glsl */ `
+uniform vec3 roadSheen;
+varying vec4 vRubber;
+varying float vSheen;
 float edgeDust() {
   return vRubber.w > 0.5 ? smoothstep(vRubber.w - ${ASPHALT_EDGE_WIDTH.toFixed(3)}, vRubber.w - 0.25, abs(vRubber.x)) : 0.0;
 }
@@ -150,18 +163,24 @@ float rubberAmount() {
  */
 function applyRubberShader(material: THREE.MeshStandardMaterial): void {
   material.onBeforeCompile = (sh) => {
+    sh.uniforms.roadSheen = ROAD_SHEEN;
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>${RUBBER_VERT_DECL}`)
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;');
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vRubber = rubber;')
+      .replace(
+        '#include <project_vertex>',
+        `#include <project_vertex>\n  vSheen = pow( 1.0 - clamp( dot( normalize( - mvPosition.xyz ), normalize( transformedNormal ) ), 0.0, 1.0 ), ${ROAD_SHEEN_FALLOFF.toFixed(1)} );`,
+      );
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>${RUBBER_FRAG_DECL}`)
       .replace(
         '#include <map_fragment>',
         `#include <map_fragment>\n  float rubberK = rubberAmount();\n  diffuseColor.rgb *= ( 1.0 - ${RUBBER_DARKEN.toFixed(3)} * rubberK ) * ( 1.0 + ${ASPHALT_EDGE_DUST.toFixed(3)} * edgeDust() * ( 1.0 - rubberK ) );`,
       )
-      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`);
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor *= 1.0 - ${RUBBER_GLOSS.toFixed(3)} * rubberK;`)
+      .replace('#include <opaque_fragment>', '  outgoingLight += roadSheen * vSheen;\n#include <opaque_fragment>');
   };
-  material.customProgramCacheKey = () => 'asphalt-rubber-edge';
+  material.customProgramCacheKey = () => 'asphalt-rubber-edge-sheen';
 }
 
 /** Detail maps get their own (finer) repeat; three keeps one transform per map. */
