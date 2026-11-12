@@ -4,7 +4,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { defaultSettings, sanitizeSettings } from '../src/meta/save';
-import { bootQuality, guessQuality, isSoftwareGpu, lowerQuality, parseAutoRecord } from '../src/render/core/autoQuality';
+import { bootQuality, canvasMsaaOutlivesStep, guessQuality, isSoftwareGpu, lowerQuality, parseAutoRecord } from '../src/render/core/autoQuality';
 
 const ANGLE = (vendor: string, name: string): string => `ANGLE (${vendor}, ${name}, Unspecified Version)`;
 
@@ -80,5 +80,16 @@ describe('Settings.qualityAuto', () => {
   test('it round-trips through the sanitiser either way', () => {
     expect(sanitizeSettings({ ...defaultSettings(), qualityAuto: true }).qualityAuto).toBe(true);
     expect(sanitizeSettings({ ...defaultSettings(), qualityAuto: false }).qualityAuto).toBe(false);
+  });
+});
+
+describe('canvasMsaaOutlivesStep', () => {
+  test('a step down to a tier without canvas MSAA keeps the samples of a context created with them, until a reload', () => {
+    expect(canvasMsaaOutlivesStep('low', 4)).toBe(true);
+    expect(canvasMsaaOutlivesStep('low', 0)).toBe(false);
+  });
+
+  test('tiers that keep canvas MSAA, or that post-process into their own target, have nothing left over', () => {
+    for (const level of ['medium', 'high'] as const) expect(canvasMsaaOutlivesStep(level, 4)).toBe(false);
   });
 });

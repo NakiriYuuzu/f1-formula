@@ -5,6 +5,7 @@
  * read from animation-frame intervals is quantised by vsync, so spare GPU time cannot be seen.
  */
 import type { QualityLevel } from '../../core/types';
+import { qualityProfile } from './quality';
 
 export const QUALITY_ORDER: readonly QualityLevel[] = ['low', 'medium', 'high', 'ultra'];
 
@@ -42,6 +43,14 @@ export function guessQuality(gpu: string): QualityLevel {
 export function lowerQuality(level: QualityLevel): QualityLevel | null {
   const i = QUALITY_ORDER.indexOf(level);
   return i > 0 ? (QUALITY_ORDER[i - 1] ?? null) : null;
+}
+
+/**
+ * The canvas's own MSAA is fixed when the WebGL context is created, so a step down to a tier that draws without it
+ * leaves the samples (and their cost) in place until the page is reloaded.
+ */
+export function canvasMsaaOutlivesStep(to: QualityLevel, canvasSamples: number): boolean {
+  return canvasSamples > 0 && !qualityProfile(to).canvasMsaa;
 }
 
 /** What the game last picked for a GPU (persisted by the App under its own storage key, never inside Settings). */

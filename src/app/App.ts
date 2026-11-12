@@ -18,7 +18,7 @@ import { loadSettings } from '../meta/save';
 import { buildQuickStart } from '../meta/sessionBuilder';
 import { readRecord, writeRecord } from '../meta/storage';
 import { GameRenderer } from '../render/GameRenderer';
-import { bootQuality, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
+import { bootQuality, canvasMsaaOutlivesStep, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
 import { resetQualityTuning, tuneQuality } from '../render/core/quality';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
@@ -740,7 +740,8 @@ export class App {
     writeRecord('autoQuality', { gpu: this.gpu, level: lower });
     this.menus.updateSettings({ ...this.settings, quality: lower });
     this.gr.resetAdaptiveResolution();
-    this.session?.notify('已自動調降畫質', `畫質：${QUALITY_LABEL[lower]}（設定中可關閉自動畫質）`, 'warn');
+    const msaa = canvasMsaaOutlivesStep(lower, this.gr.canvasSamples) ? '；重新整理頁面後會再關閉畫面邊緣的抗鋸齒' : '';
+    this.session?.notify('已自動調降畫質', `畫質：${QUALITY_LABEL[lower]}（設定中可關閉自動畫質）${msaa}`, 'warn');
   }
 
   private applySettings(settings: Settings): void {
