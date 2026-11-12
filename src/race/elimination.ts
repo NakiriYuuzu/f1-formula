@@ -2,11 +2,12 @@
  * Elimination race (SessionConfig.raceFormat 'elimination'). A countdown runs on green-flag racing only: it is frozen
  * before lights out and while the race is neutralised (SC, VSC, red flag). Each time it runs out the car last in the
  * running order is out, wherever it is (the pit lane included), and the countdown starts again. The last car left
- * wins. A car out for another reason leaves the order as in any race and the countdown carries on. Cars out are
- * classified by how long they stayed in (classification.ts, results.ts). There is no lap target: the cars are prepared
- * for the longest race the countdown allows (plannedLaps), which never ends the race.
+ * wins. A car out for another reason leaves the order as in any race and the countdown carries on. The cars out by
+ * the countdown are classified last out first, ahead of any retirement (classification.ts, results.ts). There is no
+ * lap target: the session's laps are the race's horizon (fuel, the AI's strategy, race control), kept ahead of the
+ * leader by the green-flag racing still to come, so a neutralised race running long never reads as at its end.
  */
-import type { CarEntry, EliminationFormat, EliminationState, SessionConfig, WorldState } from '../core/types';
+import type { BuiltTrack, CarEntry, EliminationFormat, EliminationState, SessionConfig, WorldState } from '../core/types';
 import { emit, isRacing } from './events';
 import { chequer, finishCar, retire } from './session';
 
@@ -17,8 +18,11 @@ import { chequer, finishCar, retire } from './session';
 export const START_SETTLE = 20;
 /** Retirement reason of an eliminated car (the 'retired' event that follows 'eliminated'). */
 export const ELIMINATED_REASON = '淘汰';
-/** Laps planned beyond the longest race at reference pace (fuel for a neutralised period or two). */
+/** Laps beyond the green-flag racing still to come at reference pace (the horizon never closer than this). */
 const SPARE_LAPS = 2;
+
+/** Laps for `seconds` more of green-flag racing at reference pace, plus the spare. */
+const lapsFor = (seconds: number, referenceLapTime: number): number => Math.ceil(seconds / Math.max(30, referenceLapTime)) + SPARE_LAPS;
 
 /** The format for a countdown of `interval` seconds; the first one also covers the start. */
 export function eliminationFormat(interval: number): EliminationFormat {
@@ -28,10 +32,9 @@ export function eliminationFormat(interval: number): EliminationFormat {
 export const eliminationOf = (config: SessionConfig): EliminationFormat | null =>
   config.kind === 'race' && config.raceFormat?.kind === 'elimination' ? config.raceFormat : null;
 
-/** Laps for fuel and strategy: the longest race the countdown allows (`cars` − 1 eliminations) at reference pace. */
+/** Laps at the start (the fuel load): the longest race the countdown allows (`cars` − 1 eliminations). */
 export function plannedLaps(format: EliminationFormat, cars: number, referenceLapTime: number): number {
-  const seconds = format.grace + Math.max(0, cars - 2) * format.interval;
-  return Math.ceil(seconds / Math.max(30, referenceLapTime)) + SPARE_LAPS;
+  return lapsFor(format.grace + Math.max(0, cars - 2) * format.interval, referenceLapTime);
 }
 
 export function newElimination(format: EliminationFormat): EliminationState {
@@ -68,12 +71,16 @@ export function eliminationRisk(world: WorldState): { car: CarEntry; left: numbe
   return car ? { car, left: eliminationLeft(e, format.interval, world.time) } : null;
 }
 
-/** Countdown, eliminations and the win (step.ts, after race control has set this step's mode). */
-export function stepElimination(world: WorldState): void {
+/** Countdown, eliminations, the win and the race's horizon (step.ts, after race control has set this step's mode). */
+export function stepElimination(world: WorldState, track: BuiltTrack): void {
   const e = world.session.elimination;
   const format = world.config.raceFormat;
   const s = world.session;
   if (!e || format?.kind !== 'elimination' || s.phase === 'chequered' || s.phase === 'finished') return;
+  // the leader's laps plus the green-flag racing still to come: on under a neutralisation (the countdown waits, the
+  // laps go on), back by an interval when a retirement saves an elimination
+  const ahead = (e.held ?? Math.max(0, e.dueAt - world.time)) + Math.max(0, world.cars.filter(isRacing).length - 2) * format.interval;
+  s.totalLaps = Math.max(0, s.leaderLap - 1) + lapsFor(ahead, track.referenceLapTime);
   if (s.phase !== 'running' || s.control.mode !== 'green') {
     if (e.held === null) e.held = Math.max(0, e.dueAt - world.time);
     return;

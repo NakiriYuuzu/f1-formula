@@ -282,7 +282,7 @@ export function advanceWorld(world: WorldState, track: BuiltTrack, inputs: reado
   updateClassification(world, track);
   stepDamageRules(world, track, h);
   stepRaceControl(world, track, h);
-  stepElimination(world);
+  stepElimination(world, track);
   updateDrs(world, track, t0);
   checkSessionEnd(world);
   runStrategies(world, track, h);

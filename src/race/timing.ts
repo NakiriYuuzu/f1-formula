@@ -149,9 +149,7 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
   radioLap(world, car, lapTime, valid, overallBest);
 
   if (s.kind === 'race') {
-    // an elimination race is decided by its countdown (elimination.ts), never by laps
-    const lapTarget = s.elimination === undefined;
-    if (lapTarget && s.phase === 'running' && t.lapsCompleted >= s.totalLaps) {
+    if (s.phase === 'running' && t.lapsCompleted >= s.totalLaps) {
       chequer(world);
       finishCar(world, car, time);
       return true;
@@ -160,7 +158,7 @@ function completeLap(world: WorldState, car: CarEntry, time: number): boolean {
       finishCar(world, car, time);
       return true;
     }
-    if (lapTarget && t.lapsCompleted + 1 === s.totalLaps && !world.race.finalLapAnnounced) {
+    if (t.lapsCompleted + 1 === s.totalLaps && !world.race.finalLapAnnounced) {
       world.race.finalLapAnnounced = true;
       emit(world, { type: 'finalLap' });
       radioFinalLap(world);

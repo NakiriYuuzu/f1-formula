@@ -81,11 +81,13 @@ interface Run {
   events: GameEvent[];
   outs: Out[];
   green: number;
+  /** the least fuel (kg) any car still racing had */
+  fuel: number;
 }
 
 function start(o: Options = {}): Run {
   const track = getLayout('monza');
-  return { world: createWorld(config(o), track), track, events: [], outs: [], green: 0 };
+  return { world: createWorld(config(o), track), track, events: [], outs: [], green: 0, fuel: Infinity };
 }
 
 /** Step (humans coast) until `until` or `maxSec` of sim time, counting green-flag time and eliminations. */
@@ -95,6 +97,7 @@ function run(r: Run, maxSec: number, until?: (w: WorldState) => boolean, inputs:
     stepWorld(r.world, r.track, inputs, SIM_DT);
     const s = r.world.session;
     if (s.phase === 'running' && s.control.mode === 'green') r.green += SIM_DT;
+    for (const c of r.world.cars) if (c.status === 'running' || c.status === 'pitting') r.fuel = Math.min(r.fuel, c.phys.fuelKg);
     for (const e of r.world.events) {
       if (e.type === 'sector' || e.type === 'shift') continue;
       r.events.push(e);
@@ -141,6 +144,8 @@ describe('a 20-car elimination race', () => {
     }
     expect(result.rows.map((row) => row.points).slice(0, 10)).toEqual([25, 18, 15, 12, 10, 8, 6, 4, 2, 1]);
     expect(w.session.elimination!.out).toEqual(r.outs.map((o) => o.carId));
+    // fuelled for the longest race the countdown allows: no car ran dry
+    expect(r.fuel).toBeGreaterThan(1);
 
     const again = start({ cars: 20, interval: 30 });
     run(again, 1200);
@@ -229,6 +234,30 @@ describe('elimination rules', () => {
       expect(Math.abs(r.outs[0]!.green - r.world.config.raceFormat!.grace)).toBeLessThan(3 * SIM_DT);
     }, 90_000);
   }
+
+  test('safety cars stretch the race past its planned laps: the laps stay ahead of the leader, nothing reads as its end', () => {
+    // 20 cars: a race of 10 planned laps, where a safety car stays out for two laps of the leader
+    const r = start({ cars: 20, interval: 30, safetyCar: 'standard' });
+    const planned = r.world.session.totalLaps;
+    run(r, 30, (w) => w.session.phase === 'running');
+    // two safety cars: the countdown waits, the laps go on
+    const at = [100, 250];
+    let closest = Infinity;
+    run(r, 3000, (w) => {
+      if (at.length > 0 && r.green >= at[0]! && forceIncident(w, r.track, 'sc')) at.shift();
+      // what race control, damage rules, the AI and the lap timing read as the last lap
+      if (w.session.phase === 'running') closest = Math.min(closest, w.session.totalLaps - w.session.leaderLap);
+      return false;
+    });
+    expect(at).toEqual([]);
+    expect(isSessionOver(r.world)).toBe(true);
+    expect(Math.max(...r.world.cars.map((c) => c.timing.lapsCompleted))).toBeGreaterThan(planned);
+    expect(closest).toBeGreaterThanOrEqual(1);
+    expect(r.events.filter((e) => e.type === 'finalLap')).toHaveLength(0);
+    // decided by the countdown alone: one finisher, at the last elimination
+    expect(r.world.cars.filter((c) => c.status === 'finished')).toHaveLength(1);
+    expect(r.world.session.chequeredAt).toBeCloseTo(r.outs.at(-1)!.time, 6);
+  }, 90_000);
 
   test('the player eliminated: retired as 淘汰 at their place, and the race concluded from there is classified', () => {
     const r = start({ cars: 6, interval: 30, player: true });
