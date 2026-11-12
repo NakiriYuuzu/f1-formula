@@ -17,7 +17,7 @@ import { CarSharedResources } from '../src/render/car/carMaterials';
 import { createCarModel } from '../src/render/car/carModel';
 import { designForTeam } from '../src/render/car/designs';
 import { PATTERN_LABEL } from '../src/ui/menus/components/forms';
-import { CAR_FINISH, CAR_PAINT } from '../src/render/car/carQuality';
+import { CAR_FINISH, CAR_PAINT, CAR_WET } from '../src/render/car/carQuality';
 import { carDims } from '../src/render/car/dims';
 import { installFakeDom } from './renderHarness';
 
@@ -143,6 +143,18 @@ describe('finish', () => {
     expect(mat(model).clearcoat).toBe(0);
     model.setLivery(BASE, 7, 'TST', BASE);
     expect(mat(model).clearcoat).toBe(CAR_PAINT.clearcoat);
+    model.dispose();
+  });
+
+  test('a wet car is darker and glossier (rain or spray off a wet track), dry again after', () => {
+    const model = createCarModel({ ...base, livery: { ...BASE, finish: 'satin' }, quality: 'low' });
+    const st = { carId: 1, x: 0, y: 0, z: 0, yaw: 0, visible: true, damage: { frontWing: 0, rearWing: 0 } } as never;
+    model.apply(st, 0.016, { time: 0, rain: 0, wetness: 1 });
+    expect(mat(model).roughness).toBeCloseTo(CAR_FINISH.satin.roughness * (1 - CAR_WET.gloss), 6);
+    expect(mat(model).color.r).toBeCloseTo(1 - CAR_WET.darken, 6);
+    model.apply(st, 0.016, { time: 0, rain: 0, wetness: 0 });
+    expect(mat(model).roughness).toBe(CAR_FINISH.satin.roughness);
+    expect(mat(model).color.r).toBe(1);
     model.dispose();
   });
 });
