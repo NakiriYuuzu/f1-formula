@@ -148,6 +148,7 @@ function newRaceInternal(
     pitLat: 0,
     pitSlope: 0,
     pitStopS: boxS,
+    pitQueued: false,
     pitStopTotal: 0,
     pitHold: 0,
     pitFuel: 0,

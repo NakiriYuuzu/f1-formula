@@ -31,7 +31,7 @@ import { finishCar } from '../src/race/session';
 import { DEFAULT_ASSISTS, DEFAULT_RULES, DEFAULT_SETUP, POINTS_TABLE, SIM_DT } from '../src/core/defaults';
 import { DRIVERS, TEAMS } from '../src/data/teams';
 import { getLayout } from '../src/data/tracks/index';
-import { inRangeS, sampleAt } from '../src/track/track';
+import { forwardDistance, inRangeS, pitLaneOffsetAt, sampleAt } from '../src/track/track';
 import type {
   BuiltTrack,
   ControlInput,
@@ -313,6 +313,53 @@ describe('pit stops', () => {
       expect(closest).toBeGreaterThan(2.2);
     },
     60_000,
+  );
+
+  test(
+    'a car queued behind its team-mate waits beside the fast lane: the cars behind drive past it, it crosses back and stops in its box',
+    () => {
+      const track = getLayout('silverstone');
+      const world = createWorld(config('silverstone', { laps: 4, seed: 42 }), track);
+      const centre = (s: number): number => pitLaneOffsetAt(track, s) ?? Number.NaN;
+      let closest = Infinity;
+      let queued = 0;
+      let blocked = 0;
+      let offBox = 0;
+      run(world, track, 900, {
+        each: (w) => {
+          for (const c of w.cars) {
+            if (c.timing.lap === 2 && c.pit.stops === 0 && !c.pit.requested && c.pit.phase === 'none') requestPit(w, c.id, 'hard');
+          }
+          // standing at the queue spot: off the lane centre on the pit-wall side, clear of the cars passing on it
+          const waiting = w.cars.filter((q) => q.race.pitQueued && q.pit.phase === 'lane' && q.race.pitStopS !== q.pit.boxS && q.phys.speed < 0.1);
+          for (const q of waiting) {
+            queued++;
+            expect((q.phys.lateral - centre(q.phys.s)) * track.pit.side).toBeLessThan(-2.9);
+          }
+          for (const o of w.cars) {
+            // standing on the lane centre with a queued car just ahead: held up by it
+            if (o.pit.phase !== 'lane' || o.phys.speed >= 0.1 || Math.abs(o.phys.lateral - centre(o.phys.s)) >= 2.4) continue;
+            if (waiting.some((q) => forwardDistance(track, o.phys.s, q.phys.s) < 40)) blocked++;
+          }
+          for (const c of w.cars) {
+            if (c.pit.phase === 'stopped' && Math.abs((c.phys.lateral - centre(c.phys.s)) * track.pit.side - 4) > 0.3) offBox++;
+          }
+          for (const a of w.cars) {
+            if (a.pit.phase === 'none') continue;
+            for (const b of w.cars) {
+              if (b.id <= a.id || b.pit.phase === 'none') continue;
+              closest = Math.min(closest, Math.hypot(a.phys.x - b.phys.x, a.phys.z - b.phys.z));
+            }
+          }
+        },
+      });
+      expect(world.cars.every((c) => c.pit.stops === 1)).toBe(true);
+      expect(queued).toBeGreaterThan(0);
+      expect(blocked).toBe(0);
+      expect(offBox).toBe(0);
+      expect(closest).toBeGreaterThan(2.2);
+    },
+    120_000,
   );
 
   test('requestPit / cancelPit and time trial ignores pit requests', () => {

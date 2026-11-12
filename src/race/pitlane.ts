@@ -51,8 +51,6 @@ const LANE_ACCEL = 7;
 const EXIT_ACCEL = 11;
 /** Lateral distance (m) of the box (working lane) from the lane centre, toward the garages. */
 const BOX_LATERAL = 4;
-/** Queue spot (m) behind an occupied box. */
-const QUEUE_GAP = 9;
 /** Lane traffic: cars closer than LANE_SHARE (m) across share a lane; a car keeps CAR_GAP (m, centre to centre: a car
  * length and a little) behind the one ahead. */
 const LANE_SHARE = 2.4;
@@ -77,6 +75,17 @@ const BOX_TAKEOVER_DECEL = 16;
 const BOX_SWING_START = 14;
 const BOX_SWING_END = 2;
 const BOX_SWING_OUT = 12;
+/**
+ * Queue spot behind a box a team-mate has: beside the fast lane, QUEUE_LATERAL (m) off its centre on the pit-wall side
+ * (the lane band is ±5 m; the cars driving past stay more than LANE_SHARE clear and keep going), QUEUE_GAP (m) before
+ * the box: back across to the lane centre over QUEUE_CROSS (3 m at PATH_SLOPE), then the box swing. Where the garage
+ * row starts too close to the speed-limit line for the swing out to it (the first box on a few layouts), the queue spot
+ * is QUEUE_GAP_LANE before the box on the lane centre.
+ */
+const QUEUE_LATERAL = 3;
+const QUEUE_CROSS = 9;
+const QUEUE_GAP = BOX_SWING_START + QUEUE_CROSS;
+const QUEUE_GAP_LANE = 9;
 /** Manual pit: distance (m) past the box where the car, back on the lane centre, is handed back to the driver. */
 const BOX_HANDBACK = 14;
 /** Kinematic path: lateral gain (1/m; the path closes on its plan within a few times 1/PATH_GAIN metres), steepest
@@ -250,6 +259,7 @@ export function engagePit(world: WorldState, track: BuiltTrack, car: CarEntry): 
   r.pitSlope = headingSlope(track, car);
   r.pitSpeed = Math.max(0, Math.min(p.speed, 95));
   r.pitStopS = car.pit.boxS;
+  r.pitQueued = false;
   r.pitStopTotal = 0;
   r.pitRepair = false;
   r.pitManual = drivesOwnPitVisit(car);
@@ -285,8 +295,20 @@ function boxOccupied(world: WorldState, track: BuiltTrack, car: CarEntry, myD: n
 const present = (world: WorldState, o: CarEntry): boolean => (o.status !== 'retired' || o.race.hazard) && !inGarage(world, o);
 
 /**
+ * Where a car is across the lane for the cars around it: one driving back into the fast lane (out of its box, or across
+ * from a queue spot beside the lane) is on the lane centre from its first metre, any other where it is.
+ */
+function laneLateral(track: BuiltTrack, o: CarEntry): number {
+  const r = o.race;
+  const centre = pitLaneOffsetAt(track, o.phys.s);
+  if (o.pit.phase !== 'lane' || o.phys.speed <= 0 || centre === null) return o.phys.lateral;
+  const crossing = r.pitQueued && r.pitStopS === o.pit.boxS && (o.phys.lateral - centre) * track.pit.side < 0;
+  return r.pitStopTotal > 0 || crossing ? centre : o.phys.lateral;
+}
+
+/**
  * The nearest car ahead in the pit zone on this car's path — closer than LANE_SHARE to where the path `plan` will be
- * at its place — as a hold CAR_GAP behind it at its speed.
+ * at its place (laneLateral) — as a hold CAR_GAP behind it at its speed.
  */
 function carAhead(world: WorldState, track: BuiltTrack, car: CarEntry, d: number, plan: (dd: number) => number): SpeedHold | null {
   const zone = pitZoneLength(track);
@@ -294,7 +316,7 @@ function carAhead(world: WorldState, track: BuiltTrack, car: CarEntry, d: number
   for (const o of world.cars) {
     if (o === car || !present(world, o)) continue;
     const od = forwardDistance(track, track.pit.entry, o.phys.s);
-    if (od <= d || od >= zone || Math.abs(o.phys.lateral - plan(od)) >= LANE_SHARE) continue;
+    if (od <= d || od >= zone || Math.abs(laneLateral(track, o) - plan(od)) >= LANE_SHARE) continue;
     const x = od - d - CAR_GAP;
     if (!hold || x < hold.x) hold = { x, u: Math.max(0, o.phys.speed), decel: BOX_DECEL };
   }
@@ -302,9 +324,9 @@ function carAhead(world: WorldState, track: BuiltTrack, car: CarEntry, d: number
 }
 
 /**
- * A car served in its box waits for the lane: a car in the fast lane (closer than LANE_SHARE to its centre) that will
- * drive past the box, alongside it (within CAR_GAP) or so close behind that it could not stay CAR_GAP behind the car
- * pulling away (at LANE_ACCEL) braking at BOX_DECEL.
+ * A car served in its box (or queued beside the lane) waits for the lane: a car in the fast lane (closer than LANE_SHARE
+ * to its centre, laneLateral) that will drive past the box, alongside it (within CAR_GAP) or so close behind that it
+ * could not stay CAR_GAP behind the car pulling away (at LANE_ACCEL) braking at BOX_DECEL.
  */
 function laneTrafficBehind(world: WorldState, track: BuiltTrack, car: CarEntry, d: number, laneLat: (dd: number) => number): boolean {
   for (const o of world.cars) {
@@ -312,10 +334,16 @@ function laneTrafficBehind(world: WorldState, track: BuiltTrack, car: CarEntry, 
     const od = forwardDistance(track, track.pit.entry, o.phys.s);
     const v = Math.max(0, o.phys.speed);
     if (od >= d + CAR_GAP || d - od >= CAR_GAP + (v * v) / (2 * (LANE_ACCEL + BOX_DECEL))) continue;
-    if (Math.abs(o.phys.lateral - laneLat(od)) >= LANE_SHARE) continue;
+    if (Math.abs(laneLateral(track, o) - laneLat(od)) >= LANE_SHARE) continue;
     if (o.race.pitStopTotal > 0 || forwardDistance(track, track.pit.entry, o.race.pitStopS) > d) return true;
   }
   return false;
+}
+
+/** How far before the box at `boxD` (from the entry) its queue spot is: QUEUE_GAP beside the fast lane where the swing
+ * out to it fits past the speed-limit line, else QUEUE_GAP_LANE on the lane centre. */
+function queueGap(track: BuiltTrack, boxD: number): number {
+  return boxD - QUEUE_GAP - BOX_SWING_START >= pitRampLength(track) ? QUEUE_GAP : QUEUE_GAP_LANE;
 }
 
 /** One kinematic autopilot step. Call instead of input + physics while car.pit.phase !== 'none'. */
@@ -344,17 +372,30 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
     return;
   }
 
-  // the stop spot: the own box, or the queue spot behind it while a team-mate has it
-  const occupied = pit.phase === 'lane' && r.pitStopTotal <= 0 && boxOccupied(world, track, car, d);
-  if (pit.phase === 'lane' && r.pitStopTotal <= 0) r.pitStopS = occupied ? wrapS(track, pit.boxS - QUEUE_GAP) : pit.boxS;
-  const stopD = forwardDistance(track, tp.entry, r.pitStopS);
   // lateral path, planned per distance from the entry (outside the zone, at the last exit step: the current lateral)
   const laneLat = (dd: number): number => pitLaneOffsetAt(track, wrapS(track, tp.entry + dd)) ?? r.pitLat;
+  // the stop spot: the own box, or the queue spot behind it while a team-mate has it; from a queue spot beside the fast
+  // lane the car crosses back only from a stand there (within half a metre of it), when nothing in the lane is about to
+  // drive past it
+  const gap = queueGap(track, boxD);
+  const queueD = boxD - gap;
+  const occupied = pit.phase === 'lane' && r.pitStopTotal <= 0 && boxOccupied(world, track, car, d);
+  if (occupied && gap === QUEUE_GAP) r.pitQueued = true;
+  if (pit.phase === 'lane' && r.pitStopTotal <= 0) {
+    const held = occupied || (r.pitQueued && (d < queueD - 0.5 || (d < queueD + 0.5 && laneTrafficBehind(world, track, car, d, laneLat))));
+    r.pitStopS = held ? wrapS(track, pit.boxS - gap) : pit.boxS;
+  }
+  const stopD = forwardDistance(track, tp.entry, r.pitStopS);
+  const swing = (dd: number, to: number): number => lerp(laneLat(dd), to, smoothstep(BOX_SWING_START, BOX_SWING_END, stopD - dd));
   const plan = (dd: number): number => {
     if (pit.phase === 'entry') return lerp(r.pitStartLat, laneLat(dd), smoothstep(0, ramp * 0.85, dd));
     if (pit.phase === 'exit') return laneLat(dd);
-    if (r.pitStopTotal <= 0) return occupied ? laneLat(dd) : lerp(laneLat(dd), boxLat, smoothstep(BOX_SWING_START, BOX_SWING_END, stopD - dd));
-    return lerp(boxLat, laneLat(dd), smoothstep(0, BOX_SWING_OUT, dd - boxD));
+    if (r.pitStopTotal <= 0 && !r.pitQueued) return occupied ? laneLat(dd) : swing(dd, boxLat);
+    if (r.pitStopTotal > 0) return lerp(boxLat, laneLat(dd), smoothstep(0, BOX_SWING_OUT, dd - boxD));
+    // queued beside the fast lane: out to the queue spot, then back across the lane and into the box
+    const aside = laneLat(dd) - tp.side * QUEUE_LATERAL;
+    if (r.pitStopS !== pit.boxS) return swing(dd, aside);
+    return lerp(aside, swing(dd, boxLat), smoothstep(queueD, queueD + QUEUE_CROSS, dd));
   };
   const ahead = pit.phase === 'stopped' ? null : carAhead(world, track, car, d, plan);
   const traffic: SpeedHold[] = ahead ? [ahead] : [];
@@ -380,7 +421,7 @@ export function stepPitLane(world: WorldState, track: BuiltTrack, car: CarEntry,
         // on the spot (within a millimetre) and braked to a crawl: it stands
         if (remain - step <= 1e-3 && nv <= 1e-3) {
           nv = 0;
-          if (!occupied) startStop(world, track, car);
+          if (r.pitStopS === pit.boxS) startStop(world, track, car);
         }
       } else if (v < 0.5 && d - boxD < 0.5 && laneTrafficBehind(world, track, car, d, laneLat)) {
         // served: held in the box until the lane behind is clear
@@ -507,7 +548,7 @@ export function stepManualPit(world: WorldState, track: BuiltTrack, car: CarEntr
 
   if (pit.phase === 'lane' && pit.requested && r.pitStopTotal <= 0) {
     const boxD = forwardDistance(track, tp.entry, pit.boxS);
-    const stopD = boxOccupied(world, track, car, d) ? boxD - QUEUE_GAP : boxD;
+    const stopD = boxOccupied(world, track, car, d) ? boxD - queueGap(track, boxD) : boxD;
     if (stopD - d <= Math.max(BOX_SWING_START, (p.speed * p.speed) / (2 * BOX_TAKEOVER_DECEL))) {
       r.pitAuto = true;
       r.pitLat = p.lateral;
