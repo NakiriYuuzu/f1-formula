@@ -934,6 +934,9 @@ export interface CarRenderState {
   rainLight: boolean;
   /** pit limiter light */
   limiter: boolean;
+  /** standing in its pit box (absent otherwise): the tyre change's progress 0 → 1 (the stop ends at 1); below 0 while the
+   * car is held before it (an unserved time penalty, then its repairs) */
+  pitService?: number;
   /** 0..1 per part (DamageState); floor / suspension optional (absent = intact): the renderer shows them as scuffs and a
    * splayed wheel at `corner`, the wings bending to its side (CarPhysicsState.damageCorner, absent = 0) */
   damage: { frontWing: number; rearWing: number; floor?: number; suspension?: number; corner?: number };

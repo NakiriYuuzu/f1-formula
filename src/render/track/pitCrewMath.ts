@@ -52,10 +52,20 @@ export interface BoxObservation {
   approaching: boolean;
   /** the car just serviced is still pulling away from the box */
   departing: boolean;
+  /** the standing car is held before its service (a time penalty, repairs: CarRenderState.pitService < 0) */
+  held?: boolean;
 }
 
 /** Service timeline (s after the car stopped): jacks up, old tyres off, new tyres on, jacks down. */
 export const CREW_SERVICE = { jackUp: 0.25, tyreOff: 0.6, tyreOn: 1.3, jackDown: 2.1 } as const;
+/** End of the service timeline (s): the jacks are down (crewLift). */
+export const CREW_SERVICE_END = CREW_SERVICE.jackDown + 0.15;
+
+/** Time on the service timeline at the stop's service progress `p` (CarRenderState.pitService): the jacks are down as the
+ * stop ends, however long its service. */
+export function serviceClock(p: number): number {
+  return Math.min(1, Math.max(0, p)) * CREW_SERVICE_END;
+}
 /** Height (m) the jacks lift the car. */
 export const CREW_LIFT = 0.055;
 /** Walking / sprinting speed (m/s) between spots and the turn rate (rad/s). */
@@ -80,9 +90,12 @@ export function faceYaw(df: number, dr: number): number {
   return Math.atan2(-dr, df);
 }
 
-/** Next box phase: a stopped car is serviced; afterwards the crew steps back while it leaves, then walks home. */
+/**
+ * Next box phase: a stopped car is serviced (a held one waited by, ready); afterwards the crew steps back while it
+ * leaves, then walks home.
+ */
 export function nextBoxPhase(phase: BoxPhase, obs: BoxObservation): BoxPhase {
-  if (obs.stopped) return 'service';
+  if (obs.stopped) return obs.held ? 'ready' : 'service';
   if ((phase === 'service' || phase === 'release') && obs.departing) return 'release';
   return obs.approaching ? 'ready' : 'idle';
 }

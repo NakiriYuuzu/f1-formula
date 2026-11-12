@@ -549,6 +549,7 @@ function startStop(world: WorldState, car: CarEntry): void {
   const duration = serve + randRange(world.rng, 2.0, 3.5) + repair;
   pit.timer = duration;
   r.pitStopTotal = duration;
+  r.pitHold = serve + repair;
   setCarHeld(car.phys, true);
 }
 

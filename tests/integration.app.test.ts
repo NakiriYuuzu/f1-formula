@@ -212,6 +212,17 @@ describe('replay data', () => {
     expect(early.cars[1]!.x).toBe(0);
   });
 
+  test('a stop in the box: its service runs on between frames; a car not in its box carries none', () => {
+    const a = encodeFrame(frame(0, [car({ pitService: -0.4 }), car({ carId: 1, pitService: 0.2 }), car({ carId: 2 })]));
+    const b = encodeFrame(frame(1, [car({ pitService: 0.1 }), car({ carId: 1 }), car({ carId: 2, pitService: 0 })]));
+    const mid = decodeFrame(0.5, a, b, 0.25);
+    expect(mid.cars[0]!.pitService).toBeCloseTo(-0.275, 5);
+    // just driven off / just stopped: the nearer frame
+    expect(mid.cars[1]!.pitService).toBeCloseTo(0.2, 5);
+    expect(mid.cars[2]!.pitService).toBeUndefined();
+    expect(decodeFrame(1, b, null, 0).cars[1]!.pitService).toBeUndefined();
+  });
+
   test('recorder: 30 Hz cadence, bounded ring keeps the newest frames, truncate and clear', () => {
     const rec = new ReplayRecorder(30, 1);
     for (let i = 0; i <= 240; i++) rec.maybeRecord(i / 120, () => frame(i / 120, [car({ x: i })]));

@@ -38,6 +38,8 @@ export interface CarRaceInternal {
   /** s (m) the car stops at: own box or the queue spot behind a team-mate */
   pitStopS: number;
   pitStopTotal: number;
+  /** seconds of the current stop the car stands before its tyres are changed: an unserved time penalty, then repairs */
+  pitHold: number;
   pitRepair: boolean;
   /**
    * driver-driven pit visit (no pit assist): physics + driver inputs except while pitAuto, the kinematic

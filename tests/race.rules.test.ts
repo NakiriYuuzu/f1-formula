@@ -259,6 +259,36 @@ describe('pit stops', () => {
   );
 
   test(
+    'the render frame says where a stop is: held for the unserved penalty first, then the service to its end',
+    () => {
+      const track = getLayout('porto-lumen');
+      const world = createWorld(config('porto-lumen', { grid: ['varga'], laps: 3 }), track);
+      const seen: number[] = [];
+      run(world, track, 600, {
+        each: (w) => {
+          const c = w.cars[0];
+          if (c.timing.lap === 2 && c.pit.stops === 0 && !c.pit.requested && c.pit.phase === 'none') {
+            requestPit(w, 0, 'soft');
+            c.penalties.timeSec = 5;
+          }
+          const service = buildRenderFrame(w, track).cars.find((x) => x.carId === 0)?.pitService;
+          if (c.pit.phase === 'stopped') seen.push(service ?? Number.NaN);
+          else expect(service).toBeUndefined();
+        },
+        until: (w) => w.cars[0].pit.stops > 0,
+      });
+      // 5 s held, then the 2.0–3.5 s service running up to 1 as the stop ends
+      expect(seen.filter((x) => x < 0).length * SIM_DT).toBeCloseTo(5, 1);
+      const work = seen.filter((x) => x >= 0);
+      expect(work.length * SIM_DT).toBeGreaterThan(2 - 2 * SIM_DT);
+      expect(work.length * SIM_DT).toBeLessThan(3.5 + 2 * SIM_DT);
+      expect(work[work.length - 1]).toBeGreaterThan(0.99);
+      expect(seen.every((x, i) => i === 0 || x > (seen[i - 1] as number))).toBe(true);
+    },
+    30_000,
+  );
+
+  test(
     'cars called in on the same lap queue in the lane: none drives through another and every car stops',
     () => {
       const track = getLayout('monaco');

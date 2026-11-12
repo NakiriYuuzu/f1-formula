@@ -14,11 +14,14 @@ import { RUBBER_BASE, rubberIntensity } from '../src/render/track/road';
 import {
   CREW_LIFT,
   CREW_SERVICE,
+  CREW_SERVICE_END,
   CREW_SLOTS,
   CREW_SPEED,
   crewLift,
   crewTarget,
+  gunWobble,
   nextBoxPhase,
+  serviceClock,
   walkToward,
   type BoxPhase,
   type CrewCarShape,
@@ -186,6 +189,22 @@ describe('pit crew choreography', () => {
     expect(crewLift('service', Number.NaN)).toBe(0);
   });
 
+  test('a held car is waited by; the tyre change is stretched over the service of the stop, the jacks down as it ends', () => {
+    // held (time penalty, repairs): the crew stands ready beside it, no gun turns, the car stays down
+    expect(nextBoxPhase('ready', { stopped: true, approaching: true, departing: false, held: true })).toBe('ready');
+    expect(nextBoxPhase('ready', { stopped: true, approaching: true, departing: false, held: false })).toBe('service');
+    expect(gunWobble('ready', 1)).toBe(0);
+    expect(crewLift('ready', 1)).toBe(0);
+    // the service clock: from the start of the work to the jacks down at the end of the stop
+    expect(serviceClock(-0.5)).toBe(0);
+    expect(serviceClock(0)).toBe(0);
+    expect(serviceClock(1)).toBe(CREW_SERVICE_END);
+    expect(serviceClock(2)).toBe(CREW_SERVICE_END);
+    expect(crewLift('service', serviceClock(0.5))).toBeCloseTo(CREW_LIFT, 6);
+    expect(crewLift('service', serviceClock(0.97))).toBeGreaterThan(0);
+    expect(crewLift('service', serviceClock(1))).toBe(0);
+  });
+
   test('walking never exceeds the crew speed and arrives', () => {
     const cur = { f: 0, r: 0, yaw: 0 };
     const target = crewTarget(0, 'service', 1, SHAPE, 6, 1);
@@ -240,6 +259,35 @@ describe('pit crews on a built track', () => {
     time += 0.1;
     crew.update([carState({ carId: 7, x: box.x + fx * 40, y: box.y, z: box.z + fz * 40, yaw: box.yaw, speed: 20 })], time, []);
     expect(crew.boxInfo(2)?.phase).toBe('idle');
+    disposer.dispose();
+  });
+
+  test('a stop that says where it is: held first (no lift), then the jacks are down exactly as it ends', () => {
+    const track = buildTrack(longDef());
+    const { ctx, disposer } = makeContext(track);
+    const crew = new PitCrew(ctx, carDims(), new Map([[7, 2]]));
+    const box = crew.boxInfo(2);
+    expect(box).not.toBeNull();
+    if (!box) return;
+    const standing = (pitService: number): CarRenderState[] => [carState({ carId: 7, x: box.x, y: box.y, z: box.z, yaw: box.yaw, pitService })];
+    // 5 s held (a time penalty), then a 3.4 s service
+    let time = 10;
+    for (let held = -1; held < 0; held += 0.05) {
+      crew.update(standing(held), time, []);
+      time += 0.25;
+      expect(crew.boxInfo(2)?.phase).toBe('ready');
+      expect(crew.liftFor(7)).toBe(0);
+    }
+    const lifts: number[] = [];
+    for (let k = 0; k <= 40; k++) {
+      crew.update(standing(k / 40), time, []);
+      time += 3.4 / 40;
+      expect(crew.boxInfo(2)?.phase).toBe('service');
+      lifts.push(crew.liftFor(7));
+    }
+    // up for most of the service (not just its first 2.1 s), down at its end
+    expect(lifts[30]).toBeGreaterThan(CREW_LIFT * 0.9);
+    expect(lifts[40]).toBe(0);
     disposer.dispose();
   });
 });

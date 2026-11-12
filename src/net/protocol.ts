@@ -26,10 +26,10 @@ import type {
   SessionRules,
   TireCompound,
 } from '../core/types';
-import { FRAME_LAYOUT, decodeFrame, encodeFrame } from '../app/replay';
+import { FRAME_LAYOUT, NO_PIT_SERVICE, decodeFrame, encodeFrame } from '../app/replay';
 import { TAU, wrapAngle } from '../core/math';
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 // ───────────────────────────── sequence numbers ─────────────────────────────
 
@@ -240,6 +240,8 @@ const TURN = i16(5000);
 const YAW_RATE: FieldCodec = { bytes: 1, put: (v, o, x) => v.setInt8(o, clampInt(x * 20, -127, 127)), get: (v, o) => v.getInt8(o) / 20 };
 const MOTION_BYTES = HEADING.bytes + ACCEL.bytes + TURN.bytes + YAW_RATE.bytes;
 const STILL: Motion = { course: 0, accel: 0, turn: 0, spin: 0 };
+/** A packed field the snapshot leaves out: read as a car not standing in its pit box. */
+const LEFT_OUT: FieldCodec = { bytes: 0, put: () => {}, get: () => NO_PIT_SERVICE };
 
 function putMotion(v: DataView, o: number, m: Motion): void {
   HEADING.put(v, o, m.course);
@@ -295,6 +297,8 @@ const CAR_CODECS: readonly FieldCodec[] = (() => {
   c[L.compound] = U8;
   c[L.surface] = U8;
   c[L.flags] = U8;
+  // (the receiver works it out from the mirrored pit state: ClientSession.renderFrame)
+  c[L.pitService] = LEFT_OUT;
   return c;
 })();
 /** bytes per car: its fields, its ground pitch and its motion */

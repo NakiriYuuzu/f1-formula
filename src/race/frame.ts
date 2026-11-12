@@ -19,6 +19,14 @@ function gradePitch(track: BuiltTrack, s: number): number {
   return Math.atan(fin(rise) / (2 * GRADE_HALF_SPAN));
 }
 
+/** Where a car standing in its box is in its stop (CarRenderState.pitService): the tyre change runs over the time after
+ * the hold. */
+function pitService(car: CarEntry): number {
+  const r = car.race;
+  const elapsed = r.pitStopTotal - car.pit.timer;
+  return (elapsed - r.pitHold) / (r.pitStopTotal - r.pitHold);
+}
+
 function carState(world: WorldState, track: BuiltTrack, car: CarEntry): CarRenderState {
   const p = car.phys;
   const w = world.weather;
@@ -46,6 +54,7 @@ function carState(world: WorldState, track: BuiltTrack, car: CarEntry): CarRende
     compound: p.tire.compound,
     rainLight: w.rain > 0.12 || w.wetness > 0.25 || wet,
     limiter: p.limiter,
+    ...(car.pit.phase === 'stopped' && car.race.pitStopTotal > car.race.pitHold ? { pitService: pitService(car) } : {}),
     damage: {
       frontWing: clamp01(fin(p.damage.frontWing)),
       rearWing: clamp01(fin(p.damage.rearWing)),
