@@ -28,14 +28,15 @@ describe('the other cars as the guest draws them', () => {
   );
 
   test(
-    'the other cars sit on the road on grades: their height no further off than 9c3e7ea drew it',
+    'the other cars sit on the road on grades: their height no further off than 9c3e7ea drew it, but for the largest single error on wet Spa (a known gap)',
     () => {
       // 9c3e7ea's |Δy| p99 and max on each run (e48caa8, which carried the height along the grade: Spa p99 0.34 m,
       // max 0.45 m, up to 0.43 m above or below the road). Suzuka's p99 is 9c3e7ea's spread over link seeds 9-11
       // (0.018-0.022; this model 0.020-0.021): a car's height is the road's under its drawn place, so what is left is
       // that place's error along the grade. Spa in heavy rain likewise since the tow is 0.22: 9c3e7ea over link seeds
       // 9-12 p99 0.017-0.019, max 0.057-0.063; this model 0.015-0.020, max 0.028-0.120 (seed 10, the one run here, is
-      // its worst)
+      // its worst). That max is a known gap, not a reference: on this seed this model's largest single error is twice
+      // 9c3e7ea's, and the gate only keeps it from growing
       const runs: [string, number, number, string, number, number][] = [
         ['spa', 9, 70, 'clear', 0.045, 0.146],
         ['monza', 9, 50, 'clear', 0.013, 0.021],
