@@ -353,6 +353,14 @@ function recoveryInput(car: CarEntry, track: BuiltTrack, dt: number, input: Cont
   ai.stuckTimer = 0;
 }
 
+/** A human car without the pit assist, called in and past the pit entry: its visit starts once it is on the pit road
+ * (race/pitlane drivesOwnPitVisit, shouldEngagePit). */
+function takingPitRoad(world: WorldState, car: CarEntry, track: BuiltTrack): boolean {
+  if (car.pit.phase !== 'none' || !car.pit.requested || world.config.kind === 'timeTrial') return false;
+  if (car.playerIndex < 0 || car.race.formationAuto || car.assists.pitAssist) return false;
+  return forwardDistance(track, track.pit.entry, car.phys.s) < pitRampLength(track);
+}
+
 /** Compute this step's controls for an AI car. */
 /** Pit visit driven by the controller itself (no pit assist): the entry road down to the limit at the line, the lane
  * at just under the limit with the limiter on, the exit road back up to speed. */
@@ -407,8 +415,9 @@ export function driveAI(world: WorldState, car: CarEntry, track: BuiltTrack, dt:
     recoveryInput(car, track, h, input);
     return input;
   }
-  // a driver-driven pit visit (a human car on the AI controller: autopilot): the lane at the limit, limiter on
-  if (car.pit.phase !== 'none' && car.race.pitManual && !car.race.pitAuto) {
+  // a driver-driven pit visit (a human car on the AI controller: autopilot): onto the pit road (the visit starts there),
+  // the lane at the limit, limiter on
+  if ((car.pit.phase !== 'none' && car.race.pitManual && !car.race.pitAuto) || takingPitRoad(world, car, track)) {
     manualPitInput(car, track, input);
     return input;
   }

@@ -1,6 +1,7 @@
 /**
- * Pit lane. Engages when a car with a pit request passes pit.entry (or drives into the lane). The speed limit applies
- * only between the speed-limit lines (the pit straight, entry + ramp … exit − ramp); the entry and exit roads are free.
+ * Pit lane. Engages when an autopilot car with a pit request passes pit.entry, or a car is driven onto the pit road.
+ * The speed limit applies only between the speed-limit lines (the pit straight, entry + ramp … exit − ramp); the entry
+ * and exit roads are free.
  *
  * Autopilot (AI, and humans with the pit assist): moves the car kinematically along the lane: entry (blend from the
  * current lateral onto the lane, hold speed and brake to reach the limit at the line) → lane (limiter, drive to the
@@ -14,8 +15,8 @@
  * toggles the limiter; exceeding the limit between the lines costs PIT_SPEEDING_PENALTY in a race (a radio warning
  * otherwise). Only the box manoeuvre is automatic: where the autopilot has to start braking at BOX_TAKEOVER_DECEL for
  * the stop spot (at least BOX_SWING_START before it) it takes over (pitAuto), stops, services and drives back to the
- * lane centre, then hands back with the limiter on. Not steering into the lane after the entry cancels the visit (the
- * request stays for the next lap).
+ * lane centre, then hands back with the limiter on. A driver who stays on the track past the entry has not come in (the
+ * request stays for the next lap); one who drives back onto it from the entry road cancels the visit.
  *
  * Every step leaves a consistent CarPhysicsState (pose, velocity, gear, rpm, limiter).
  */
@@ -211,8 +212,14 @@ export function gearForSpeed(spec: CarSpec, v: number): { gear: number; rpm: num
   return { gear, rpm };
 }
 
+/** The driver drives this car's pit visits (CarRaceInternal.pitManual): a human without the pit assist or the formation autopilot. */
+export function drivesOwnPitVisit(car: CarEntry): boolean {
+  return isHuman(car) && !car.race.formationAuto && !car.assists.pitAssist;
+}
+
 /**
- * Should a car (without autopilot) be put on the autopilot now? Requested + crossed the entry, or drove into the lane.
+ * Does a pit visit start now? An autopilot car called in when it crosses the entry; a car its driver drives (called in
+ * or not) once it is on the pit road on the entry ramp, so a driver who stays out has not been in the pit lane at all.
  * Never a car with a broken suspension: it has no drive and is withdrawn where it stops (damageRules).
  */
 export function shouldEngagePit(world: WorldState, track: BuiltTrack, car: CarEntry, prevS: number): boolean {
@@ -223,8 +230,8 @@ export function shouldEngagePit(world: WorldState, track: BuiltTrack, car: CarEn
   const p = car.phys;
   const ds = forwardDistance(track, prevS, p.s);
   if (ds > 50) return false;
-  if (car.pit.requested && forwardDistance(track, prevS, track.pit.entry) <= ds && ds > 0) return true;
-  // drove into the lane band on the entry ramp without asking: box anyway
+  if (car.pit.requested && !drivesOwnPitVisit(car) && forwardDistance(track, prevS, track.pit.entry) <= ds && ds > 0) return true;
+  // on the pit road on the entry ramp (asked or not: box anyway)
   if (!isInPitZone(track, p.s) || p.surface !== 'pitlane') return false;
   const d = forwardDistance(track, track.pit.entry, p.s);
   return d < pitRampLength(track) && Math.sign(p.lateral) === track.pit.side;
@@ -244,7 +251,7 @@ export function engagePit(world: WorldState, track: BuiltTrack, car: CarEntry): 
   r.pitStopS = car.pit.boxS;
   r.pitStopTotal = 0;
   r.pitRepair = false;
-  r.pitManual = isHuman(car) && !r.formationAuto && !car.assists.pitAssist;
+  r.pitManual = drivesOwnPitVisit(car);
   r.pitAuto = false;
   r.pitSpeeding = false;
   p.drs.open = false;
