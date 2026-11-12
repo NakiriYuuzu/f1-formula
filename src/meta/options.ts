@@ -68,6 +68,13 @@ export function raceFormatFor(choice: RaceFormatChoice, interval: number, minute
   return choice === 'elimination' ? eliminationFormat(interval) : choice === 'endurance' ? enduranceFormat(minutes) : undefined;
 }
 
+/** The race format of an online room's settings (an unknown choice: a standard race; an unknown option: its default). */
+export function lobbyRaceFormat(s: { raceFormat?: string; eliminationInterval?: number; enduranceDuration?: number }): RaceFormat | undefined {
+  const choice = RACE_FORMATS.find((f) => f === s.raceFormat) ?? 'standard';
+  const interval = ELIMINATION_INTERVALS.find((n) => n === s.eliminationInterval) ?? DEFAULT_ELIMINATION_INTERVAL;
+  return raceFormatFor(choice, interval, ENDURANCE_DURATIONS.find((n) => n === s.enduranceDuration) ?? DEFAULT_ENDURANCE_DURATION);
+}
+
 export type WeekendFormat = 'raceOnly' | 'qualiRace' | 'full' | 'sprint';
 export const WEEKEND_FORMATS: readonly WeekendFormat[] = ['raceOnly', 'qualiRace', 'full', 'sprint'];
 

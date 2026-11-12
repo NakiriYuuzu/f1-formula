@@ -650,6 +650,10 @@ export interface LobbySettings {
   regulation: string;
   format: string;
   rules: LobbyRules;
+  /** how the race is decided (meta/options RaceFormatChoice; absent: standard) and its option (absent: the default) */
+  raceFormat?: string;
+  eliminationInterval?: number;
+  enduranceDuration?: number;
 }
 
 /** Race-control rules the host picks in the lobby (the other session rules stay at their defaults online). */
@@ -781,6 +785,7 @@ function isLobby(v: unknown): v is LobbyState {
   if (!Array.isArray(v.roster.teams) || !Array.isArray(v.roster.drivers)) return false;
   const s = v.settings;
   if (typeof s.layoutId !== 'string' || !isNum(s.laps) || !isNum(s.aiCount) || !isNum(s.aiDifficulty) || !isObj(s.rules)) return false;
+  if ((s.raceFormat !== undefined && typeof s.raceFormat !== 'string') || [s.eliminationInterval, s.enduranceDuration].some((n) => n !== undefined && !isNum(n))) return false;
   return v.players.every(
     (p) =>
       isObj(p) &&
