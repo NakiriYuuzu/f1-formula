@@ -43,6 +43,15 @@ bun run tools/bench/ai/analyze.ts <outDir> <file-prefix>...
 
 `reverse` puts the five fastest cars at the back on equal tyres. Name the files `<prefix>_<layout>_<mode>_s<seed>.json`. `analyze.ts` groups by prefix and prints on-track passes per race, re-passes within 20 s, where the back five finish, and how long a faster car sits within 1 s before it gets by. One 12-lap race takes about 21 s. Run races one at a time.
 
+A 12-lap race has no stops. To see the pit wall, run 25 laps (every car stops once, on laps 11-14) and score it with `pitwindow.ts`:
+
+```sh
+sh tools/bench/ai/sweep.sh <srcRoot> <outDir> <prefix> monza,suzuka 1,2,3,4,5,6,7,8 reverse 90 25
+bun run tools/bench/ai/pitwindow.ts <outDir> <prefix>... [--pairs] [--vs=<baselinePrefix>]
+```
+
+It takes the held stints that run into the pit window and asks whether the held car is ahead once both cars have stopped, and how: on track, undercut, overcut or the same lap. It also prints stops per car, a second stop within two laps, wear past the cliff, the winner's race time and what the undercut calls bought. One 25-lap race takes about 50 s.
+
 ## Pit: loss, handover, lane traffic
 
 ```sh

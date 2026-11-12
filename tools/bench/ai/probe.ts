@@ -246,8 +246,16 @@ const close = (i: number, reason: string, endPit = false): void => {
   const s = active[i]; if (!s) return;
   s.reason = reason; s.pitSoon = endPit; stints.push(s); active[i] = null; grace[i] = 0;
 };
+// stops: the request (strategy reason, the car ahead, the held stint it was in), pit entry and exit
+const pits: any[] = [];
+const openPit: any[] = new Array(n).fill(null);
+const maxWear = new Array(n).fill(0);
+// the classification once a second from ORD_T0, to settle who is ahead once a pair has made its stops
+const ord: number[][] = [];
+const ORD_T0 = world.time;
+const capTime = Math.max(2400, laps * track.referenceLapTime * 1.6 + 300);
 const t0 = Date.now();
-while (!isSessionOver(world) && world.time < 2400) {
+while (!isSessionOver(world) && world.time < capTime) {
   const inputs: any[] = seat ? [null, null, null, null] : [];
   if (seat) {
     const inp = aiMod.computeAIInput(world, seat, track, SIM_DT);
@@ -289,6 +297,13 @@ while (!isSessionOver(world) && world.time < 2400) {
   const cars = world.cars;
   const leaderLaps = Math.max(...cars.map((c: any) => c.timing.lapsCompleted));
   for (const e of world.events) {
+    if (e.type === 'pitRequested' && !openPit[e.carId]) {
+      const c = cars[e.carId];
+      const st = active[c.id];
+      openPit[c.id] = { car: c.id, lap: c.timing.lap, tReq: world.time, reason: c.ai.pitCall, from: c.phys.tire.compound, to: e.compound, wear: c.phys.tire.wear,
+        pos: c.timing.position, interval: c.timing.interval, ahead: c.timing.position > 1 ? world.race.order[c.timing.position - 2] : -1,
+        held: st ? { b: st.b, t1: st.t1, deltaNow: st.deltaNow } : null, tEntry: -1, tExit: -1, posExit: -1 };
+    }
     if (e.type === 'collision' && e.otherCarId !== null) { collisions++; if (e.impulse > 5000) heavy++; }
     if (seat && e.type === 'collision' && e.carId === seat.id && e.otherCarId !== null) {
       const o = cars[e.otherCarId];
@@ -316,10 +331,20 @@ while (!isSessionOver(world) && world.time < 2400) {
     const cur = attackOpen[c.id];
     if (cur) cur.ph[ph] = (cur.ph[ph] ?? 0) + SIM_DT;
   }
+  if (world.time - ORD_T0 >= ord.length) ord.push([...world.race.order]);
   for (const c of cars) {
     const ph = c.pit.phase;
-    if (prevPhase[c.id] !== 'none' && ph === 'none') lastPitExit[c.id] = world.time;
+    if (prevPhase[c.id] === 'none' && ph !== 'none') {
+      openPit[c.id] ??= { car: c.id, lap: c.timing.lap, tReq: -1, reason: 'manual', from: c.phys.tire.compound, to: null, wear: c.phys.tire.wear, pos: c.timing.position, interval: c.timing.interval, ahead: -1, held: null, tEntry: -1, tExit: -1, posExit: -1 };
+      openPit[c.id].tEntry = world.time;
+    }
+    if (prevPhase[c.id] !== 'none' && ph === 'none') {
+      lastPitExit[c.id] = world.time;
+      const p = openPit[c.id];
+      if (p) { p.tExit = world.time; p.posExit = c.timing.position; pits.push(p); openPit[c.id] = null; }
+    }
     prevPhase[c.id] = ph;
+    if (c.phys.tire.wear > maxWear[c.id]) maxWear[c.id] = c.phys.tire.wear;
     // lap record
     const acc = lapAcc[c.id];
     if (c.timing.lapsCompleted !== acc.lap) {
@@ -388,6 +413,8 @@ const out = {
   paceStatic, backFive, backScore, final, snaps, crossT, seg, corners: track.corners.map((c: any) => [c.startS, c.apexS, c.endS]), events, stints, lapRecs, collisions, heavy,
   retired: world.cars.filter((c: any) => c.status === 'retired').map((c: any) => c.driverId),
   stops: world.cars.map((c: any) => c.pit.stops),
+  pits, maxWear, ord, ordT0: ORD_T0, startTime: world.session.startTime, finishTime: world.cars.map((c: any) => c.timing.finishTime),
+  pitCalls: world.cars.map((c: any) => c.ai.pitCall), overcuts: world.cars.map((c: any) => c.ai.overcuts),
   tricks: world.cars.map((c: any) => ({ f: c.ai.feints, fp: c.ai.feintPasses, s: c.ai.switchbacks, sp: c.ai.switchbackPasses })),
   bestLap: world.cars.map((c: any) => c.timing.bestLap),
   attacks: attackEps,

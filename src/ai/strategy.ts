@@ -54,14 +54,20 @@ const DAMAGE_STOP_SUSPENSION = 0.5;
 const MAX_STOPS = 4;
 
 /**
- * Undercut: the car ahead within UNDERCUT_GAP s on a set no fresher than ours (SIMILAR_WEAR), and it must stop too —
- * box now when the fresh-set gain over UNDERCUT_LAPS laps (model), less what stopping now costs over the best plan,
- * beats the gap by UNDERCUT_MARGIN s.
+ * Undercut: the car ahead within UNDERCUT_GAP s — or nearer once it holds us up (within UNDERCUT_GAP[0] s of the same
+ * car at the last evaluation and now, a lap without getting by on the road, and its lap slower than ours by more than
+ * HELD_EDGE: a driver's race rhythm swings lap time by up to ±0.4 % (controller.ts), so a smaller edge is no edge) — on
+ * a set no fresher than ours (SIMILAR_WEAR), and it must stop too. Box now when what the stop gains on it over
+ * UNDERCUT_LAPS laps, less what stopping now costs over the best plan, beats the gap by UNDERCUT_MARGIN s. The gain: the
+ * fresh set against its old one at our pace, plus (held) the time a lap behind it costs us, less the time lost behind the
+ * cars we come out behind (FOLLOW s back from each).
  */
 const UNDERCUT_GAP: readonly [number, number] = [1, 2.5];
 const SIMILAR_WEAR = 0.03;
 const UNDERCUT_LAPS = 2;
 const UNDERCUT_MARGIN = 0.4;
+const FOLLOW = 0.5;
+const HELD_EDGE = 0.004;
 /**
  * Overcut: the car ahead (within OVERCUT_GAP s) has just pitted, we have clean air (no car within CLEAN_AIR s) and a lap
  * on our old set is no slower than its out-lap (fresh set + OUTLAP_WARMUP s off the blankets): stay out up to
@@ -523,6 +529,31 @@ function freshGain(base: number, old: TireCompound, oldWear: number, oldRate: nu
   return gain;
 }
 
+/** Time (s) a car drives the next `laps` laps on its current set at its own pace. */
+function lapsOnSet(o: CarEntry, track: BuiltTrack, laps: number): number {
+  return stintTimes(basePace(o, track), o.phys.tire.compound, o.phys.tire.wear, wearPerLap(o, track), laps)[laps];
+}
+
+/**
+ * Time (s) the traffic where a stop now comes back out costs over the next UNDERCUT_LAPS laps on a set that would run
+ * them in `free` s: we rejoin `loss` s back, held FOLLOW s behind each car then ahead of us (not boxing itself).
+ */
+function rejoinDelay(world: WorldState, car: CarEntry, track: BuiltTrack, loss: number, free: number): number {
+  const order = world.race.order;
+  const from = order.indexOf(car.id);
+  if (from < 0) return 0;
+  let end = free;
+  let behind = 0;
+  for (let i = from + 1; i < order.length; i++) {
+    const o = world.cars[order[i]];
+    behind += fin(o.timing.interval, Infinity);
+    if (!(behind < loss)) break;
+    if (o.status !== 'running' || o.pit.requested || o.pit.phase !== 'none') continue;
+    end = Math.max(end, lapsOnSet(o, track, UNDERCUT_LAPS) - (loss - behind) + FOLLOW);
+  }
+  return end - free;
+}
+
 /** Laps a race car still drives after the current one, by its own count: a lapped car takes the flag lapsDown laps early. */
 function lapsAfter(world: WorldState, car: CarEntry): number {
   return Math.max(0, world.session.totalLaps - car.timing.lapsDown - car.timing.lapsCompleted - 1);
@@ -707,9 +738,10 @@ function evaluate(
   ai.planStay = plan.best && plan.best.stints.length > 0 ? plan.best.stay : -1;
   const pick = (r: PlanResult): TireCompound => r.now?.stints[0] ?? chooseDryCompound(car, track, after, exclude);
 
-  // backstops of the fixed rules: never into the cliff; the mandatory stop with two laps to go at the latest
+  // backstops of the fixed rules: never into the cliff (the wear at the flag counted from the end of this lap, as
+  // planRace counts it); the mandatory stop with two laps to go at the latest
   const wear = p.tire.wear;
-  if (wear + rate * (after + 1) > FINISH_WEAR && wear + rate > PIT_WEAR) {
+  if (ev.wearEnd + rate * after > FINISH_WEAR && wear + rate > PIT_WEAR) {
     if (busy && wear + rate < CLIFF_WEAR) return ev;
     return stop(pick(plan), 'wear');
   }
@@ -770,13 +802,20 @@ function evaluate(
   const next = plan.now.stints[0];
   const nextRate = input.rate * COMPOUND_PARAMS[next].wearRate;
 
-  // C2 undercut: the car ahead within reach, on a set as old as ours, and it has to stop too
+  // C2 undercut: the car ahead within reach, or holding us up (a lap within UNDERCUT_GAP[0] s of it, and its lap slower
+  // than ours by `lost`, more than HELD_EDGE), on a set as old as ours, and it has to stop too
   const a = neighbour(world, car, -1);
   const gap = car.timing.interval;
-  if (a && a.status === 'running' && a.pit.phase === 'none' && !a.pit.requested && gap >= UNDERCUT_GAP[0] && gap <= UNDERCUT_GAP[1]) {
+  const near = a !== null && ai.aheadId === a.id && ai.aheadGap < UNDERCUT_GAP[0] && gap < UNDERCUT_GAP[0];
+  const lapA = a && near ? lapsOnSet(a, track, 1) : 0;
+  const lost = lapA > 0 ? Math.max(0, lapA - lapsOnSet(car, track, 1)) : 0;
+  if (a && a.status === 'running' && a.pit.phase === 'none' && !a.pit.requested && (gap >= UNDERCUT_GAP[0] || lost > HELD_EDGE * lapA) && gap <= UNDERCUT_GAP[1]) {
     const t = a.phys.tire;
     if (isDry(t.compound) && wear >= t.wear - SIMILAR_WEAR && mustStop(world, a, track, ctx)) {
-      const gain = freshGain(base, t.compound, t.wear, wearPerLap(a, track), next, nextRate);
+      // a stop into clean air also wins back on it the time lost a lap behind it, until it stops
+      const fresh = stintTimes(base, next, 0, nextRate, UNDERCUT_LAPS)[UNDERCUT_LAPS];
+      const gain =
+        freshGain(base, t.compound, t.wear, wearPerLap(a, track), next, nextRate) + lost * UNDERCUT_LAPS - rejoinDelay(world, car, track, input.nowLoss ?? loss, fresh);
       if (gain - extra > gap + UNDERCUT_MARGIN) return stop(next, 'undercut');
     }
   }
