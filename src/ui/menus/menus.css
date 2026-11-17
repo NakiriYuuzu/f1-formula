@@ -26,6 +26,9 @@
   overflow: clip;
   scrollbar-width: thin;
   scrollbar-color: var(--nv-line-strong) transparent;
+  /* header and footer heights: the stage sits between them */
+  --nvm-top-h: 3.86em;
+  --nvm-foot-h: 3.6em;
 }
 
 .nvm-root[hidden],
@@ -81,18 +84,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ───────────────────────── input-source switching (keyboard caps vs gamepad glyphs) ───────────────────────── */
-
-.nvm-root:not(.is-pad) .nvm-key-pad,
-.nvm-root.is-pad .nvm-key-kb {
-  display: none;
-}
-
-.nvm-root:not(.is-pad) [data-input='pad'],
-.nvm-root.is-pad [data-input='kb'] {
-  display: none;
-}
-
 /* ───────────────────────── background ───────────────────────── */
 
 .nvm-bg {
@@ -131,11 +122,11 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 3.86em;
+  height: calc(var(--nvm-top-h) + var(--nv-safe-t));
   display: flex;
   align-items: center;
   gap: 1em;
-  padding: 0 var(--nv-pad);
+  padding: var(--nv-safe-t) calc(var(--nv-pad) + var(--nv-safe-r)) 0 calc(var(--nv-pad) + var(--nv-safe-l));
   z-index: 3;
 }
 
@@ -183,7 +174,7 @@
   align-items: center;
   gap: 0.6em;
   margin-left: auto;
-  min-height: 2.6em;
+  min-height: max(2.6em, var(--nv-hit));
   padding: 0 1em 0 0.45em;
   border: 0;
   border-radius: 999px;
@@ -217,10 +208,10 @@
 
 .nvm-stage {
   position: absolute;
-  top: 3.86em;
-  bottom: 3.6em;
-  left: 0;
-  right: 0;
+  top: calc(var(--nvm-top-h) + var(--nv-safe-t));
+  bottom: calc(var(--nvm-foot-h) + var(--nv-safe-b));
+  left: var(--nv-safe-l);
+  right: var(--nv-safe-r);
   z-index: 1;
 }
 
@@ -230,11 +221,11 @@
   left: 0;
   right: 0;
   bottom: 0;
-  height: 3.6em;
+  height: calc(var(--nvm-foot-h) + var(--nv-safe-b));
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 var(--nv-pad);
+  padding: 0 calc(var(--nv-pad) + var(--nv-safe-r)) var(--nv-safe-b) calc(var(--nv-pad) + var(--nv-safe-l));
   z-index: 3;
   background: linear-gradient(0deg, rgba(6, 7, 16, 0.7) 0%, rgba(6, 7, 16, 0) 100%);
 }
@@ -276,16 +267,16 @@
 }
 
 /* gamepad glyphs: round face buttons in their colours, shoulder buttons and the d-pad as dark pills */
-.nvm-root.is-pad kbd[data-pad] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad] {
   background: #1a1c2b;
   color: var(--nv-text);
   box-shadow: inset 0 0 0 0.12em rgba(255, 255, 255, 0.3);
 }
 
-.nvm-root.is-pad kbd[data-pad='a'],
-.nvm-root.is-pad kbd[data-pad='b'],
-.nvm-root.is-pad kbd[data-pad='x'],
-.nvm-root.is-pad kbd[data-pad='y'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='a'],
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='b'],
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='x'],
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='y'] {
   width: 1.85em;
   padding: 0;
   border-radius: 50%;
@@ -295,27 +286,27 @@
   box-shadow: inset 0 0 0 0.14em currentColor;
 }
 
-.nvm-root.is-pad kbd[data-pad='a'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='a'] {
   color: var(--nv-pad-a);
 }
-.nvm-root.is-pad kbd[data-pad='b'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='b'] {
   color: var(--nv-pad-b);
 }
-.nvm-root.is-pad kbd[data-pad='x'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='x'] {
   color: var(--nv-pad-x);
 }
-.nvm-root.is-pad kbd[data-pad='y'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='y'] {
   color: var(--nv-pad-y);
 }
 
-.nvm-root.is-pad kbd[data-pad='shoulder'] {
+html[data-input-mode='gamepad'] .nvm-root kbd[data-pad='shoulder'] {
   border-radius: 0.5em 0.5em 0.3em 0.3em;
 }
 
 .nvm-toasts {
   position: absolute;
-  right: var(--nv-pad);
-  bottom: 4.6em;
+  right: calc(var(--nv-pad) + var(--nv-safe-r));
+  bottom: calc(var(--nvm-foot-h) + 1em + var(--nv-safe-b));
   z-index: 6;
   display: flex;
   flex-direction: column;
@@ -579,7 +570,7 @@
 }
 
 .nvm-scroll {
-  max-height: calc(100vh - 24em);
+  max-height: calc(var(--nv-vh) - 24em);
   min-height: 8em;
   overflow: auto;
   outline: none;
@@ -1077,9 +1068,9 @@
 .nvm-color {
   position: relative;
   display: grid;
-  grid-template-columns: 2.75em minmax(0, 1fr) 2.75em;
+  grid-template-columns: max(2.75em, var(--nv-hit)) minmax(0, 1fr) max(2.75em, var(--nv-hit));
   align-items: center;
-  min-height: 2.75em;
+  min-height: max(2.75em, var(--nv-hit));
   border: 0;
   border-radius: var(--nv-radius);
   background: rgba(255, 255, 255, 0.1);
@@ -1111,7 +1102,7 @@
   display: grid;
   place-items: center;
   height: 100%;
-  min-height: 2.75em;
+  min-height: max(2.75em, var(--nv-hit));
   font-size: var(--nv-fs-small);
   color: var(--nv-text-2);
 }
@@ -1178,7 +1169,7 @@
 }
 
 .nvm-color {
-  grid-template-columns: 2.75em 2em minmax(0, 1fr) 2.75em;
+  grid-template-columns: max(2.75em, var(--nv-hit)) 2em minmax(0, 1fr) max(2.75em, var(--nv-hit));
 }
 
 .nvm-color__chip {
@@ -1207,9 +1198,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 1em;
-  min-height: 2.75em;
+  min-height: max(2.75em, var(--nv-hit));
   cursor: pointer;
-  touch-action: none;
+  touch-action: pan-y;
   outline: none;
 }
 
@@ -1257,7 +1248,7 @@
 
 .nvm-input {
   width: 100%;
-  height: 2.75em;
+  height: max(2.75em, var(--nv-hit));
   padding: 0 0.8em;
   border: 1px solid var(--nv-line-strong);
   border-radius: var(--nv-radius);
@@ -1304,6 +1295,7 @@
 .nvm-tab {
   position: relative;
   isolation: isolate;
+  min-height: var(--nv-hit);
   padding: 0.55em 1.25em;
   border: 0;
   background: none;
@@ -1735,7 +1727,7 @@
   top: 0.5em;
   align-self: start;
   /* stage = viewport − header − footer; keep clear room so long real-circuit details scroll inside */
-  max-height: calc(100vh - 9em);
+  max-height: calc(var(--nv-vh) - 9em);
   overflow-y: auto;
 }
 
@@ -2527,7 +2519,7 @@
 
 .nvm-keyslot {
   min-width: 7.5em;
-  height: 2.5em;
+  height: max(2.5em, var(--nv-hit));
   padding: 0 0.8em;
   border: 0;
   border-radius: var(--nv-radius);
@@ -2838,6 +2830,187 @@
   .nvm-main__head {
     flex-wrap: wrap;
     gap: 0.6em 1.5em;
+  }
+}
+
+/* ───────────────────────── phones (html[data-device='phone'], landscape, about 286px of stage at 390px tall) ───────────────────────── */
+
+/* compact chrome: the header 54 → 46px (still holds the 44px back button), the key-hint footer 50 → 39px */
+html[data-device='phone'] .nvm-root {
+  --nv-pad: 1em;
+  --nvm-top-h: 3.3em;
+  --nvm-foot-h: 2.8em;
+}
+
+html[data-device='phone'] .nvm-screen {
+  padding: 0.5em var(--nv-pad) 1em;
+}
+
+html[data-device='phone'] .nvm-heading__title {
+  font-size: 1.7em;
+}
+
+html[data-device='phone'] .nvm-panel {
+  padding: 0.9em;
+}
+
+/* no floors taller than the stage: every scroll region is the screen (or its column) itself */
+html[data-device='phone'] .nvm-settings__body {
+  min-height: 0;
+}
+
+html[data-device='phone'] .nvm-scroll {
+  max-height: none;
+  min-height: 0;
+}
+
+/* showroom columns stay on the left, so the car (the livery being painted, the team being picked) stays in view */
+html[data-device='phone'] .nvm-col {
+  width: 26em;
+}
+
+html[data-device='phone'] .nvm-col--wide {
+  width: 29em;
+}
+
+/* main menu: the record card shrinks so the head stays one line, and the mosaic's two rows split what is left */
+html[data-device='phone'] .nvm-main {
+  gap: 0.6em;
+}
+
+html[data-device='phone'] .nvm-main__head {
+  flex-wrap: nowrap;
+  min-height: 0;
+}
+
+html[data-device='phone'] .nvm-main .nvm-tab {
+  padding: 0.5em 1em;
+}
+
+html[data-device='phone'] .nvm-main__stat {
+  min-width: 0;
+  padding: 0.15em 0.45em;
+}
+
+html[data-device='phone'] .nvm-main__stat b {
+  font-size: 1.25em;
+}
+
+html[data-device='phone'] .nvm-mosaic {
+  flex: 1 1 0;
+  min-height: 0;
+  grid-auto-rows: minmax(0, 1fr);
+}
+
+/* track select keeps the details beside the cards, so a tap's preview is on screen */
+html[data-device='phone'] .nvm-trackselect .nvm-columns--track {
+  grid-template-columns: minmax(0, 1fr) minmax(16em, 34%);
+}
+
+html[data-device='phone'] .nvm-trackgrid {
+  grid-template-columns: repeat(auto-fill, minmax(11.5em, 1fr));
+}
+
+html[data-device='phone'] .nvm-minimap {
+  max-width: 100%;
+  height: auto !important;
+}
+
+/* a dialog taller than the stage scrolls inside itself instead of losing its top to the centring */
+html[data-device='phone'] .nvm-screen--modal {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+html[data-device='phone'] .nvm-confirm__box {
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+/* ───────────────────────── touch (html[data-input-mode='touch']) ───────────────────────── */
+
+/* no key hints: the stage takes the footer's room and the header's back button is the way back */
+html[data-input-mode='touch'] .nvm-root {
+  --nvm-foot-h: 0px;
+}
+
+html[data-input-mode='touch'] .nvm-foot {
+  display: none;
+}
+
+html[data-input-mode='touch'] .nvm-top__back {
+  min-width: var(--nv-hit);
+  padding: 0 1.1em;
+}
+
+/* a tap does not focus a button on iOS, so pressing shows the selected look */
+html[data-input-mode='touch'] .nvm-btn:active:not(:disabled),
+html[data-input-mode='touch'] .nvm-pick:active:not(:disabled),
+html[data-input-mode='touch'] .nvm-top__back:active {
+  background: var(--nv-focus-bg);
+  color: var(--nv-focus-ink);
+}
+
+html[data-input-mode='touch'] .nvm-btn--danger:active:not(:disabled) {
+  background: var(--nv-c-red);
+  color: #fff;
+}
+
+html[data-input-mode='touch'] .nvm-tile:active,
+html[data-input-mode='touch'] .nvm-track:active,
+html[data-input-mode='touch'] .nvm-story__card:active:not(.is-locked) {
+  box-shadow: var(--nv-ring), var(--nv-float);
+}
+
+html[data-input-mode='touch'] .nvm-track.is-selected:active {
+  box-shadow: inset 0 -0.25em 0 var(--nv-accent), var(--nv-ring), var(--nv-float);
+}
+
+html[data-input-mode='touch'] .nvm-cycler:active:not(:disabled),
+html[data-input-mode='touch'] .nvm-color:active:not(:disabled),
+html[data-input-mode='touch'] .nvm-keyslot:active {
+  background: var(--nv-active);
+}
+
+html[data-input-mode='touch'] .nvm-cycler__arrow:active {
+  background: var(--nv-active);
+  color: #fff;
+}
+
+html[data-input-mode='touch'] .nvm-tab:active::before {
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 0.14em #fff;
+}
+
+html[data-input-mode='touch'] .nvm-tab.is-active:active::before {
+  background: var(--nv-accent);
+}
+
+html[data-input-mode='touch'] .nvm-title__press:active::before {
+  box-shadow: 0 0 0 0.16em #fff;
+}
+
+/* ───────────────────────── settings rows for touch devices ───────────────────────── */
+
+/* 轉向方式 shows in touch mode or on a phone / tablet (a tablet with a keyboard still drives by touch) */
+html:not([data-input-mode='touch']):not([data-device='tablet']):not([data-device='phone']) .nvm-settings__touch {
+  display: none;
+}
+
+/* the on-screen 取消 of a key capture: desktop keeps Esc only */
+html:not([data-input-mode='touch']):not([data-device='tablet']):not([data-device='phone']) .nvm-keyrow__cancel {
+  display: none;
+}
+
+/* 全螢幕 on phones and tablets; without a fullscreen API (iPhone) a home-screen install is the way, unless already installed */
+html:not([data-device='tablet']):not([data-device='phone']) .nvm-settings__fs,
+html[data-fullscreen='none'] .nvm-settings__fsbtn,
+html:not([data-fullscreen='none']) .nvm-settings__fsnote {
+  display: none;
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  html[data-fullscreen='none'] .nvm-settings__fs {
+    display: none;
   }
 }
 

@@ -5,7 +5,7 @@
  */
 import type { CameraMode, Settings, ViewSpec, WorldState } from '../core/types';
 import type { AudioEngine } from '../audio/index';
-import type { InputAction, PadMenuInput } from '../input/index';
+import type { HudInput, InputAction, PadMenuInput } from '../input/index';
 import { RaceScene } from '../render/RaceScene';
 import type { GameRenderer } from '../render/GameRenderer';
 import { HudLayer, type HudCallbacks } from '../ui/hud/index';
@@ -21,6 +21,7 @@ export interface ReplayDeps {
   readonly audio: AudioEngine;
   settings(): Settings;
   toggleFullscreen(): void;
+  hudInput(): HudInput;
 }
 
 const noop = (): void => undefined;
@@ -123,7 +124,7 @@ export class ReplayRuntime {
       this.scene.render(frame, [this.view], this.playing ? dt * this.speed : 0);
       if (this.playing) this.deps.audio.update(frame, this.view.carId, this.view.camera, this.scene.getCameraPosition(0), dt);
     }
-    this.hud.update(this.world, dt, { fps, cameras: [this.view.camera], flashbacksLeft: 0, racingLine: 'off', replay: this.info });
+    this.hud.update(this.world, dt, { fps, cameras: [this.view.camera], flashbacksLeft: 0, racingLine: 'off', replay: this.info, input: this.deps.hudInput() });
   }
 
   /** Tab hidden: stop playback (resumed by the player). */

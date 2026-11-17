@@ -8,3 +8,4 @@ public/music/
 dist/
 .wrangler/
 .pi/
+.cert/

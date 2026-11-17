@@ -1,12 +1,13 @@
 /**
- * Bootstrap: global styles, the error overlay (uncaught errors / unhandled rejections), a WebGL 2 capability
- * check, the optional default roster pack, then the App (menus, sessions, replays) on the #game canvas with #ui-root
- * for DOM layers.
+ * Bootstrap: global styles, the error overlay (uncaught errors / unhandled rejections), the device watcher (the html
+ * device attributes before the first paint), a WebGL 2 capability check, the optional default roster pack, then the
+ * App (menus, sessions, replays) on the #game canvas with #ui-root for DOM layers.
  */
 import './ui/tokens.css';
 import './ui/app.css';
 import { App } from './app/App';
 import { loadDefaultRoster } from './app/defaultRoster';
+import { DeviceWatcher } from './app/device';
 import { installErrorOverlay, reportError, showFatal } from './app/errorOverlay';
 
 /** True when this browser can create a WebGL 2 context (probe canvas, released right away). */
@@ -24,6 +25,7 @@ function supportsWebGL2(): boolean {
 
 async function boot(): Promise<void> {
   installErrorOverlay();
+  const device = new DeviceWatcher(window);
   const canvas = document.getElementById('game');
   const uiRoot = document.getElementById('ui-root');
   if (!(canvas instanceof HTMLCanvasElement) || !(uiRoot instanceof HTMLElement)) {
@@ -36,7 +38,7 @@ async function boot(): Promise<void> {
   }
   await loadDefaultRoster();
   try {
-    new App(canvas, uiRoot).start();
+    new App(canvas, uiRoot, device).start();
   } catch (err) {
     reportError(err, '啟動');
     showFatal('遊戲啟動失敗', '初始化 3D 繪圖或介面時發生錯誤；請確認瀏覽器支援 WebGL 2 並已啟用硬體加速，然後重新載入頁面。');

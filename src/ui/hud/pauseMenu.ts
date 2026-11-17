@@ -89,7 +89,10 @@ export class PauseMenu {
     el('div', 'nvh-pause-title', card, '已暫停');
     this.subtitle = new TextSlot(el('div', 'nvh-pause-sub', card));
     this.list = el('div', 'nvh-pause-list', card);
-    this.hint = new TextSlot(el('div', 'nvh-pause-hint', card));
+    const hint = el('div', 'nvh-pause-hint', card);
+    // nothing to say on touch: every item is a button, and the whole padded line goes rather than an empty one
+    hint.dataset.showFor = 'keyboard gamepad';
+    this.hint = new TextSlot(hint);
     this.dialog = this.buildDialog();
     this.setResumeKeys(['Esc', 'P']);
   }

@@ -2,6 +2,7 @@
  * Menu contract types shared by MenuSystem and its screens (re-exported from ui/menus/index.ts).
  */
 import type { Livery, Regulation, SessionConfig, Settings } from '../../core/types';
+import type { TiltStatus } from '../../input/touch';
 import type { SessionContext } from '../../meta/context';
 
 export interface ShowroomCar {
@@ -28,4 +29,7 @@ export interface MenuCallbacks {
   toggleFullscreen(): void;
   /** The player left the results screen (繼續 / back / end weekend); optional. */
   resultsClosed?(): void;
+  /** Call synchronously inside the tap's click handler (user activation); resolves with the new status. */
+  requestTilt(): Promise<TiltStatus>;
+  tiltStatus(): TiltStatus;
 }

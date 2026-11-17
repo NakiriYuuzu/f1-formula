@@ -2,14 +2,19 @@
  * DOM-free input brain: held keys, one-shot latches, non-driving action queue, keyboard smoothing and
  * gamepad merging for players 0 and 1. InputManager feeds it browser events; tests drive it directly.
  */
+import { clamp } from '../core/math';
 import type { ControlInput, KeyAction, Settings } from '../core/types';
 import { buildBindingTable, resolveKey, type BindingTable, type InputAction } from './bindings';
 import { PAD_MENU_BUTTONS, buttonPressed, padsForPlayer, readPad, readPadSteps, type GamepadLike, type PadMenuInput } from './gamepad';
 import { digitalSteerTarget, stepDigitalSteer, stepPedal, steerRampRate } from './smoothing';
+import type { TouchReading } from './touch';
+
+/** The last deliberate input: picks glyphs and wording everywhere. Mouse use counts as keyboard. */
+export type InputMode = 'keyboard' | 'gamepad' | 'touch';
 
 /** Driving one-shots: key action → ControlInput flag. */
 type LatchFlag = 'shiftUp' | 'shiftDown' | 'drsPressed' | 'ersCycle' | 'limiterToggle';
-const LATCH_FOR_ACTION: Partial<Record<KeyAction, LatchFlag>> = {
+export const LATCH_FOR_ACTION: Partial<Record<KeyAction, LatchFlag>> = {
   shiftUp: 'shiftUp',
   shiftDown: 'shiftDown',
   drs: 'drsPressed',
@@ -29,18 +34,49 @@ export const QUEUED_ACTIONS: ReadonlySet<KeyAction> = new Set<KeyAction>([
   'lookBack',
 ]);
 
+/**
+ * Actions whose held state is read: the keyboard ramps (pedals, steer), getControl's overtake, and isHeld's callers
+ * (look back, spectate car switching). A key or finger holding any other action does nothing while held.
+ */
+export const HELD_ACTIONS: ReadonlySet<KeyAction> = new Set<KeyAction>([
+  'throttle',
+  'brake',
+  'steerLeft',
+  'steerRight',
+  'overtake',
+  'lookBack',
+]);
+
 /** Upper bound for unconsumed actions (e.g. presses while a menu is shown and nobody drains the queue). */
 export const MAX_QUEUED_ACTIONS = 32;
 /** Longest frame step used for smoothing (s); larger gaps (tab switches) are clamped. */
 const MAX_UPDATE_DT = 0.1;
-/** Analog → "held" threshold for isHeld on throttle/brake/steer. */
+/** Analog → "held" threshold for isHeld on throttle/brake/steer, and the crossing that marks a pad as the input. */
 const ANALOG_HELD = 0.5;
+const ANALOG_ACTIONS = ['throttle', 'brake', 'steerLeft', 'steerRight'] as const satisfies readonly KeyAction[];
+const NO_FINGERS: ReadonlySet<KeyAction> = new Set();
 
 interface PadState {
   throttle: number;
   brake: number;
   steer: number;
   held: Set<KeyAction>;
+}
+
+/** A trigger or the stick past ANALOG_HELD counts as holding the action it drives. */
+function analogHeld(pad: { throttle: number; brake: number; steer: number }, action: KeyAction): boolean {
+  switch (action) {
+    case 'throttle':
+      return pad.throttle > ANALOG_HELD;
+    case 'brake':
+      return pad.brake > ANALOG_HELD;
+    case 'steerLeft':
+      return pad.steer < -ANALOG_HELD;
+    case 'steerRight':
+      return pad.steer > ANALOG_HELD;
+    default:
+      return false;
+  }
 }
 
 interface PlayerState {
@@ -84,6 +120,12 @@ export class InputCore {
   /** D-pad left/right presses per player (tyre compound in the MFD) and the previous held set per pad */
   private stepQueue: { playerIndex: 0 | 1; step: -1 | 1 }[] = [];
   private stepPrev = new Map<number, Set<-1 | 1>>();
+  /** triggers and stick directions past ANALOG_HELD per pad index, for the input mode's rising edges */
+  private analogPrev = new Map<number, Set<KeyAction>>();
+  private inputMode: InputMode = 'keyboard';
+  /** this frame's touch reading; touch always drives player 0 */
+  private touchSteer = 0;
+  private touchHeld: ReadonlySet<KeyAction> = NO_FINGERS;
 
   constructor(settings: InputCoreSettings) {
     this.table = buildBindingTable(settings);
@@ -136,17 +178,32 @@ export class InputCore {
     this.activeKeys.clear();
   }
 
-  /** Poll pads + advance keyboard smoothing. `pads` = navigator.getGamepads() or fakes. */
-  update(dt: number, pads: readonly (GamepadLike | null | undefined)[] = []): void {
+  get mode(): InputMode {
+    return this.inputMode;
+  }
+
+  /** A deliberate key, mouse or touch input seen by the browser adapter (pads are noted by pollPads). */
+  noteDevice(mode: InputMode): void {
+    this.inputMode = mode;
+  }
+
+  /**
+   * Poll pads + advance keyboard smoothing. `pads` = navigator.getGamepads() or fakes. `touch` = the touch device's
+   * reading for this frame (player 0 only).
+   */
+  update(dt: number, pads: readonly (GamepadLike | null | undefined)[] = [], touch?: TouchReading): void {
     const step = Number.isFinite(dt) && dt > 0 ? Math.min(dt, MAX_UPDATE_DT) : 0;
     this.pollPads(pads);
     this.pollMenuButtons(pads);
+    this.touchSteer = touch && Number.isFinite(touch.steer) ? clamp(touch.steer, -1, 1) : 0;
+    this.touchHeld = touch?.held ?? NO_FINGERS;
+    for (const action of touch?.presses ?? []) this.press(action, 0);
     for (const playerIndex of [0, 1] as const) {
       const p = this.players[playerIndex];
-      const target = digitalSteerTarget(this.isKeyHeld('steerLeft', playerIndex), this.isKeyHeld('steerRight', playerIndex));
+      const target = digitalSteerTarget(this.isDigitalHeld('steerLeft', playerIndex), this.isDigitalHeld('steerRight', playerIndex));
       p.steerKb = stepDigitalSteer(p.steerKb, target, step, this.sensitivity, steerRampRate(p.speed));
-      p.throttleKb = stepPedal(p.throttleKb, this.isKeyHeld('throttle', playerIndex), step);
-      p.brakeKb = stepPedal(p.brakeKb, this.isKeyHeld('brake', playerIndex), step);
+      p.throttleKb = stepPedal(p.throttleKb, this.isDigitalHeld('throttle', playerIndex), step);
+      p.brakeKb = stepPedal(p.brakeKb, this.isDigitalHeld('brake', playerIndex), step);
     }
   }
 
@@ -164,16 +221,18 @@ export class InputCore {
     const p = this.players[playerIndex];
     const latches = p.latches;
     const pad = p.pad;
+    const touchSteer = playerIndex === 0 ? this.touchSteer : 0;
+    const steer = Math.abs(pad.steer) > Math.abs(p.steerKb) ? pad.steer : p.steerKb;
     const control: ControlInput = {
       throttle: Math.max(p.throttleKb, pad.throttle),
       brake: Math.max(p.brakeKb, pad.brake),
-      steer: Math.abs(pad.steer) > Math.abs(p.steerKb) ? pad.steer : p.steerKb,
+      steer: Math.abs(touchSteer) > Math.abs(steer) ? touchSteer : steer,
       shiftUp: latches.shiftUp,
       shiftDown: latches.shiftDown,
       drsPressed: latches.drsPressed,
       ersCycle: latches.ersCycle,
       limiterToggle: latches.limiterToggle,
-      overtakeHeld: this.isKeyHeld('overtake', playerIndex) || pad.held.has('overtake'),
+      overtakeHeld: this.isDigitalHeld('overtake', playerIndex) || pad.held.has('overtake'),
     };
     p.latches = emptyLatches();
     return control;
@@ -200,21 +259,9 @@ export class InputCore {
   }
 
   isHeld(action: KeyAction, playerIndex: 0 | 1): boolean {
-    if (this.isKeyHeld(action, playerIndex)) return true;
+    if (this.isDigitalHeld(action, playerIndex)) return true;
     const pad = this.players[playerIndex].pad;
-    if (pad.held.has(action)) return true;
-    switch (action) {
-      case 'throttle':
-        return pad.throttle > ANALOG_HELD;
-      case 'brake':
-        return pad.brake > ANALOG_HELD;
-      case 'steerLeft':
-        return pad.steer < -ANALOG_HELD;
-      case 'steerRight':
-        return pad.steer > ANALOG_HELD;
-      default:
-        return false;
-    }
+    return pad.held.has(action) || analogHeld(pad, action);
   }
 
   /**
@@ -229,8 +276,11 @@ export class InputCore {
     this.stepPrev.clear();
     // Dropping the pad history makes still-held buttons count as "already down" on the next poll (no fake presses).
     this.padPrev.clear();
+    this.analogPrev.clear();
     this.menuQueue = [];
     this.menuPrev.clear();
+    this.touchSteer = 0;
+    this.touchHeld = NO_FINGERS;
     for (const p of this.players) {
       p.steerKb = 0;
       p.throttleKb = 0;
@@ -250,6 +300,11 @@ export class InputCore {
       for (const r of routes) if (r.action === action && r.playerIndex === playerIndex) return true;
     }
     return false;
+  }
+
+  /** A key or (player 0) a finger holds the action. */
+  private isDigitalHeld(action: KeyAction, playerIndex: 0 | 1): boolean {
+    return this.isKeyHeld(action, playerIndex) || (playerIndex === 0 && this.touchHeld.has(action));
   }
 
   private press(action: KeyAction, playerIndex: 0 | 1): void {
@@ -273,7 +328,9 @@ export class InputCore {
       for (const [index, input] of PAD_MENU_BUTTONS) {
         if (!buttonPressed(pad, index)) continue;
         held.add(input);
-        if (prev && !prev.has(input) && this.menuQueue.length < MAX_QUEUED_ACTIONS) this.menuQueue.push(input);
+        if (!prev || prev.has(input)) continue;
+        this.inputMode = 'gamepad';
+        if (this.menuQueue.length < MAX_QUEUED_ACTIONS) this.menuQueue.push(input);
       }
       next.set(key, held);
     });
@@ -283,6 +340,7 @@ export class InputCore {
   private pollPads(pads: readonly (GamepadLike | null | undefined)[]): void {
     const nextPrev = new Map<number, Set<KeyAction>>();
     const nextStepPrev = new Map<number, Set<-1 | 1>>();
+    const nextAnalogPrev = new Map<number, Set<KeyAction>>();
     for (const playerIndex of [0, 1] as const) {
       const merged = emptyPad();
       // two pads pressing the same action in one poll count once
@@ -299,7 +357,9 @@ export class InputCore {
         for (const action of held) {
           merged.held.add(action);
           // First sighting of a pad: buttons already down are not presses.
-          if (prev && !prev.has(action) && !pressed.has(action)) {
+          if (!prev || prev.has(action)) continue;
+          this.inputMode = 'gamepad';
+          if (!pressed.has(action)) {
             pressed.add(action);
             this.press(action, playerIndex);
           }
@@ -308,16 +368,23 @@ export class InputCore {
         const prevSteps = this.stepPrev.get(key);
         const heldSteps = new Set(readPadSteps(pad));
         for (const step of heldSteps) {
-          if (prevSteps && !prevSteps.has(step) && !stepped.has(step) && this.stepQueue.length < MAX_QUEUED_ACTIONS) {
+          if (!prevSteps || prevSteps.has(step)) continue;
+          this.inputMode = 'gamepad';
+          if (!stepped.has(step) && this.stepQueue.length < MAX_QUEUED_ACTIONS) {
             stepped.add(step);
             this.stepQueue.push({ playerIndex, step });
           }
         }
         nextStepPrev.set(key, heldSteps);
+        const prevAnalog = this.analogPrev.get(key);
+        const analog = new Set<KeyAction>(ANALOG_ACTIONS.filter((a) => analogHeld(reading, a)));
+        for (const action of analog) if (prevAnalog && !prevAnalog.has(action)) this.inputMode = 'gamepad';
+        nextAnalogPrev.set(key, analog);
       }
       this.players[playerIndex].pad = merged;
     }
     this.padPrev = nextPrev;
     this.stepPrev = nextStepPrev;
+    this.analogPrev = nextAnalogPrev;
   }
 }

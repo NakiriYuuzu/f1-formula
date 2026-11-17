@@ -128,5 +128,25 @@
   --nv-z-menu: 20;
   --nv-z-overlay: 30;
   --nv-z-toast: 40;
+  --nv-z-rotate: 90; /* the 請將手機轉為橫向 overlay: above menus and toasts, below the error panel */
   --nv-z-error: 100;
+
+  /* device: desktop gets env() = 0, dvh = vh and hit = 0, so these change nothing there */
+  --nv-safe-t: env(safe-area-inset-top, 0px);
+  --nv-safe-r: env(safe-area-inset-right, 0px);
+  --nv-safe-b: env(safe-area-inset-bottom, 0px);
+  --nv-safe-l: env(safe-area-inset-left, 0px);
+  --nv-vh: 100vh; /* use var(--nv-vh) wherever 100vh was meant */
+  --nv-hit: 0px; /* min touch target: max(<today's size>, var(--nv-hit)) is today's size on desktop */
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --nv-vh: 100dvh;
+  }
+}
+
+html[data-device='tablet'],
+html[data-device='phone'] {
+  --nv-hit: 44px;
 }

@@ -3,12 +3,13 @@
  *
  * Owns the single GameRenderer, the MenuSystem (+ 3D showroom / podium behind it), AudioEngine and InputManager,
  * and at most one SessionRuntime or ReplayRuntime. Runs the requestAnimationFrame loop (clamped dt, fixed-step
- * simulation inside the session), auto-pauses on tab hide / window blur (also when it happened during loading),
+ * simulation inside the session), auto-pauses on tab hide / window blur / a phone turned to portrait (also when it
+ * happened during loading),
  * resumes audio on user gestures, suspends driving input
  * while the settings overlay or a text field has focus, and exposes the test hooks window.render_game_to_text()
  * and window.advanceTime(ms).
  */
-import type { QualityLevel, SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
+import type { DeviceForm, QualityLevel, SessionConfig, SessionResult, Settings, WorldState } from '../core/types';
 import { SIM_DT } from '../core/defaults';
 import { AudioEngine } from '../audio/index';
 import { getLayout, hasLayout } from '../data/tracks/index';
@@ -18,7 +19,7 @@ import { loadSettings } from '../meta/save';
 import { buildQuickStart } from '../meta/sessionBuilder';
 import { readRecord, writeRecord } from '../meta/storage';
 import { GameRenderer } from '../render/GameRenderer';
-import { bootQuality, canvasMsaaOutlivesStep, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
+import { autoRecordKey, bootQuality, canvasMsaaOutlivesStep, guessQuality, lowerQuality, parseAutoRecord, readGpuName } from '../render/core/autoQuality';
 import { resetQualityTuning, tuneQuality } from '../render/core/quality';
 import { ShowroomScene } from '../render/ShowroomScene';
 import { MenuSystem, type MenuCallbacks, type ShowroomCar } from '../ui/menus/index';
@@ -29,6 +30,7 @@ import { runBench, type BenchHost } from './bench/benchRunner';
 import { buildBenchSession } from './bench/benchSession';
 import { BENCH_FRAME_MS, parseBench, type BenchParams, type BenchResult, type BenchScenario } from './bench/benchSpec';
 import { FpsMeter, MAX_FRAME_DT, clampFrameDt } from './clock';
+import { fullscreenApi, type DeviceWatcher } from './device';
 import { reportError } from './errorOverlay';
 import { parseQuickStart } from './quickStart';
 import { ReplayRuntime, type ReplayDeps } from './ReplayRuntime';
@@ -74,6 +76,12 @@ function afterPaint(): Promise<void> {
   });
 }
 
+/** Best effort: iOS has no lock, and the DOM typings dropped it. */
+function lockLandscape(): Promise<void> | undefined {
+  const orientation = (screen as { orientation?: { lock?: (o: string) => Promise<void> } }).orientation;
+  return orientation?.lock?.('landscape');
+}
+
 export class App {
   private settings: Settings;
   private readonly gr: GameRenderer;
@@ -110,6 +118,10 @@ export class App {
   private destroyed = false;
   /** WebGL renderer string, the input of the automatic quality pick */
   private readonly gpu: string;
+  /** the device form at boot: the automatic quality pick and its record are made for it */
+  private readonly bootForm: DeviceForm;
+  private readonly device: DeviceWatcher;
+  private unsubscribeRotate: (() => void) | null = null;
   /** the tier automatic quality keeps (Settings.qualityAuto): a first pick for this GPU, stepped down when races run slow */
   private autoLevel: QualityLevel = 'high';
 
@@ -121,9 +133,11 @@ export class App {
   private onlineFinal = true;
 
   /** Throws if WebGL 2 is unavailable (GameRenderer). */
-  constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement) {
+  constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, device: DeviceWatcher) {
     this.bench = parseBench(window.location.search);
+    this.device = device;
     this.gpu = readGpuName();
+    this.bootForm = device.form;
     this.settings = loadSettings();
     // the benchmark never reads the player's quality and never saves what it sets
     if (this.bench) {
@@ -152,7 +166,7 @@ export class App {
       toggleFullscreen,
       fastForwardStarted: () => this.menus.showLoading(FAST_FORWARD_TEXT, false),
     };
-    this.replayDeps = { gr: this.gr, uiRoot, audio: this.audio, settings: getSettings, toggleFullscreen };
+    this.replayDeps = { gr: this.gr, uiRoot, audio: this.audio, settings: getSettings, toggleFullscreen, hudInput: () => this.input.hudInput() };
     const callbacks: MenuCallbacks = {
       startSession: (config, ctx) => this.startSession(config, ctx),
       applySettings: (s) => this.applySettings(s),
@@ -164,6 +178,8 @@ export class App {
       },
       toggleFullscreen,
       resultsClosed: () => this.resultsClosed(),
+      requestTilt: () => this.input.requestTilt(),
+      tiltStatus: () => this.input.tiltStatus,
     };
     this.menus = new MenuSystem(uiRoot, this.settings, callbacks);
     this.online = new OnlineController({
@@ -177,10 +193,15 @@ export class App {
   start(): void {
     if (this.started || this.destroyed) return;
     this.started = true;
-    this.input.attach(window);
+    this.input.attach(window, { initialMode: this.device.form === 'desktop' ? 'keyboard' : 'touch' });
     for (const type of ['pointerdown', 'keydown', 'touchstart'] as const) {
       window.addEventListener(type, this.onGesture, { capture: true, passive: true });
     }
+    // `click` carries user activation on touch and `pointerdown` does not: the iOS motion prompt needs a click
+    window.addEventListener('click', this.onTiltClick, { capture: true });
+    this.unsubscribeRotate = this.device.onRotate((blocked) => {
+      if (blocked) this.autoPause();
+    });
     document.addEventListener('visibilitychange', this.onVisibility);
     window.addEventListener('blur', this.onWindowBlur);
     window.addEventListener('focus', this.onWindowFocus);
@@ -238,6 +259,9 @@ export class App {
     for (const type of ['pointerdown', 'keydown', 'touchstart'] as const) {
       window.removeEventListener(type, this.onGesture, { capture: true });
     }
+    window.removeEventListener('click', this.onTiltClick, { capture: true });
+    this.unsubscribeRotate?.();
+    this.unsubscribeRotate = null;
     document.removeEventListener('visibilitychange', this.onVisibility);
     window.removeEventListener('blur', this.onWindowBlur);
     window.removeEventListener('focus', this.onWindowFocus);
@@ -543,9 +567,9 @@ export class App {
     this.skipDt = true;
     this.setState('session');
     this.menus.hide();
-    // the tab was hidden / the window lost focus while loading: start paused like a running session would be
-    // (online the race runs for everyone regardless)
-    if (!this.bench && !session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred)) session.setPaused(true);
+    // the tab was hidden / the window lost focus / the phone turned to portrait while loading: start paused like a
+    // running session would be (online the race runs for everyone regardless)
+    if (!this.bench && !session.onlineRole && (document.visibilityState === 'hidden' || this.windowBlurred || this.device.rotate)) session.setPaused(true);
     this.syncAway();
   }
 
@@ -726,8 +750,9 @@ export class App {
   /** The recorded pick for this GPU, else the guess (and record it). `fresh`: the player just turned automatic quality on, so start from the guess again. */
   private pickAutoLevel(fresh = false): QualityLevel {
     const record = parseAutoRecord(readRecord('autoQuality'));
-    const level = fresh ? guessQuality(this.gpu) : bootQuality(record, this.gpu);
-    if (record === null || record.gpu !== this.gpu || record.level !== level) writeRecord('autoQuality', { gpu: this.gpu, level });
+    const key = autoRecordKey(this.gpu, this.bootForm);
+    const level = fresh ? guessQuality(this.gpu, this.bootForm) : bootQuality(record, this.gpu, this.bootForm);
+    if (record === null || record.gpu !== key || record.level !== level) writeRecord('autoQuality', { gpu: key, level });
     return level;
   }
 
@@ -737,7 +762,7 @@ export class App {
     const lower = lowerQuality(this.autoLevel);
     if (lower === null) return;
     this.autoLevel = lower;
-    writeRecord('autoQuality', { gpu: this.gpu, level: lower });
+    writeRecord('autoQuality', { gpu: autoRecordKey(this.gpu, this.bootForm), level: lower });
     this.menus.updateSettings({ ...this.settings, quality: lower });
     this.gr.resetAdaptiveResolution();
     const msaa = canvasMsaaOutlivesStep(lower, this.gr.canvasSamples) ? '；重新整理頁面後會再關閉畫面邊緣的抗鋸齒' : '';
@@ -763,15 +788,20 @@ export class App {
   }
 
   private toggleFullscreen(): void {
+    const fs = fullscreenApi(document);
+    if (!fs) return;
     try {
-      if (document.fullscreenElement) {
-        if (typeof document.exitFullscreen === 'function') void document.exitFullscreen().catch(() => undefined);
+      if (fs.active()) {
+        void fs.exit().catch(() => undefined);
       } else {
-        const el = document.documentElement;
-        if (typeof el.requestFullscreen === 'function') void el.requestFullscreen().catch(() => undefined);
+        // the orientation lock needs fullscreen first, and only some browsers have it (Android Chrome does)
+        void fs
+          .enter()
+          .then(() => (this.device.form === 'phone' ? lockLandscape() : undefined))
+          .catch(() => undefined);
       }
     } catch {
-      // fullscreen unavailable (iframe / policy): ignore
+      // fullscreen refused synchronously (iframe / policy): ignore
     }
   }
 
@@ -787,6 +817,13 @@ export class App {
 
   private readonly onGesture = (): void => {
     void this.audio.resume();
+  };
+
+  /** The first click after boot while tilt steering waits on the iOS permission (the title screen's tap) asks for it. */
+  private readonly onTiltClick = (): void => {
+    if (this.settings.touchSteering !== 'tilt' || this.input.tiltStatus !== 'needs-permission') return;
+    window.removeEventListener('click', this.onTiltClick, { capture: true });
+    void this.input.requestTilt();
   };
 
   /** Online room gone (host left, link lost): drop an online session or the lobby and say why. */
@@ -814,7 +851,7 @@ export class App {
     if (inOnline) this.menus.toast(reason, 'bad');
   }
 
-  /** Tab hidden or window blurred: pause the running session / replay (an online race runs on for everyone). */
+  /** Tab hidden, window blurred or phone turned to portrait: pause the running session / replay (an online race runs on for everyone). */
   private autoPause(): void {
     if (this.bench) return;
     if (this.state === 'session' && this.session && !this.session.fastForwarding && !this.session.onlineRole) this.session.setPaused(true);

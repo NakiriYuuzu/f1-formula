@@ -13,12 +13,12 @@
 /* ───────────── root & shared ───────────── */
 .nvh-root {
   position: fixed;
-  inset: 0;
+  inset: var(--nv-safe-t) var(--nv-safe-r) var(--nv-safe-b) var(--nv-safe-l);
   z-index: var(--nv-z-hud);
   pointer-events: none;
   overflow: hidden;
   font-family: var(--nv-font);
-  font-size: clamp(12px, min(1.5vh, 1.05vw), 18px);
+  font-size: clamp(12px, min(var(--nv-vh) * 0.015, 1.05vw), 18px);
   font-variant-numeric: tabular-nums;
   line-height: 1.25;
   color: var(--nv-text);
@@ -57,7 +57,7 @@
 .nvh-root .nvh-hidden {
   display: none !important;
 }
-.nvh-root[data-hud-hidden] > :not(.nvh-pause):not(.nvh-help) {
+.nvh-root[data-hud-hidden] > :not(.nvh-pause):not(.nvh-help):not(.nvt) {
   display: none !important;
 }
 .nvh-root[data-replay] > .nvh-view,
@@ -1808,8 +1808,9 @@
 /* ───────────── pause menu ───────────── */
 /* the race is paused, so this overlay (and the help card over it) may blur the world behind it; the live HUD never does */
 .nvh-pause {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  padding: var(--nv-safe-t) var(--nv-safe-r) var(--nv-safe-b) var(--nv-safe-l);
   z-index: 8;
   display: flex;
   align-items: center;
@@ -1821,7 +1822,7 @@
 .nvh-pause-card {
   position: relative;
   width: min(30em, 92vw);
-  max-height: 94vh;
+  max-height: calc(var(--nv-vh) * 0.94);
   overflow-y: auto;
   padding: 1.25em 1.5em;
   font-size: 1.15em;
@@ -1988,8 +1989,9 @@
 
 /* ───────────── controls help (操作說明, over the pause menu) ───────────── */
 .nvh-help {
-  position: absolute;
+  position: fixed;
   inset: 0;
+  padding: var(--nv-safe-t) var(--nv-safe-r) var(--nv-safe-b) var(--nv-safe-l);
   z-index: 9;
   display: flex;
   align-items: center;
@@ -2001,7 +2003,7 @@
 .nvh-help-card {
   position: relative;
   width: min(48em, 94vw);
-  max-height: 88vh;
+  max-height: calc(var(--nv-vh) * 0.88);
   display: flex;
   flex-direction: column;
   padding: 1.25em 1.4em 0.9em;
@@ -2458,6 +2460,147 @@
 .nvh-tw-mode[data-mode='formation'] {
   color: var(--nv-text);
   background: var(--nv-c-slate);
+}
+
+/* ───────────── touch deck on screen (.nvh-root[data-touch]) ───────────── */
+/* The deck (touch.css) takes a system bar top-left and a thumb zone in each bottom corner; its footprint tokens move
+   the blocks that sat there. The view becomes a bottom-anchored column: the telemetry cluster at the bottom centre,
+   between the thumb zones, the radio / MFD stack above it. Every other view child stays absolute. A deck is never
+   built in split screen, so the view here is always the full one. */
+.nvh-root[data-touch] .nvh-tl {
+  top: calc(var(--nvh-edge) + var(--nvt-sys-h) + var(--nvt-gap));
+}
+/* the tower measures down to this block (setLimit), so it ends above the left thumb zone too */
+.nvh-root[data-touch] .nvh-bl {
+  bottom: calc(var(--nvt-thumb-h) + var(--nvt-gap));
+}
+.nvh-root[data-touch] .nvh-view {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: var(--nvt-gap);
+  padding-bottom: var(--nvh-edge);
+}
+.nvh-root[data-touch] .nvh-tele,
+.nvh-root[data-touch] .nvh-bc {
+  position: static;
+  translate: none;
+}
+.nvh-root[data-touch] .nvh-bc {
+  width: min(29em, calc(100% - 2 * (var(--nvt-thumb-w) + var(--nvt-gap))));
+}
+
+/* Phones sit on the 12px root floor with about 370px of height: the full blocks do not fit around the thumb zones.
+   The minimap goes (the setting is untouched); the session strip goes (a weather change still toasts) and the tower
+   drops its head, so two or three rows fit between the system bar and the left thumb zone; the timing panel keeps
+   position, lap, lap time and one row under it (the pit status, else the flag chips in one line, else the delta) so
+   it ends about 136px down, above the right thumb zone at 147.6px (844x390) or 150px (667x375);
+   the telemetry cluster takes the split-screen geometry so it fits between the thumb zones on a 667px-wide screen,
+   and gives way to the MFD while that is open. */
+html[data-device='phone'] .nvh-root[data-touch] .nvh-minimap,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-session,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tw-head,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-lapbox-sub,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-sectors,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tp-laps,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tp-gaps,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-dmg,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-fuel,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-pill[data-k='ot'] {
+  display: none;
+}
+/* a rule of its own: a browser without :has drops only this one */
+html[data-device='phone'] .nvh-root[data-touch] .nvh-timing:has(.nvh-pitstat:not(.nvh-hidden)) .nvh-tp-delta,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-timing:has(.nvh-flagchip:not(.nvh-hidden)) .nvh-tp-delta,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-timing:has(.nvh-pitstat:not(.nvh-hidden)) .nvh-flagchips,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-view:has(.nvh-mfd:not(.nvh-hidden)) > .nvh-tele {
+  display: none;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-timing {
+  width: 14em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-flagchips {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-pos-n {
+  font-size: 3.2em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tele {
+  width: 16em;
+  grid-template-columns: 9.2em minmax(0, 1fr);
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-speed-num {
+  font-size: 2.7em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-gear {
+  font-size: 1.4em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-car-row {
+  justify-content: center;
+  padding: 0.45em 0.4em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tyre {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3em;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-tyre-badge {
+  align-self: flex-start;
+}
+/* the MFD with touch-sized buttons is taller than a phone's free column: its rows wrap and it scrolls */
+html[data-device='phone'] .nvh-root[data-touch] .nvh-mfd {
+  max-height: calc(var(--nv-vh) - var(--nv-safe-t) - var(--nv-safe-b) - 2 * var(--nvh-edge));
+  overflow-y: auto;
+}
+html[data-device='phone'] .nvh-root[data-touch] .nvh-mfd-row,
+html[data-device='phone'] .nvh-root[data-touch] .nvh-ers-btns {
+  flex-wrap: wrap;
+}
+
+/* touch-sized targets on phones and tablets (--nv-hit is 44px there) */
+:is(html[data-device='phone'], html[data-device='tablet'])
+  :is(
+    .nvh-pi-arrow,
+    .nvh-cbtn,
+    .nvh-help-tab,
+    .nvh-help-close,
+    .nvh-mfd-close,
+    .nvh-arrow,
+    .nvh-btn,
+    .nvh-ers-btn,
+    .nvh-rp-play,
+    .nvh-rp-speed,
+    .nvh-rp-btn,
+    .nvh-tw-toggle
+  ) {
+  min-width: var(--nv-hit);
+  min-height: var(--nv-hit);
+  text-align: center;
+}
+:is(html[data-device='phone'], html[data-device='tablet']) .nvh-pi {
+  min-height: max(3.3em, var(--nv-hit));
+}
+:is(html[data-device='phone'], html[data-device='tablet']) .nvh-cbtn {
+  min-height: max(3em, var(--nv-hit));
+}
+:is(html[data-device='phone'], html[data-device='tablet']) .nvh-pi-arrow {
+  display: inline-grid;
+  place-items: center;
+}
+:is(html[data-device='phone'], html[data-device='tablet']) .nvh-rp-scrub {
+  min-height: var(--nv-hit);
+}
+/* with touch-sized buttons the replay bar is wider than a phone: the scrub bar takes a row of its own */
+html[data-device='phone'] .nvh-replay {
+  flex-wrap: wrap;
+}
+html[data-device='phone'] .nvh-rp-scrub {
+  order: -1;
+  flex-basis: 100%;
+}
+html[data-device='phone'] .nvh-rp-badge {
+  display: none;
 }
 
 /* ───────────── motion ───────────── */

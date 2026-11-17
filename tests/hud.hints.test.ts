@@ -90,7 +90,7 @@ describe('HintStrip', () => {
     const parent = new FakeEl('div');
     const strip = new HintStrip(parent as unknown as Element);
     expect(hidden(strip.el)).toBe(true);
-    strip.start(hintItems(DEFAULT_SETTINGS, 0, false), HUD_HINT_SECONDS);
+    strip.start({ keys: hintItems(DEFAULT_SETTINGS, 0, false) }, HUD_HINT_SECONDS);
     expect(hidden(strip.el)).toBe(false);
     expect((strip.el as unknown as FakeEl).find('nvh-hint-item').length).toBe(6);
     for (let t = 0; t < HUD_HINT_SECONDS - 1; t += 0.5) strip.update(0.5);
@@ -105,7 +105,7 @@ describe('HintStrip', () => {
 
   test('frozen while paused (dt 0) and dismissed by a click', () => {
     const strip = new HintStrip(new FakeEl('div') as unknown as Element);
-    strip.start(hintItems(DEFAULT_SETTINGS, 0, false), HUD_HINT_SECONDS);
+    strip.start({ keys: hintItems(DEFAULT_SETTINGS, 0, false) }, HUD_HINT_SECONDS);
     for (let i = 0; i < 1000; i++) strip.update(0);
     expect(strip.isShowing()).toBe(true);
     (strip.el as unknown as FakeEl).click();
@@ -115,7 +115,7 @@ describe('HintStrip', () => {
 
   test('items without keys are skipped', () => {
     const strip = new HintStrip(new FakeEl('div') as unknown as Element);
-    strip.start([{ label: '油門', keys: ['W'] }, { label: 'DRS', keys: [] }], 5);
+    strip.start({ keys: [{ label: '油門', keys: ['W'] }, { label: 'DRS', keys: [] }] }, 5);
     expect((strip.el as unknown as FakeEl).find('nvh-hint-item').length).toBe(1);
   });
 });

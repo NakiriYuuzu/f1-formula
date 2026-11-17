@@ -3,7 +3,7 @@
  * tabs, panels and rating bars. Every control is keyboard-focusable; ←/→ adjust value controls.
  */
 import { h, setText, type Child } from './dom';
-import { focusElement, registerAdjuster } from './nav';
+import { focusElement, isTouchMode, registerAdjuster } from './nav';
 
 type SoundKind = 'move' | 'confirm' | 'back' | 'error';
 let soundHook: (kind: SoundKind) => void = () => undefined;
@@ -90,12 +90,17 @@ export function tile(o: TileOptions): HTMLButtonElement {
 const PAD_GLYPH: Record<string, string> = { A: 'a', B: 'b', X: 'x', Y: 'y', LB: 'shoulder', RB: 'shoulder', 'LB/RB': 'shoulder' };
 
 /**
- * A key cap: the keyboard spelling, and the gamepad spelling shown instead after pad input (the menu root's
- * `is-pad` class switches them in CSS).
+ * A key cap: the keyboard spelling, and the gamepad spelling shown instead after pad input (`data-show-for`, switched
+ * by `html[data-input-mode]` in app.css). A finger has no keys, so the cap with both spellings hides in touch mode.
  */
 export function keyCap(kb: string, pad?: string): HTMLElement {
   if (pad === undefined) return h('kbd', { text: kb });
-  return h('kbd', { attrs: { 'data-pad': PAD_GLYPH[pad] ?? 'other' } }, h('span', { class: 'nvm-key-kb', text: kb }), h('span', { class: 'nvm-key-pad', text: pad }));
+  return h(
+    'kbd',
+    { attrs: { 'data-pad': PAD_GLYPH[pad] ?? 'other', 'data-show-for': 'keyboard gamepad' } },
+    h('span', { attrs: { 'data-show-for': 'keyboard' }, text: kb }),
+    h('span', { attrs: { 'data-show-for': 'gamepad' }, text: pad }),
+  );
 }
 
 // ───────────────────────────── value rows ─────────────────────────────
@@ -247,6 +252,9 @@ export interface SliderOptions {
   description?: string;
 }
 
+/** Px a finger must travel sideways (and more than up or down) before it drags a slider instead of scrolling. */
+const SLIDER_TOUCH_SLOP_PX = 6;
+
 /** Horizontal slider: ←/→ step (Shift = ×5), mouse/touch drag on the track. */
 export function slider(o: SliderOptions): Control<number> {
   const span = o.max - o.min;
@@ -284,19 +292,36 @@ export function slider(o: SliderOptions): Control<number> {
     const t = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
     commit(o.min + t * span, false);
   };
+  const take = (e: PointerEvent): void => {
+    control.focus({ preventScroll: true });
+    fromPointer(e);
+  };
+  // touch-action: pan-y hands a vertical swipe to the page (pointercancel follows), so a finger sets the value only
+  // once it moves sideways or lifts as a tap; a mouse sets it at once, as before
+  let fingerAt: { x: number; y: number } | null = null;
   control.addEventListener('pointerdown', (e) => {
     if (disabled || e.button !== 0) return;
-    control.focus({ preventScroll: true });
     control.setPointerCapture(e.pointerId);
-    fromPointer(e);
+    if (e.pointerType === 'mouse') take(e);
+    else fingerAt = { x: e.clientX, y: e.clientY };
   });
   control.addEventListener('pointermove', (e) => {
-    if (control.hasPointerCapture(e.pointerId)) fromPointer(e);
+    if (!control.hasPointerCapture(e.pointerId)) return;
+    if (fingerAt) {
+      const dx = Math.abs(e.clientX - fingerAt.x);
+      if (dx < SLIDER_TOUCH_SLOP_PX || dx < Math.abs(e.clientY - fingerAt.y)) return;
+      fingerAt = null;
+    }
+    take(e);
   });
   const release = (e: PointerEvent): void => {
+    fingerAt = null;
     if (control.hasPointerCapture(e.pointerId)) control.releasePointerCapture(e.pointerId);
   };
-  control.addEventListener('pointerup', release);
+  control.addEventListener('pointerup', (e) => {
+    if (fingerAt && control.hasPointerCapture(e.pointerId)) take(e);
+    release(e);
+  });
   control.addEventListener('pointercancel', release);
   registerAdjuster(control, (dir, coarse) => {
     if (!disabled) commit(value + dir * o.step * (coarse ? 5 : 1), true);
@@ -385,20 +410,34 @@ export function colorPicker(label: string, value: string, onChange: (v: string) 
     onChange(current);
   };
   native.addEventListener('input', () => apply(native.value, false));
-  const control = h(
-    'button',
-    { class: 'nvm-color', attrs: { type: 'button', 'data-sound': 'none' }, on: { click: () => native.click() } },
-    h('span', { class: 'nvm-cycler__arrow', text: '◀' }),
-    chip,
-    hex,
-    h('span', { class: 'nvm-cycler__arrow', text: '▶' }),
-    native,
-  );
-  registerAdjuster(control, (dir) => {
+  const step = (dir: -1 | 1): void => {
     const i = PALETTE.indexOf(current);
     const next = i < 0 ? (dir > 0 ? 0 : PALETTE.length - 1) : (i + dir + PALETTE.length) % PALETTE.length;
     apply(PALETTE[next] ?? current, true);
-  });
+  };
+  // a finger has no ←/→, so in touch mode the arrows step the palette; a mouse click on them still opens the picker
+  const arrow = (glyph: string, dir: -1 | 1): HTMLElement =>
+    h('span', {
+      class: 'nvm-cycler__arrow',
+      text: glyph,
+      on: {
+        click: (e) => {
+          if (!isTouchMode()) return;
+          e.stopPropagation();
+          step(dir);
+        },
+      },
+    });
+  const control = h(
+    'button',
+    { class: 'nvm-color', attrs: { type: 'button', 'data-sound': 'none' }, on: { click: () => native.click() } },
+    arrow('◀', -1),
+    chip,
+    hex,
+    arrow('▶', 1),
+    native,
+  );
+  registerAdjuster(control, step);
   render();
   const el = rowShell(label, undefined, control);
   return {
@@ -470,9 +509,9 @@ export function tabs(items: readonly { id: string; label: string }[], active: st
   const el = h(
     'div',
     { class: 'nvm-tabs', attrs: { role: 'tablist' } },
-    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true' } }, keyCap('Q', 'LB')),
+    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true', 'data-show-for': 'keyboard gamepad' } }, keyCap('Q', 'LB')),
     buttons,
-    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true' } }, keyCap('E', 'RB')),
+    h('span', { class: 'nvm-tabs__key', attrs: { 'aria-hidden': 'true', 'data-show-for': 'keyboard gamepad' } }, keyCap('E', 'RB')),
   );
   tabSwitchers.set(el, (dir) => {
     const i = buttons.findIndex((b) => b.dataset.tab === current);

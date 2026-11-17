@@ -19,7 +19,7 @@ import { DEFAULT_SEASON_SETTINGS } from '../../../meta/season';
 import { identityForm, lettersOnly, liveryFields } from '../components/forms';
 import { assistsEditor, seasonSettingsEditor } from '../components/editors';
 import { h, setChildren } from '../dom';
-import { focusElement } from '../nav';
+import { focusElement, tapChooses } from '../nav';
 import { money, nationalityLabel } from '../labels';
 import { Screen, type Host, type StageRequest } from '../screen';
 import type { ShowroomCar } from '../types';
@@ -223,7 +223,8 @@ export class MyTeamWizardScreen extends Screen {
           attrs: { type: 'button', 'data-sound': 'confirm' },
           on: {
             focus: () => show(pu.id),
-            click: () => {
+            click: (e) => {
+              if (!tapChooses(e)) return;
               this.draft.powerUnit = pu.id;
               this.go(4);
             },
@@ -262,7 +263,8 @@ export class MyTeamWizardScreen extends Screen {
           style: { '--team': d.helmet.primary },
           on: {
             focus: () => show(d),
-            click: () => {
+            click: (e) => {
+              if (!tapChooses(e)) return;
               if (d.number === this.draft.identity.number) {
                 this.fail(`${driverName(d)} 的車號與你相同（#${d.number}），請先更換車號`);
                 return;

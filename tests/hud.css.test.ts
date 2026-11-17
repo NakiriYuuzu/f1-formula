@@ -18,6 +18,28 @@ function rule(selector: string): string {
   return code.slice(at, code.indexOf('}', at));
 }
 
+/** Every innermost rule block: its selector list (split on top-level commas, so `:is(a, b)` stays whole) and body. */
+const blocks = [...code.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => {
+  const selectors: string[] = [];
+  let depth = 0;
+  let from = 0;
+  const text = m[1];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') depth--;
+    else if (text[i] === ',' && depth === 0) {
+      selectors.push(text.slice(from, i));
+      from = i + 1;
+    }
+  }
+  selectors.push(text.slice(from));
+  return { text: text.replace(/\s+/g, ' ').trim(), selectors: selectors.map((s) => s.replace(/\s+/g, ' ').trim()), body: m[2] };
+});
+
+const TOUCH = '.nvh-root[data-touch]';
+const PHONE = "html[data-device='phone']";
+const TABLET = "html[data-device='tablet']";
+
 describe('HUD stylesheet', () => {
   test('no backdrop-filter outside the pause overlay and the help card over it', () => {
     const blurred = [...code.matchAll(/([^{}]+)\{[^{}]*backdrop-filter[^{}]*\}/g)].map((m) => m[1].trim());
@@ -64,7 +86,7 @@ describe('HUD stylesheet', () => {
   });
 
   test('root scale and tabular figures', () => {
-    expect(code).toContain('font-size: clamp(12px, min(1.5vh, 1.05vw), 18px)');
+    expect(code).toContain('font-size: clamp(12px, min(var(--nv-vh) * 0.015, 1.05vw), 18px)');
     expect(code).toContain('font-variant-numeric: tabular-nums');
   });
 
@@ -116,3 +138,101 @@ describe('HUD stylesheet', () => {
     expect(media).toMatch(/\.nvh-pi:focus,[^{]*\{[^}]*transform: none/);
   });
 });
+
+describe('HUD stylesheet on phones and tablets', () => {
+  test('the HUD root is inset by the safe-area tokens, and only tokens.css reads the insets', () => {
+    expect(rule('.nvh-root')).toContain('inset: var(--nv-safe-t) var(--nv-safe-r) var(--nv-safe-b) var(--nv-safe-l)');
+    expect(css).not.toContain('env(safe-area-inset');
+  });
+
+  test('the pause and help overlays are fixed to the viewport, so they still cover the notch strips', () => {
+    for (const sel of ['.nvh-pause', '.nvh-help']) {
+      expect(rule(sel)).toContain('position: fixed');
+      expect(rule(sel)).toContain('inset: 0');
+    }
+  });
+
+  test('hiding the HUD keeps the overlays and the touch deck', () => {
+    expect(code).toContain('.nvh-root[data-hud-hidden] > :not(.nvh-pause):not(.nvh-help):not(.nvt) {');
+  });
+
+  test('viewport heights go through --nv-vh (dynamic on phones), never a bare vh', () => {
+    expect(code).not.toMatch(/[\d.]vh\b/);
+    expect(rule('.nvh-pause-card')).toContain('var(--nv-vh)');
+    expect(rule('.nvh-help-card')).toContain('var(--nv-vh)');
+  });
+
+  test('every rule that reads the deck footprint is scoped to a root showing the deck', () => {
+    const footprint = blocks.filter((b) => b.body.includes('var(--nvt-'));
+    expect(footprint.length).toBeGreaterThan(0);
+    for (const b of footprint) for (const s of b.selectors) expect(s).toContain(TOUCH);
+    for (const b of blocks) for (const s of b.selectors) if (s.includes('[data-touch]')) expect(s).toContain(TOUCH);
+  });
+
+  test('the tower, minimap, telemetry and bottom-centre stack each move while the deck is on screen', () => {
+    const touchSelectors = new Set(blocks.flatMap((b) => b.selectors));
+    for (const sel of ['.nvh-tl', '.nvh-bl', '.nvh-view', '.nvh-tele', '.nvh-bc']) expect(touchSelectors).toContain(`${TOUCH} ${sel}`);
+    const bc = blocks.filter((b) => b.selectors.includes(`${TOUCH} .nvh-bc`)).map((b) => b.body).join('');
+    expect(bc).toContain('width: min(29em, calc(100% - 2 * (var(--nvt-thumb-w) + var(--nvt-gap))))');
+  });
+
+  test('the phone form hides the minimap and compacts only on a phone showing the deck', () => {
+    const phone = blocks.flatMap((b) => b.selectors).filter((s) => s.startsWith(`${PHONE} ${TOUCH} `));
+    expect(phone).toContain(`${PHONE} ${TOUCH} .nvh-minimap`);
+    for (const b of blocks) {
+      for (const s of b.selectors) {
+        if (!s.includes(PHONE) || s.startsWith(':is(')) continue;
+        // the replay bar has no deck (the deck is off in replays), so its phone form keys off the device alone
+        if (!/\.nvh-(replay|rp-)/.test(s)) expect(s.startsWith(`${PHONE} ${TOUCH} `)).toBe(true);
+      }
+    }
+  });
+
+  test('on a phone one row under the lap time shows the pit status, else the flag chips, else the delta', () => {
+    const timing = `${PHONE} ${TOUCH} .nvh-timing`;
+    const hides = (selector: string): boolean => blocks.some((b) => b.selectors.includes(selector) && /display:\s*none/.test(b.body));
+    expect(hides(`${timing}:has(.nvh-pitstat:not(.nvh-hidden)) .nvh-tp-delta`)).toBe(true);
+    expect(hides(`${timing}:has(.nvh-flagchip:not(.nvh-hidden)) .nvh-tp-delta`)).toBe(true);
+    expect(hides(`${timing}:has(.nvh-pitstat:not(.nvh-hidden)) .nvh-flagchips`)).toBe(true);
+    // two rows of chips would be taller than the delta row they replace
+    expect(rule(`${PHONE} ${TOUCH} .nvh-flagchips`)).toContain('flex-wrap: nowrap');
+  });
+
+  test('tappable controls reach the touch hit size on phones and tablets, and desktop never reads it', () => {
+    const sized = blocks.filter((b) => b.body.includes('var(--nv-hit)'));
+    expect(sized.length).toBeGreaterThan(0);
+    for (const b of sized) for (const s of b.selectors) expect(s.startsWith(`:is(${PHONE}, ${TABLET})`)).toBe(true);
+    const controls = [
+      '.nvh-pi',
+      '.nvh-pi-arrow',
+      '.nvh-cbtn',
+      '.nvh-help-tab',
+      '.nvh-help-close',
+      '.nvh-mfd-close',
+      '.nvh-arrow',
+      '.nvh-btn',
+      '.nvh-ers-btn',
+      '.nvh-rp-play',
+      '.nvh-rp-speed',
+      '.nvh-rp-btn',
+      '.nvh-rp-scrub',
+      '.nvh-tw-toggle',
+    ];
+    for (const c of controls) {
+      const named = new RegExp(`\\${c}(?![\\w-])`);
+      const hit = sized.filter((b) => named.test(b.text));
+      expect(hit.length).toBeGreaterThan(0);
+      expect(hit.some((b) => b.body.includes('min-height'))).toBe(true);
+    }
+    expect(code).not.toMatch(/data-device='desktop'/);
+  });
+
+  test('overlay scroll regions scroll by touch: they own their overflow and nothing in the HUD blocks panning', () => {
+    expect(rule('.nvh-pause-card')).toContain('overflow-y: auto');
+    expect(rule('.nvh-help-body')).toContain('overflow-y: auto');
+    expect(rule(`${PHONE} ${TOUCH} .nvh-mfd`)).toContain('overflow-y: auto');
+    const blocked = blocks.filter((b) => /touch-action:\s*none/.test(b.body)).map((b) => b.text);
+    expect(blocked).toEqual(['.nvh-rp-scrub']);
+  });
+});
+

@@ -138,6 +138,8 @@ export function minimapCanvas(layoutId: string, cssW: number, cssH: number, styl
   canvas.className = 'nvm-minimap';
   canvas.style.width = `${cssW}px`;
   canvas.style.height = `${cssH}px`;
+  // lets a narrow screen scale the canvas down (max-width + height: auto) before and after it is painted
+  canvas.style.aspectRatio = `${cssW} / ${cssH}`;
   if (outlineCache.has(layoutId)) {
     paintMinimap(canvas, layoutId, cssW, cssH, style);
   } else {

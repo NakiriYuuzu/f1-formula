@@ -3,6 +3,7 @@
  * confirm dialogs, session start, settings) and the Screen base class with lifecycle hooks.
  */
 import type { SessionConfig, Settings } from '../../core/types';
+import type { TiltStatus } from '../../input/touch';
 import type { MenuHome, SessionContext } from '../../meta/context';
 import { h } from './dom';
 import type { ShowroomCar } from './types';
@@ -30,6 +31,8 @@ export interface Host {
   /** Apply + persist new settings. */
   updateSettings(next: Settings): void;
   toggleFullscreen(): void;
+  /** Call synchronously inside the tap's click handler (user activation); resolves with the settled status. */
+  requestTilt(): Promise<TiltStatus>;
   /** Results screen is being left for the menus (not for a replay or the next session). */
   resultsClosed(): void;
   /** The car shown on title / main menu. */

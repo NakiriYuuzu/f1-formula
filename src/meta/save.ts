@@ -105,6 +105,7 @@ export function sanitizeSettings(v: unknown): Settings {
     steeringSensitivity: num(r.steeringSensitivity, 0.5, 1.5, d.steeringSensitivity),
     deadzone: num(r.deadzone, 0, 0.3, d.deadzone),
     vibration: bool(r.vibration, d.vibration),
+    touchSteering: oneOf(r.touchSteering, ['drag', 'tilt', 'buttons'] as const, d.touchSteering),
     keyBindings,
     keyBindingsP2,
     hud: {

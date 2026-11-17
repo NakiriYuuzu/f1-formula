@@ -68,6 +68,47 @@ body[data-app-state='loading'] {
   -webkit-touch-callout: none;
 }
 
+/* text and glyphs that name an input follow the last deliberate input (no attribute yet = keyboard, today's look) */
+html:not([data-input-mode]) [data-show-for]:not([data-show-for~='keyboard']),
+html[data-input-mode='keyboard'] [data-show-for]:not([data-show-for~='keyboard']),
+html[data-input-mode='gamepad'] [data-show-for]:not([data-show-for~='gamepad']),
+html[data-input-mode='touch'] [data-show-for]:not([data-show-for~='touch']) {
+  display: none !important;
+}
+
+/* no double-tap zoom in menus (pinch zoom stays); no browser gestures while driving or replaying */
+html[data-input-mode='touch'] {
+  touch-action: manipulation;
+}
+
+html[data-input-mode='touch'] body[data-app-state='session'],
+html[data-input-mode='touch'] body[data-app-state='replay'] {
+  touch-action: none;
+}
+
+/* phone held in portrait (DeviceWatcher, phones only): covers the game and swallows every touch until it is turned */
+.nv-rotate {
+  display: none;
+}
+
+html[data-rotate] .nv-rotate {
+  position: fixed;
+  inset: 0;
+  z-index: var(--nv-z-rotate);
+  display: grid;
+  place-items: center;
+  padding: calc(24px + var(--nv-safe-t)) calc(24px + var(--nv-safe-r)) calc(24px + var(--nv-safe-b)) calc(24px + var(--nv-safe-l));
+  color: var(--nv-text);
+  background: var(--nv-bg);
+  font-size: 1.4em;
+  font-weight: 600;
+  text-align: center;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 noscript {
   position: fixed;
   inset: 0;
@@ -111,7 +152,7 @@ noscript {
   right: auto;
   bottom: auto;
   width: 100vw;
-  height: 100vh;
+  height: var(--nv-vh);
   max-height: none;
   justify-content: center;
   align-items: center;

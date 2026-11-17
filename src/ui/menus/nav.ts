@@ -51,10 +51,40 @@ export function ensureVisible(el: HTMLElement): void {
   }
 }
 
+/**
+ * The item the menus last focused themselves, so it is previewed: a tap on it chooses (tapChooses). Recorded here and
+ * not read from document.activeElement at click time, because Android focuses a tapped button before its click and iOS
+ * never does.
+ */
+let armed: HTMLElement | null = null;
+
 /** Focus without letting the browser scroll anything, then reveal the element vertically. */
 export function focusElement(el: HTMLElement): void {
+  armed = el;
   el.focus({ preventScroll: true });
   ensureVisible(el);
+}
+
+/** The last deliberate input was a finger (`html[data-input-mode]`, written by InputManager). */
+export function isTouchMode(): boolean {
+  return document.documentElement.dataset.inputMode === 'touch';
+}
+
+/**
+ * For a list that previews on focus and chooses on click. A tap focuses and clicks at once (iOS only clicks), so in
+ * touch mode the first tap on an item focuses (previews) it and a second tap on the same item chooses; an item the
+ * menus focused themselves (the selection on entry) is already previewed, so its first tap chooses. Takes the item's
+ * click; returns whether this click chooses.
+ */
+export function tapChooses(click: Event): boolean {
+  if (!isTouchMode()) return true;
+  const el = click.currentTarget as HTMLElement;
+  if (armed === el) {
+    armed = null;
+    return true;
+  }
+  focusElement(el);
+  return false;
 }
 
 function center(r: DOMRect): { x: number; y: number } {

@@ -120,6 +120,8 @@ export class MfdPanel {
     this.lossInfo = new TextSlot(loss);
     this.lossInfo.set(`預估進站損失 ≈ ${fin(pitLoss, PIT_LOSS_FALLBACK).toFixed(1)} 秒`);
     const hint = el('div', 'nvh-mfd-hint', this.el, keys === 'numpad' ? '[數字鍵盤 1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方' : '[1–4] ERS 模式　[5] 換胎配方　[6] Box / 取消　[手把 十字鍵 ←→] 換胎配方');
+    // the MFD's buttons are tappable: on touch the key row (and its margin) goes
+    hint.dataset.showFor = 'keyboard gamepad';
     this.fuelHint = new ShowSlot(el('span', '', hint, '　[7] 加油'));
     this.fuelRow.set(false);
     this.fuelHint.set(false);

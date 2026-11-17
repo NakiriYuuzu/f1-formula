@@ -3,10 +3,29 @@
  * survives a restart (same GPU) or is dropped (another GPU).
  */
 import { describe, expect, test } from 'bun:test';
+import type { QualityLevel } from '../src/core/types';
 import { defaultSettings, sanitizeSettings } from '../src/meta/save';
-import { bootQuality, canvasMsaaOutlivesStep, guessQuality, isSoftwareGpu, lowerQuality, parseAutoRecord } from '../src/render/core/autoQuality';
+import { autoRecordKey, bootQuality, canvasMsaaOutlivesStep, guessQuality, isSoftwareGpu, lowerQuality, parseAutoRecord } from '../src/render/core/autoQuality';
 
 const ANGLE = (vendor: string, name: string): string => `ANGLE (${vendor}, ${name}, Unspecified Version)`;
+
+const INTEL_XE = 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
+
+/** The table before the device form existed (HEAD 8d3f469), tier by tier. */
+const DESKTOP_TIERS: [string, QualityLevel][] = [
+  [ANGLE('Apple', 'ANGLE Metal Renderer: Apple M2 Pro'), 'high'],
+  ['Apple GPU', 'high'],
+  ['ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+  ['ANGLE (NVIDIA, NVIDIA GeForce GT 710 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+  ['ANGLE (AMD, AMD Radeon RX 6600 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'high'],
+  ['ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)', 'medium'],
+  [INTEL_XE, 'medium'],
+  ['ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'low'],
+  ['llvmpipe (LLVM 15.0.7, 256 bits)', 'low'],
+  ['Mali-G78', 'low'],
+  ['Adreno (TM) 740', 'low'],
+  ['', 'medium'],
+];
 
 describe('guessQuality', () => {
   test('software rasterisers start at low', () => {
@@ -42,6 +61,28 @@ describe('guessQuality', () => {
     expect(guessQuality('')).toBe('medium');
     expect(guessQuality('Some New GPU 9000')).toBe('medium');
   });
+
+  test('the masked "Apple GPU" of an iPhone or iPad starts at medium; a Mac reporting it keeps high', () => {
+    expect(guessQuality('Apple GPU', 'phone')).toBe('medium');
+    expect(guessQuality('Apple GPU', 'tablet')).toBe('medium');
+    expect(guessQuality('Apple GPU', 'desktop')).toBe('high');
+    expect(guessQuality('Apple GPU')).toBe('high');
+  });
+
+  test('other phone GPUs and software rendering do not move with the form', () => {
+    for (const form of ['phone', 'tablet'] as const) {
+      expect(guessQuality('Mali-G78', form)).toBe('low');
+      expect(guessQuality('Adreno (TM) 740', form)).toBe('low');
+      expect(guessQuality('Google SwiftShader', form)).toBe('low');
+    }
+  });
+
+  test('a desktop, by default or named, gets the table as it was before the form', () => {
+    for (const [gpu, tier] of DESKTOP_TIERS) {
+      expect([gpu, guessQuality(gpu)]).toEqual([gpu, tier]);
+      expect([gpu, guessQuality(gpu, 'desktop')]).toEqual([gpu, tier]);
+    }
+  });
 });
 
 describe('lowerQuality', () => {
@@ -58,6 +99,30 @@ describe('record', () => {
     expect(bootQuality({ gpu: 'A', level: 'low' }, 'A')).toBe('low');
     expect(bootQuality({ gpu: 'A', level: 'low' }, 'Apple M2 Pro')).toBe('high');
     expect(bootQuality(null, 'llvmpipe')).toBe('low');
+  });
+
+  test('only a GPU whose guess depends on the form ("Apple GPU" on a phone or tablet) files its record under the form', () => {
+    for (const gpu of [INTEL_XE, 'Adreno (TM) 740', 'Apple M2 Pro']) {
+      for (const form of ['phone', 'tablet'] as const) expect([gpu, form, autoRecordKey(gpu, form)]).toEqual([gpu, form, gpu]);
+    }
+    expect(autoRecordKey('Apple GPU', 'desktop')).toBe('Apple GPU');
+    expect(autoRecordKey('Apple GPU', 'phone')).not.toBe('Apple GPU');
+    expect(autoRecordKey('Apple GPU', 'tablet')).not.toBe('Apple GPU');
+  });
+
+  test('a 2-in-1 that boots as a desktop one day and a tablet the next keeps the step down it made in either form', () => {
+    expect(bootQuality({ gpu: autoRecordKey(INTEL_XE, 'desktop'), level: 'low' }, INTEL_XE, 'tablet')).toBe('low');
+    expect(bootQuality({ gpu: autoRecordKey(INTEL_XE, 'tablet'), level: 'low' }, INTEL_XE, 'desktop')).toBe('low');
+  });
+
+  test('an iPhone that recorded the old high guess is guessed again once; its own step downs then stay', () => {
+    expect(bootQuality({ gpu: 'Apple GPU', level: 'high' }, 'Apple GPU', 'phone')).toBe('medium');
+    expect(bootQuality({ gpu: 'Apple GPU · phone', level: 'low' }, 'Apple GPU', 'phone')).toBe('low');
+  });
+
+  test('a desktop record does not move', () => {
+    expect(bootQuality({ gpu: 'Apple GPU', level: 'medium' }, 'Apple GPU')).toBe('medium');
+    expect(bootQuality({ gpu: 'Apple GPU', level: 'medium' }, 'Apple GPU', 'desktop')).toBe('medium');
   });
 
   test('parseAutoRecord refuses anything that is not a gpu string with a known tier', () => {

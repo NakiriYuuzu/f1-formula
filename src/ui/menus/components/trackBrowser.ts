@@ -1,13 +1,15 @@
 /**
  * Track grid: one card per circuit with a minimap preview, plus a forward / reverse direction toggle.
  * By default focusing a card selects (previews) it; with `selectOnFocus: false` only Enter / click selects, so
- * hovering other cards on the way to a separate start button never changes the selection. Enter / click chooses.
+ * hovering other cards on the way to a separate start button never changes the selection. Enter / click chooses
+ * (in touch mode the first tap on a preview-on-focus card that is not already previewed only previews it: tapChooses).
  * A filter (all / real / original circuits) keeps 17 circuits easy to browse.
  */
 import { filterLayouts, formatKm, TRACK_FILTERS, TRACK_FILTER_LABEL, type TrackFilter } from '../../../meta/circuits';
 import { listLayouts, type LayoutMeta } from '../../../meta/options';
 import { h, setText } from '../dom';
 import { minimapCanvas } from '../minimap';
+import { tapChooses } from '../nav';
 import { BIOME_LABEL } from '../labels';
 import { cycler } from '../widgets';
 
@@ -120,7 +122,8 @@ export class TrackBrowser {
             focus: () => {
               if (this.o.selectOnFocus !== false) this.select(layout);
             },
-            click: () => {
+            click: (e) => {
+              if (this.o.selectOnFocus !== false && !tapChooses(e)) return;
               this.select(layout);
               this.o.onChoose(layout);
             },

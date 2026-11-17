@@ -22,7 +22,7 @@ import type {
 } from '../../core/types';
 import { COMPOUND_INFO } from '../../core/defaults';
 import { formatLapTime } from '../../core/math';
-import { AttrSlot, ShowSlot, TextSlot, el } from './dom';
+import { AttrSlot, ShowSlot, TextSlot, el, type ModeText } from './dom';
 import { claimHintSession, controlsHelpPages, hintItems, HUD_HINT_SECONDS, spectateHintItems } from './controls';
 import { ControlsHelp } from './controlsHelp';
 import { buildGhostTrace } from './delta';
@@ -50,6 +50,7 @@ import { NET_PANEL_KEY, NetPanel, netPanelRows, type NetDiagnostics } from './ne
 import { estimatePitLoss } from '../../race/index';
 import { ELIMINATED_REASON, RETIRE_BY_CHOICE } from '../../race/index';
 import './elimination.css';
+import './touch.css';
 import { AT_RISK_BANNER, EliminationPanel, eliminatedCallout } from './elimination';
 import { identColor } from '../../meta/roster';
 import { PauseMenu } from './pauseMenu';
@@ -57,7 +58,12 @@ import type { MenuDirection, PauseItem } from './pauseMenu';
 import { RaceControlStrip, sectorFlagLabel } from './raceControl';
 import { ReplayBar } from './replayBar';
 import type { PadMenuInput } from '../../input/gamepad';
+import { TILT_PROBLEM_TEXT, type HudInput } from '../../input/index';
+import type { EffectiveSteering, TouchPort } from '../../input/touch';
+import type { HintItems } from './hintStrip';
 import { StartLights } from './startLights';
+import { TouchDeck } from './touchDeck';
+import { touchContext, touchHelpSections, touchHintItems } from './touchLayout';
 import { TimingTower } from './tower';
 import { eliminationLabel, enduranceLabel, keyLabel } from '../menus/labels';
 import { ViewHud } from './viewHud';
@@ -107,6 +113,8 @@ export interface HudFrameInfo {
   ping?: readonly PingItem[];
   /** online: the links' statistics for the diagnostics panel (asked for only while it is open) */
   net?: () => NetDiagnostics;
+  /** input mode and steering scheme: the touch deck and the help / hint text follow it */
+  input: HudInput;
 }
 
 /** Timed-session warnings (seconds remaining). */
@@ -132,6 +140,10 @@ const positionKey = (c: CarEntry): number =>
   Number.isFinite(c.timing.position) && c.timing.position > 0 ? c.timing.position : 1e6;
 const byPosition = (a: CarEntry, b: CarEntry): number => positionKey(a) - positionKey(b) || a.id - b.id;
 
+/** A banner line with the flashback hint after it, per input mode (the plain line when there is no hint). */
+const withHint = (text: string, hint: ModeText | null): string | ModeText =>
+  hint ? { keys: `${text}${hint.keys}`, touch: `${text}${hint.touch ?? ''}` } : text;
+
 function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
@@ -156,6 +168,10 @@ export class HudLayer {
   private readonly pause: PauseMenu;
   private readonly help: ControlsHelp;
   private readonly replayBar: ReplayBar;
+  /** on-screen touch controls (outside split screen, when the App hands over a touch port) */
+  private readonly deck: TouchDeck | null;
+  /** the 「tilt unusable」 toast was shown (once per session) */
+  private tiltToasted = false;
   private readonly notices = new NoticeGate();
   private readonly fpsText: TextSlot;
   private readonly fpsShow: ShowSlot;
@@ -194,6 +210,8 @@ export class HudLayer {
     private readonly cb: HudCallbacks,
     /** online session role: no restart; a client cannot end the session for everyone */
     private readonly online: 'host' | 'client' | null = null,
+    /** the touch device: the deck is built from it outside split screen */
+    touch?: TouchPort,
   ) {
     this.settings = settings;
     this.split = views.length > 1;
@@ -240,6 +258,7 @@ export class HudLayer {
     this.replayBar = new ReplayBar(this.rootEl);
     this.pause = new PauseMenu(this.rootEl, () => this.cb.resume());
     this.help = new ControlsHelp(this.rootEl, () => this.closeHelp());
+    this.deck = touch && !this.split ? new TouchDeck(this.rootEl, touch) : null;
 
     window.addEventListener('keydown', this.onKeyDown);
     this.applySettings(settings);
@@ -280,6 +299,7 @@ export class HudLayer {
     this.notices.tick(step);
     if (!replay) this.updateSession(world, step);
     if (this.pause.isVisible()) this.pause.refresh();
+    if (this.deck) this.syncDeck(this.deck, world, info);
   }
 
   /** Notifications/radio/banners for events drained this frame. */
@@ -374,7 +394,7 @@ export class HudLayer {
     this.pause.setResumeKeys((settings.keyBindings.pause ?? []).map(keyLabel));
     this.help.setBackKeys((settings.keyBindings.pause ?? []).map(keyLabel));
     for (const v of this.views) {
-      if (v.hints.isShowing()) v.hints.setItems(hintItems(settings, v.view.playerIndex, this.split));
+      if (v.hints.isShowing()) v.hints.setItems(this.hintsFor(v));
       if (v.watching) v.watch(v.shownCarId, spectateHintItems(settings, v.view.playerIndex, this.split));
     }
   }
@@ -383,6 +403,7 @@ export class HudLayer {
     if (this.destroyed) return;
     this.destroyed = true;
     window.removeEventListener('keydown', this.onKeyDown);
+    this.deck?.destroy();
     this.minimap.destroy();
     this.rootEl.remove();
     this.views.length = 0;
@@ -454,9 +475,52 @@ export class HudLayer {
 
   private openHelp(): void {
     this.pause.suspend(true);
-    this.help.open(controlsHelpPages(this.settings, this.split));
+    const pages = controlsHelpPages(this.settings, this.split);
+    // a touch player opens on the 觸控 page; keyboard and pad players keep today's pages
+    const steering = this.lastInfo?.input.mode === 'touch' ? this.touchSteering() : null;
+    if (steering) {
+      pages.unshift({
+        id: 'touch',
+        title: '觸控',
+        sections: touchHelpSections(steering),
+        note: '轉向方式（拖曳／體感／按鈕）可在「設定」切換。ERS 模式與進站選項在 MFD 中點選。',
+      });
+    }
+    this.help.open(pages);
     // the full list is on screen now: the first-sessions strip has done its job
     for (const v of this.views) v.hints.dismiss();
+  }
+
+  /** The steering scheme the deck shows, or null when this HUD has no deck. */
+  private touchSteering(): EffectiveSteering | null {
+    return this.deck ? (this.lastInfo?.input.steering ?? 'drag') : null;
+  }
+
+  /** The first-sessions strip for a view: its keys, plus the deck's rows when there is a deck. */
+  private hintsFor(v: ViewHud): HintItems {
+    const steering = this.touchSteering();
+    return { keys: hintItems(this.settings, v.view.playerIndex, this.split), touch: steering ? touchHintItems(steering) : undefined };
+  }
+
+  private syncDeck(deck: TouchDeck, world: WorldState, info: HudFrameInfo): void {
+    const v = this.views[0];
+    deck.sync(
+      touchContext({
+        input: info.input,
+        paused: this.paused,
+        replay: this.replayActive,
+        watching: v?.watching ?? false,
+        car: v ? (world.cars[v.view.carId] ?? null) : null,
+        world,
+        flashbacksLeft: fin(info.flashbacksLeft, 0),
+        online: this.online !== null,
+      }),
+    );
+    const problem = info.input.tiltProblem;
+    if (problem && !this.tiltToasted && info.input.mode === 'touch') {
+      this.tiltToasted = true;
+      this.toastAll('體感轉向無法使用，改用拖曳', TILT_PROBLEM_TEXT[problem], 'warn', 5);
+    }
   }
 
   private closeHelp(): void {
@@ -470,7 +534,7 @@ export class HudLayer {
     if (this.hintsClaimed || this.replayActive) return;
     this.hintsClaimed = true;
     if (!claimHintSession()) return;
-    for (const v of this.views) v.hints.start(hintItems(this.settings, v.view.playerIndex, this.split), HUD_HINT_SECONDS);
+    for (const v of this.views) v.hints.start(this.hintsFor(v), HUD_HINT_SECONDS);
   }
 
   private syncFromInfo(info: HudFrameInfo): void {
@@ -757,14 +821,14 @@ export class HudLayer {
         if (world.cars[ev.carId]?.penalties?.disqualified === true || ev.reason === ELIMINATED_REASON) break;
         const v = this.viewByCar.get(ev.carId);
         const hint = this.flashbackHint(ev.reason);
-        if (v) v.banner.show('retired', '退賽', `${ev.reason}${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
+        if (v) v.banner.show('retired', '退賽', withHint(ev.reason, hint), 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
         else this.toastAll(`${abbr(ev.carId)} 退賽`, ev.reason, 'info', 3);
         break;
       }
       case 'terminalDamage': {
         const v = this.viewByCar.get(ev.carId);
         const hint = this.flashbackHint('');
-        if (v) v.banner.show('terminal', '賽車報廢', `懸吊斷裂，無法繼續比賽${hint}`, 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
+        if (v) v.banner.show('terminal', '賽車報廢', withHint('懸吊斷裂，無法繼續比賽', hint), 'bad', hint ? CRASH_FLASHBACK_OFFER : OUT_BANNER_SECONDS);
         break;
       }
       case 'blackOrangeFlag': {
@@ -788,11 +852,14 @@ export class HudLayer {
     }
   }
 
-  /** 「・按 R 回溯」 after a crash while a flashback is possible ('' otherwise; never for a retirement the player chose). */
-  private flashbackHint(reason: string): string {
-    if (this.online || reason === RETIRE_BY_CHOICE || fin(this.lastInfo?.flashbacksLeft ?? 0, 0) === 0) return '';
+  /**
+   * 「・按 R 回溯」 (on touch 「・點「回溯」」, the deck's button) after a crash while a flashback is possible; null
+   * otherwise, and never for a retirement the player chose.
+   */
+  private flashbackHint(reason: string): ModeText | null {
+    if (this.online || reason === RETIRE_BY_CHOICE || fin(this.lastInfo?.flashbacksLeft ?? 0, 0) === 0) return null;
     const key = (this.settings.keyBindings.flashback ?? [])[0];
-    return key ? `・按 ${keyLabel(key)} 回溯` : '・可從暫停選單回溯';
+    return { keys: key ? `・按 ${keyLabel(key)} 回溯` : '・可從暫停選單回溯', touch: '・點「回溯」' };
   }
 
   private buildPauseItems(world: WorldState): PauseItem[] {

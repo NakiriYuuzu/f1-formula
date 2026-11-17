@@ -545,7 +545,7 @@ export class SessionRuntime {
         this.setPaused(false);
       },
     };
-    return new HudLayer(this.deps.uiRoot, this.track, this.hudViews, settings, cb, this.online);
+    return new HudLayer(this.deps.uiRoot, this.track, this.hudViews, settings, cb, this.online, this.deps.input.touch);
   }
 
   private viewIndexOf(playerIndex: 0 | 1): number {
@@ -757,6 +757,7 @@ export class SessionRuntime {
       flashbacksLeft: this.flashbackBlock() ? 0 : flashbacksLeft(w.config.rules, w.flashbacksUsed),
       racingLine: this.racingLine,
       replay: null,
+      input: this.deps.input.hudInput(),
       ...(this.host ? { ping: this.host.pings().map((p) => ({ name: p.name, ms: p.ms })) } : {}),
       ...(this.client ? { ping: [{ name: null, ms: this.client.ping }] } : {}),
       ...(this.host ? { net: () => ({ role: 'host' as const, links: (this.host as HostSession).linkStats() }) } : {}),

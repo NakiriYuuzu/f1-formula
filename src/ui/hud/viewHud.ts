@@ -257,6 +257,8 @@ class WatchCard {
     this.human = new ShowSlot(el('span', 'nvh-watch-human', car, '玩家'));
     this.team = new TextSlot(el('div', 'nvh-watch-team', this.el));
     this.keys = el('div', 'nvh-hint-items nvh-watch-keys', this.el);
+    // on touch the deck's 上一台 / 下一台 buttons say it
+    this.keys.dataset.showFor = 'keyboard gamepad';
     this.show = new ShowSlot(this.el);
     this.show.set(false);
   }

@@ -29,7 +29,7 @@ export interface HelpSection {
 }
 
 export interface HelpPage {
-  id: 'kb0' | 'kb1' | 'pad';
+  id: 'kb0' | 'kb1' | 'pad' | 'touch';
   title: string;
   sections: HelpSection[];
   note: string;
@@ -37,7 +37,7 @@ export interface HelpPage {
 
 type BindingSettings = Pick<Settings, 'keyBindings' | 'keyBindingsP2'>;
 
-const HELP_GROUPS: readonly { title: string; actions: readonly KeyAction[] }[] = [
+export const HELP_GROUPS: readonly { title: string; actions: readonly KeyAction[] }[] = [
   { title: '駕駛', actions: ['throttle', 'brake', 'steerLeft', 'steerRight', 'shiftUp', 'shiftDown'] },
   { title: '動力與策略', actions: ['drs', 'overtake', 'ersCycle', 'limiter', 'pitRequest', 'mfd'] },
   { title: '鏡頭與系統', actions: ['camera', 'lookBack', 'pause', 'flashback', 'fullscreen', 'hud'] },

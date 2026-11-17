@@ -3,7 +3,7 @@
  * current bindings. ←/→ (D-pad) switch pages, ↑/↓ scroll, Enter / A / 返回 close; the back keys (Esc / B) arrive
  * through HudLayer.handleBack(). Mouse: tabs and 返回 are clickable, the body scrolls with the wheel.
  */
-import { AttrSlot, TextSlot, clickable, el } from './dom';
+import { AttrSlot, TextSlot, clickable, el, setModeText } from './dom';
 import type { HelpPage } from './controls';
 import type { MenuDirection } from './pauseMenu';
 
@@ -17,7 +17,7 @@ export class ControlsHelp {
   private readonly tabs: HTMLElement;
   private readonly body: HTMLElement;
   private readonly note: TextSlot;
-  private readonly hint: TextSlot;
+  private readonly hint: HTMLElement;
   private tabSlots: AttrSlot[] = [];
   private pages: HelpPage[] = [];
   private page = 0;
@@ -38,13 +38,16 @@ export class ControlsHelp {
     this.tabs.setAttribute('role', 'tablist');
     this.body = el('div', 'nvh-help-body', card);
     this.note = new TextSlot(el('div', 'nvh-help-note', card));
-    this.hint = new TextSlot(el('div', 'nvh-help-hint', card));
+    this.hint = el('div', 'nvh-help-hint', card);
     this.setBackKeys(['Esc']);
   }
 
   /** Labels of the keyboard keys that close the panel through the App's pause key (plus Enter and pad B). */
   setBackKeys(labels: readonly string[]): void {
-    this.hint.set(`←→ 切換頁面　↑↓ 捲動　${['Enter', ...labels, 'B'].join('／')} 返回`);
+    setModeText(this.hint, {
+      keys: `←→ 切換頁面　↑↓ 捲動　${['Enter', ...labels, 'B'].join('／')} 返回`,
+      touch: '點分頁切換頁面　上下滑動捲動　點「返回」關閉',
+    });
   }
 
   isOpen(): boolean {

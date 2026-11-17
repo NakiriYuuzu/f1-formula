@@ -1,0 +1,270 @@
+/*
+ * Touch deck (src/ui/hud/touchDeck.ts). The footprint tokens below are read by hud.css to move HUD blocks out of the
+ * thumb zones while the deck is on screen (.nvh-root[data-touch], written only by TouchDeck). Every deck element stays
+ * inside its zone's footprint: hud.css fits the telemetry in the band between the two thumb zones. The HUD root is
+ * already inset by the safe areas, so nothing here adds them again.
+ */
+
+.nvh-root[data-touch] {
+  --nvt-sys-h: max(44px, 3.6em); /* system bar height, top-left */
+  --nvt-thumb-w: min(34%, 20em); /* each thumb zone's width from its side */
+  --nvt-thumb-h: min(60%, 20em); /* each thumb zone's height from the bottom */
+  --nvt-gap: 0.75em;
+}
+
+/* over the HUD widgets (the top-centre block is z 7 too, earlier in the DOM), under the pause menu (8) and 操作說明 (9) */
+.nvt {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  --nvt-sys-w: 17em; /* the tower's width: the bar never pokes out beside the tower under it */
+  --nvt-sys-gap: 0.25em;
+}
+
+.nvt-zone {
+  position: absolute;
+  pointer-events: none;
+}
+
+.nvt-zone[data-zone='sys'] {
+  top: var(--nvh-edge);
+  left: var(--nvh-edge);
+  height: var(--nvt-sys-h);
+  max-width: var(--nvt-sys-w);
+  display: flex;
+  gap: var(--nvt-sys-gap);
+}
+
+.nvt-zone[data-zone='thumbL'],
+.nvt-zone[data-zone='thumbR'] {
+  bottom: 0;
+  width: var(--nvt-thumb-w);
+  height: var(--nvt-thumb-h);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--nvt-gap);
+  padding: var(--nvt-gap) var(--nvh-edge) var(--nvh-edge);
+}
+.nvt-zone[data-zone='thumbL'] {
+  left: 0;
+}
+.nvt-zone[data-zone='thumbR'] {
+  right: 0;
+}
+
+/* ───────────── controls ───────────── */
+.nvt-ctl {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max(44px, var(--nv-hit));
+  min-height: max(44px, var(--nv-hit));
+  padding: 0 0.6em;
+  border: 1px solid var(--nv-line-strong);
+  border-radius: var(--nv-radius-lg);
+  background: var(--nv-scrim);
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--nv-text);
+  pointer-events: auto;
+  touch-action: none;
+  transition:
+    background var(--nv-fast),
+    border-color var(--nv-fast),
+    box-shadow var(--nv-fast);
+}
+.nvt-ctl:active {
+  background: var(--nv-active);
+  border-color: var(--nv-text-2);
+}
+.nvt-label {
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* five buttons in one row no wider than the tower: at the 12px HUD floor that is 38px wide, still 44px tall */
+.nvt-zone[data-zone='sys'] > .nvt-ctl {
+  flex: 0 1 calc((var(--nvt-sys-w) - 4 * var(--nvt-sys-gap)) / 5);
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+}
+
+/* "ready" glows, inside the border so nothing reaches past the zone */
+.nvt-ctl[data-lit] {
+  border-color: var(--nvt-lit, var(--nv-text));
+  box-shadow: inset 0 0 0.9em var(--nvt-lit, var(--nv-text));
+}
+.nvt-ctl[data-control='box'] {
+  --nvt-lit: var(--nv-accent-hi);
+}
+.nvt-ctl[data-control='drs'] {
+  --nvt-lit: var(--nv-drs);
+}
+.nvt-ctl[data-control='overtake'] {
+  --nvt-lit: var(--nv-ers);
+}
+.nvt-ctl[data-control='limiter'] {
+  --nvt-lit: var(--nv-warning);
+}
+
+/* pedals: the bottom row, label low where the thumb rests */
+.nvt-ctl[data-kind='pedal'] {
+  grid-row: 3;
+  align-items: flex-end;
+  padding-bottom: 0.8em;
+  font-size: 1.1em;
+}
+.nvt-ctl[data-control='brake'],
+.nvt-ctl[data-control='brakeL'] {
+  border-color: color-mix(in srgb, var(--nv-danger) 55%, transparent);
+}
+.nvt-ctl[data-control='throttle'] {
+  border-color: color-mix(in srgb, var(--nv-ok) 55%, transparent);
+}
+
+/* ───────────── left thumb ───────────── */
+/* the drag surface is the whole zone; the buttons in it sit on top (later in the DOM) */
+.nvt-ctl[data-kind='surface'] {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  align-items: flex-end;
+  padding-bottom: var(--nvh-edge);
+  border-style: dashed;
+  border-color: var(--nv-line-strong);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--nv-text-3);
+  font-weight: 600;
+}
+.nvt-ctl[data-kind='surface']:active {
+  background: rgba(255, 255, 255, 0.07);
+}
+.nvt-stick {
+  position: absolute;
+  top: 50%;
+  left: var(--nvt-ox, 50%);
+  width: 6em;
+  height: 2.4em;
+  translate: -50% -50%;
+  border-radius: 1.2em;
+  background: var(--nv-panel-hi);
+  opacity: 0.45;
+  pointer-events: none;
+}
+.nvt-ctl[data-drag] .nvt-stick {
+  opacity: 1;
+}
+.nvt-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.4em;
+  height: 2.4em;
+  translate: calc(-50% + var(--nvt-dx, 0) * 1.8em) -50%;
+  border-radius: 50%;
+  background: var(--nv-text);
+}
+
+.nvt-ctl[data-control='tiltEnable'],
+.nvt-ctl[data-kind='indicator'] {
+  grid-row: 1;
+  grid-column: 1 / -1;
+}
+.nvt-ctl[data-control='tiltEnable'] {
+  justify-self: center;
+  border-color: transparent;
+  background: var(--nv-accent);
+  color: var(--nv-accent-ink);
+}
+.nvt-ctl[data-kind='indicator'] {
+  flex-direction: column;
+  gap: 0.3em;
+  padding: 0.5em;
+  border-color: transparent;
+  background: none;
+  pointer-events: none;
+}
+.nvt-ctl[data-kind='indicator'] > .nvt-label {
+  display: none;
+}
+.nvt-wheel {
+  width: 3.6em;
+  height: 1.6em;
+  border: 0.3em solid var(--nv-text-2);
+  border-radius: 0.8em 0.8em 1.2em 1.2em;
+  rotate: calc(var(--nvt-steer, 0) * 90deg);
+}
+.nvt-flat {
+  display: none;
+  padding: 0.2em 0.6em;
+  border-radius: var(--nv-radius);
+  background: var(--nv-warning);
+  font-size: var(--nvh-xs);
+  color: var(--nv-ink);
+  white-space: nowrap;
+}
+.nvt-ctl[data-flat] .nvt-flat {
+  display: block;
+}
+.nvt-ctl[data-flat] .nvt-wheel {
+  opacity: 0.4;
+}
+
+.nvt-ctl[data-control='lookBack'] {
+  grid-area: 2 / 1;
+}
+.nvt-ctl[data-control='shiftDown'] {
+  grid-area: 2 / 2;
+}
+.nvt-ctl[data-control='steerLeft'] {
+  grid-area: 3 / 1;
+  font-size: 1.4em;
+}
+.nvt-ctl[data-control='steerRight'] {
+  grid-area: 3 / 2;
+  font-size: 1.4em;
+}
+/* tilt frees the left thumb: the brake takes the whole bottom row */
+.nvt-ctl[data-control='brakeL'] {
+  grid-column: 1 / -1;
+}
+
+/* ───────────── right thumb ───────────── */
+.nvt-ctl[data-control='limiter'] {
+  grid-area: 1 / 1;
+}
+.nvt-ctl[data-control='drs'] {
+  grid-area: 1 / 2;
+}
+.nvt-ctl[data-control='shiftUp'] {
+  grid-area: 2 / 1;
+}
+.nvt-ctl[data-control='overtake'] {
+  grid-area: 2 / 2;
+}
+.nvt-ctl[data-control='brake'] {
+  grid-column: 1;
+}
+.nvt-ctl[data-control='throttle'] {
+  grid-column: 2;
+}
+.nvt[data-steering='tilt'] .nvt-ctl[data-control='throttle'] {
+  grid-column: 1 / -1;
+}
+
+/* spectating: switch car from the bottom row of each zone */
+.nvt-ctl[data-control='prevCar'],
+.nvt-ctl[data-control='nextCar'] {
+  grid-row: 3;
+  grid-column: 1 / -1;
+  align-self: end;
+  height: var(--nvt-sys-h);
+}

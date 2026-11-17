@@ -4,7 +4,7 @@
  * when the race stays over budget at the lowest resolution scale, or crawls. It never steps up on its own: a frame time
  * read from animation-frame intervals is quantised by vsync, so spare GPU time cannot be seen.
  */
-import type { QualityLevel } from '../../core/types';
+import type { DeviceForm, QualityLevel } from '../../core/types';
 import { qualityProfile } from './quality';
 
 export const QUALITY_ORDER: readonly QualityLevel[] = ['low', 'medium', 'high', 'ultra'];
@@ -18,10 +18,14 @@ export function isSoftwareGpu(gpu: string): boolean {
  * First guess from UNMASKED_RENDERER_WEBGL. Conservative: Apple silicon and discrete cards start at `high`, an integrated
  * GPU of the last few generations at `medium`, older integrated GPUs, phones and software rendering at `low`. An unknown
  * string starts at `medium` and the governor corrects it either way.
+ *
+ * iOS and iPadOS mask every GPU as "Apple GPU": on a phone or tablet that string is a mobile chip, so it starts at
+ * `medium`. A Mac's Safari reports the same string with a desktop form, so the desktop table is untouched.
  */
-export function guessQuality(gpu: string): QualityLevel {
+export function guessQuality(gpu: string, form: DeviceForm = 'desktop'): QualityLevel {
   const g = gpu.toLowerCase();
   if (isSoftwareGpu(g)) return 'low';
+  if (form !== 'desktop' && /apple gpu/.test(g)) return 'medium';
   if (/apple (m\d|gpu)/.test(g)) return 'high';
   if (/intel/.test(g)) {
     if (/\barc\b/.test(g)) return 'high';
@@ -67,11 +71,20 @@ export function parseAutoRecord(v: unknown): AutoRecord | null {
 }
 
 /**
- * The tier to start with in auto mode: the recorded one while the GPU is the same one it was recorded for (a step the
+ * What a record is filed under: the bare GPU string, plus the form only where the guess depends on the form ("Apple
+ * GPU" on a phone or tablet). An iPhone or iPad that recorded the old `high` guess is then guessed again once, while a
+ * 2-in-1 that boots as a desktop one day and a tablet the next keeps one record and the steps it made.
+ */
+export function autoRecordKey(gpu: string, form: DeviceForm): string {
+  return guessQuality(gpu, form) === guessQuality(gpu) ? gpu : `${gpu} · ${form}`;
+}
+
+/**
+ * The tier to start with in auto mode: the recorded one while it is filed under this GPU's autoRecordKey (a step the
  * governor made stays), else the guess for this GPU.
  */
-export function bootQuality(record: AutoRecord | null, gpu: string): QualityLevel {
-  return record !== null && record.gpu === gpu ? record.level : guessQuality(gpu);
+export function bootQuality(record: AutoRecord | null, gpu: string, form: DeviceForm = 'desktop'): QualityLevel {
+  return record !== null && record.gpu === autoRecordKey(gpu, form) ? record.level : guessQuality(gpu, form);
 }
 
 /** WebGL renderer string, read from a throwaway context; '' when it cannot be read. */

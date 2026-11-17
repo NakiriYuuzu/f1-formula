@@ -52,6 +52,22 @@ export function clickable(className: string, parent: Element, text: string, onCl
   return node;
 }
 
+/** Text per input mode. `touch` absent = the site has nothing to say on touch (no span is rendered for it). */
+export interface ModeText {
+  keys: string;
+  touch?: string;
+}
+
+/**
+ * Replaces `parent`'s children with one span per mode, tagged `data-show-for`; the html[data-input-mode] rule in
+ * app.css shows the one that matches.
+ */
+export function setModeText(parent: Element, text: ModeText): void {
+  parent.replaceChildren();
+  el('span', undefined, parent, text.keys).dataset.showFor = 'keyboard gamepad';
+  if (text.touch !== undefined) el('span', undefined, parent, text.touch).dataset.showFor = 'touch';
+}
+
 /** Cached textContent writer. */
 export class TextSlot {
   private last: string | null = null;

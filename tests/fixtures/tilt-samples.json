@@ -1,0 +1,613 @@
+{
+  "note": "Raw accelerationIncludingGravity (m/s², device axes) with screen.orientation.angle, at steeringSensitivity 1. Rows with synthetic: true are computed from tests/tiltPoses.ts, not recorded; replace them with rows recorded on an iPhone and an Android phone in both landscape holds (raw sample, angle and the true pose; read through Safari Web Inspector or chrome://inspect once window.render_game_to_text() reports them). Covered without hardware: a wrong gravity sign or a 90 / 270 screen angle read the other way round turns the reading half a turn, and TouchDriver undoes that from the first sample that steers after tilt goes live or the angle changes (the player starts roughly upright). Not covered: an angle off by a quarter turn, a first sample taken with the screen upside down, and how a real sensor's noise and lag feel; recorded rows are still needed for those.",
+  "rows": [
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 9.81,
+        "y": 0,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -0.02,
+        "steerMax": 0.02,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 10
+      },
+      "sample": {
+        "x": 9.661,
+        "y": 1.703,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.1,
+        "steerMax": 0.33,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": -30
+      },
+      "sample": {
+        "x": 8.496,
+        "y": -4.905,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -1.01,
+        "steerMax": -0.86,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 45
+      },
+      "sample": {
+        "x": 6.937,
+        "y": 6.937,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.99,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": -10
+      },
+      "sample": {
+        "x": 6.831,
+        "y": -1.205,
+        "z": 6.937
+      },
+      "expect": {
+        "steerMin": -0.33,
+        "steerMax": -0.1,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": 30
+      },
+      "sample": {
+        "x": 6.007,
+        "y": 3.468,
+        "z": 6.937
+      },
+      "expect": {
+        "steerMin": 0.86,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 70,
+        "rollDeg": -45
+      },
+      "sample": {
+        "x": 2.372,
+        "y": -2.372,
+        "z": 9.218
+      },
+      "expect": {
+        "steerMin": -0.88,
+        "steerMax": -0.38,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 90,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 0,
+        "y": 0,
+        "z": 9.81
+      },
+      "expect": {
+        "steerMin": -0.01,
+        "steerMax": 0.01,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": -9.81,
+        "y": 0,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -0.02,
+        "steerMax": 0.02,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 10
+      },
+      "sample": {
+        "x": -9.661,
+        "y": -1.703,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.1,
+        "steerMax": 0.33,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": -30
+      },
+      "sample": {
+        "x": -8.496,
+        "y": 4.905,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -1.01,
+        "steerMax": -0.86,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 45
+      },
+      "sample": {
+        "x": -6.937,
+        "y": -6.937,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.99,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": -10
+      },
+      "sample": {
+        "x": -6.831,
+        "y": 1.205,
+        "z": 6.937
+      },
+      "expect": {
+        "steerMin": -0.33,
+        "steerMax": -0.1,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": 30
+      },
+      "sample": {
+        "x": -6.007,
+        "y": -3.468,
+        "z": 6.937
+      },
+      "expect": {
+        "steerMin": 0.86,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 70,
+        "rollDeg": -45
+      },
+      "sample": {
+        "x": -2.372,
+        "y": 2.372,
+        "z": 9.218
+      },
+      "expect": {
+        "steerMin": -0.88,
+        "steerMax": -0.38,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "android",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 90,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 0,
+        "y": 0,
+        "z": 9.81
+      },
+      "expect": {
+        "steerMin": -0.01,
+        "steerMax": 0.01,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": -9.81,
+        "y": 0,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -0.02,
+        "steerMax": 0.02,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 10
+      },
+      "sample": {
+        "x": -9.661,
+        "y": -1.703,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.1,
+        "steerMax": 0.33,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": -30
+      },
+      "sample": {
+        "x": -8.496,
+        "y": 4.905,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -1.01,
+        "steerMax": -0.86,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 45
+      },
+      "sample": {
+        "x": -6.937,
+        "y": -6.937,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.99,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": -10
+      },
+      "sample": {
+        "x": -6.831,
+        "y": 1.205,
+        "z": -6.937
+      },
+      "expect": {
+        "steerMin": -0.33,
+        "steerMax": -0.1,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": 30
+      },
+      "sample": {
+        "x": -6.007,
+        "y": -3.468,
+        "z": -6.937
+      },
+      "expect": {
+        "steerMin": 0.86,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 70,
+        "rollDeg": -45
+      },
+      "sample": {
+        "x": -2.372,
+        "y": 2.372,
+        "z": -9.218
+      },
+      "expect": {
+        "steerMin": -0.88,
+        "steerMax": -0.38,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 90,
+      "pose": {
+        "leanDeg": 90,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 0,
+        "y": 0,
+        "z": -9.81
+      },
+      "expect": {
+        "steerMin": -0.01,
+        "steerMax": 0.01,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 9.81,
+        "y": 0,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -0.02,
+        "steerMax": 0.02,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 10
+      },
+      "sample": {
+        "x": 9.661,
+        "y": 1.703,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.1,
+        "steerMax": 0.33,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": -30
+      },
+      "sample": {
+        "x": 8.496,
+        "y": -4.905,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": -1.01,
+        "steerMax": -0.86,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 0,
+        "rollDeg": 45
+      },
+      "sample": {
+        "x": 6.937,
+        "y": 6.937,
+        "z": 0
+      },
+      "expect": {
+        "steerMin": 0.99,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": -10
+      },
+      "sample": {
+        "x": 6.831,
+        "y": -1.205,
+        "z": -6.937
+      },
+      "expect": {
+        "steerMin": -0.33,
+        "steerMax": -0.1,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 45,
+        "rollDeg": 30
+      },
+      "sample": {
+        "x": 6.007,
+        "y": 3.468,
+        "z": -6.937
+      },
+      "expect": {
+        "steerMin": 0.86,
+        "steerMax": 1.01,
+        "flat": false
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 70,
+        "rollDeg": -45
+      },
+      "sample": {
+        "x": 2.372,
+        "y": -2.372,
+        "z": -9.218
+      },
+      "expect": {
+        "steerMin": -0.88,
+        "steerMax": -0.38,
+        "flat": true
+      }
+    },
+    {
+      "synthetic": true,
+      "platform": "ios",
+      "screenAngle": 270,
+      "pose": {
+        "leanDeg": 90,
+        "rollDeg": 0
+      },
+      "sample": {
+        "x": 0,
+        "y": 0,
+        "z": -9.81
+      },
+      "expect": {
+        "steerMin": -0.01,
+        "steerMax": 0.01,
+        "flat": true
+      }
+    }
+  ]
+}

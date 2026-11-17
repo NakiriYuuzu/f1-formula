@@ -4,7 +4,7 @@
  * nothing behind on destroy.
  */
 import { clamp } from '../../core/math';
-import { el } from './dom';
+import { el, setModeText, type ModeText } from './dom';
 
 export type Tone = 'info' | 'good' | 'warn' | 'bad' | 'purple' | 'flag';
 
@@ -143,14 +143,16 @@ export class Banner {
     this.sub = el('div', 'nvh-banner-sub', this.el);
   }
 
-  show(key: string, title: string, sub: string, tone: Tone, duration = 3.2): void {
+  /** `sub` as a ModeText when it names an input (the crash banner's 「按 R 回溯」). */
+  show(key: string, title: string, sub: string | ModeText, tone: Tone, duration = 3.2): void {
     if (key === this.key && this.sinceKey < 6) return;
     this.key = key;
     this.sinceKey = 0;
     this.remaining = Math.max(0.5, duration);
     this.title.textContent = title;
-    this.sub.textContent = sub;
-    this.sub.classList.toggle('nvh-hidden', !sub);
+    if (typeof sub === 'string') this.sub.textContent = sub;
+    else setModeText(this.sub, sub);
+    this.sub.classList.toggle('nvh-hidden', typeof sub === 'string' ? !sub : !sub.keys && !sub.touch);
     this.el.dataset.tone = tone;
     this.el.classList.remove('nvh-hidden', 'is-in');
     void this.el.offsetWidth;

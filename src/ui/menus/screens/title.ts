@@ -18,12 +18,12 @@ export class TitleScreen extends Screen {
 
   constructor(host: Host) {
     super(host, { layout: 'showroom', className: 'nvm-title' });
-    const press = h('button', {
-      class: 'nvm-title__press',
-      attrs: { type: 'button', 'data-sound': 'confirm' },
-      text: '按任意鍵開始',
-      on: { click: () => this.advance() },
-    });
+    const press = h(
+      'button',
+      { class: 'nvm-title__press', attrs: { type: 'button', 'data-sound': 'confirm' }, on: { click: () => this.advance() } },
+      h('span', { attrs: { 'data-show-for': 'keyboard gamepad' }, text: '按任意鍵開始' }),
+      h('span', { attrs: { 'data-show-for': 'touch' }, text: '點一下開始' }),
+    );
     this.el.append(
       h(
         'div',

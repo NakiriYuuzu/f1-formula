@@ -4,7 +4,9 @@
  * Every change is applied immediately (cb.applySettings) and persisted. Also used as an overlay above a
  * paused session.
  */
-import type { CameraMode, KeyAction, QualityLevel, Settings, SpeedUnit } from '../../../core/types';
+import type { CameraMode, KeyAction, QualityLevel, Settings, SpeedUnit, TouchSteering } from '../../../core/types';
+import { TILT_PROBLEM_TEXT } from '../../../input/index';
+import { tiltProblem, type TiltStatus } from '../../../input/touch';
 import { bundledPlaylist, bundledPlaylistNow } from '../../../audio/bundledMusic';
 import { clearMusicFile, getMusicError, MAX_MUSIC_BYTES, readMusicInfo, saveMusicFile, subscribeMusic } from '../../../audio/musicStore';
 import { parseYouTubeUrl, skipYouTube, subscribeYouTube, youtubeLinks, youtubeLinksPatch, youtubeNowPlaying } from '../../../audio/youtube';
@@ -14,7 +16,7 @@ import { captureStep, clashesWithP1Pause, isPadEvent } from '../keyCapture';
 import { focusElement } from '../nav';
 import { CAMERA_LABEL, KEY_ACTION_LABEL, keyLabel, QUALITY_LABEL } from '../labels';
 import { Screen, type Host } from '../screen';
-import { button, cycler, heading, panel, slider, tabs, textField, toggle } from '../widgets';
+import { button, cycler, heading, panel, slider, tabs, textField, toggle, type Control } from '../widgets';
 import { ExperienceScreen } from './onboarding';
 import { rosterTab } from './rosterSettings';
 
@@ -98,6 +100,10 @@ export class SettingsScreen extends Screen {
       ),
     );
     this.render();
+    // a finger flips the input mode to touch, which hides the key panel: a capture waiting for a key must not outlive it
+    this.el.addEventListener('pointerdown', (e) => {
+      if (this.capture && e.pointerType !== 'mouse') this.cancelCapture();
+    });
   }
 
   override hints(): string[] {
@@ -174,6 +180,7 @@ export class SettingsScreen extends Screen {
           },
         });
         who.el.classList.add('nvm-settings__who');
+        who.el.setAttribute('data-show-for', 'keyboard gamepad');
         setChildren(this.body, h('div', { class: 'nvm-stack nvm-narrow' }, ...Array.from(this.controls().children), who.el, ...Array.from(this.keys(this.keysPlayer).children)));
         break;
       }
@@ -194,9 +201,16 @@ export class SettingsScreen extends Screen {
       description: auto ? '目前由自動畫質決定；要自己選擇請先關閉自動畫質' : '影響陰影解析度、物件密度與特效數量',
     });
     level.setDisabled(auto);
+    const fullscreen = panel(
+      '全螢幕',
+      button({ label: '全螢幕', sub: '進入或離開全螢幕', className: 'nvm-settings__fsbtn', onClick: () => this.host.toggleFullscreen() }),
+      h('p', { class: 'nvm-note nvm-settings__fsnote', text: '加入主畫面即可全螢幕遊玩' }),
+    );
+    fullscreen.classList.add('nvm-settings__fs');
     return h(
       'div',
       { class: 'nvm-stack nvm-narrow' },
+      fullscreen,
       panel(
         '畫質',
         toggle(
@@ -489,17 +503,48 @@ export class SettingsScreen extends Screen {
 
   private controls(): HTMLElement {
     const s = this.s;
+    const steering: Control<TouchSteering> = cycler<TouchSteering>({
+      label: '轉向方式',
+      options: [
+        { value: 'drag', label: '拖曳' },
+        { value: 'tilt', label: '體感' },
+        { value: 'buttons', label: '按鈕' },
+      ],
+      value: s.touchSteering,
+      onChange: (v) => this.pickSteering(v, steering),
+      description: '觸控駕駛時的轉向：在左側拖曳、傾斜裝置，或按左右按鈕',
+    });
+    steering.el.classList.add('nvm-settings__touch');
     return h(
       'div',
       { class: 'nvm-narrow' },
       panel(
       '操控',
+      steering.el,
       slider({ label: '轉向靈敏度', min: 0.5, max: 1.5, step: 0.05, value: s.steeringSensitivity, format: (v) => `${v.toFixed(2)}×`, onChange: (v) => this.patch({ steeringSensitivity: v }) }).el,
       slider({ label: '搖桿死區', min: 0, max: 0.3, step: 0.01, value: s.deadzone, format: pct, onChange: (v) => this.patch({ deadzone: v }), description: '控制器類比搖桿的無反應範圍' }).el,
       toggle('控制器震動', s.vibration, (v) => this.patch({ vibration: v })).el,
       this.onClose ? null : button({ label: '重新選擇駕駛經驗', sub: '重設各模式的預設駕駛輔助（不會清除存檔）', onClick: () => this.host.push(new ExperienceScreen(this.host, false)) }),
       ),
     );
+  }
+
+  /** 體感 asks for the motion sensor inside this same click or key press: iOS prompts only from a user gesture. */
+  private pickSteering(next: TouchSteering, row: Control<TouchSteering>): void {
+    const prev = this.s.touchSteering;
+    this.patch({ touchSteering: next });
+    if (next !== 'tilt') return;
+    void this.host.requestTilt().then((status) => this.settleTilt(prev, row, status));
+  }
+
+  /** A sensor that is refused, missing or behind plain HTTP puts the previous scheme back and says why. */
+  private settleTilt(prev: TouchSteering, row: Control<TouchSteering>, status: TiltStatus): void {
+    const problem = tiltProblem('tilt', status);
+    if (!problem || this.s.touchSteering !== 'tilt') return;
+    this.patch({ touchSteering: prev });
+    row.set(prev);
+    this.host.sound('error');
+    this.host.toast(TILT_PROBLEM_TEXT[problem], 'bad');
   }
 
   private hud(): HTMLElement {
@@ -568,7 +613,13 @@ export class SettingsScreen extends Screen {
       h('p', { class: 'nvm-note', text: '選擇欄位後按下新按鍵；Backspace／Delete 清除，Esc 取消（「暫停」欄位則會綁定 Esc）。同一玩家重複的按鍵會自動從原動作移除。' }),
       h('div', { class: 'nvm-keyrows' }, rows),
     );
-    return h('div', { class: 'nvm-narrow' }, keysPanel);
+    keysPanel.setAttribute('data-show-for', 'keyboard gamepad');
+    return h(
+      'div',
+      { class: 'nvm-narrow' },
+      keysPanel,
+      h('p', { class: 'nvm-note', attrs: { 'data-show-for': 'touch' }, text: '按鍵設定需要實體鍵盤：按下鍵盤任一鍵即可顯示。' }),
+    );
   }
 
   private beginCapture(player: Player, action: KeyAction, slot: number, el: HTMLButtonElement): void {
@@ -576,6 +627,7 @@ export class SettingsScreen extends Screen {
     this.capture = { player, action, slot, el };
     el.classList.add('is-capturing');
     el.textContent = '按下按鍵…';
+    el.parentElement?.append(button({ label: '取消', back: true, className: 'nvm-keyrow__cancel', onClick: () => this.cancelCapture() }));
   }
 
   private cancelCapture(): void {

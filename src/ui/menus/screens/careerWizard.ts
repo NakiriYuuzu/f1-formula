@@ -11,7 +11,7 @@ import { DEFAULT_SEASON_SETTINGS, type SeasonSettings } from '../../../meta/seas
 import { identityForm } from '../components/forms';
 import { assistsEditor, seasonSettingsEditor } from '../components/editors';
 import { h, setChildren } from '../dom';
-import { focusElement } from '../nav';
+import { focusElement, tapChooses } from '../nav';
 import { Screen, type Host, type StageRequest } from '../screen';
 import { showroomCar } from '../showroom';
 import { button, heading, panel, statBar, teamChip } from '../widgets';
@@ -143,7 +143,8 @@ export class CareerWizardScreen extends Screen {
               showInfo(team);
               this.host.refreshStage();
             },
-            click: () => {
+            click: (e) => {
+              if (!tapChooses(e)) return;
               this.teamId = team.id;
               if (careerTakenNumbers(team.id).has(this.identity.number)) {
                 this.host.sound('error');

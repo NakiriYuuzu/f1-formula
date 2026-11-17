@@ -216,6 +216,7 @@ export const DEFAULT_SETTINGS: Settings = {
   steeringSensitivity: 1,
   deadzone: 0.08,
   vibration: true,
+  touchSteering: 'drag',
   keyBindings: DEFAULT_KEY_BINDINGS,
   keyBindingsP2: DEFAULT_KEY_BINDINGS_P2,
   hud: { minimap: true, tower: true, telemetry: true, radio: true },

@@ -21,6 +21,7 @@ import { classifyQualifying, type QualifyingEntry } from '../../meta/sessionBuil
 import { achievementDef } from '../../meta/achievements';
 import { pickTip } from '../../meta/tips';
 import type { PadMenuInput } from '../../input/index';
+import type { TiltStatus } from '../../input/touch';
 import { h, setText } from './dom';
 import { cancelMinimapQueue } from './minimap';
 import { findNext, focusables, focusElement, getAdjuster, isTextField, scrollStep, type NavDirection } from './nav';
@@ -32,7 +33,7 @@ import { MainMenuScreen } from './screens/mainMenu';
 import { TitleScreen } from './screens/title';
 import { ResultsScreen } from './screens/results';
 import { SettingsScreen } from './screens/settings';
-import { isPadEvent, markPadEvent } from './keyCapture';
+import { markPadEvent } from './keyCapture';
 import { ConfirmScreen } from './screens/confirm';
 import type { MenuCallbacks, ShowroomCar } from './types';
 
@@ -79,8 +80,10 @@ function hintEl(text: string): HTMLElement {
   const keys = cut > 0 ? text.slice(0, cut) : text;
   const label = cut > 0 ? text.slice(cut + 1) : '';
   const pad = padKeys(keys);
-  return h('span', { class: 'nvm-hint', attrs: pad ? {} : { 'data-input': 'kb' } }, keyCap(keys, pad || undefined), label ? h('span', { text: label }) : null);
+  return h('span', { class: 'nvm-hint', attrs: pad ? {} : { 'data-show-for': 'keyboard' } }, keyCap(keys, pad || undefined), label ? h('span', { text: label }) : null);
 }
+
+function noop(): void {}
 
 function safe(fn: () => void): void {
   try {
@@ -117,7 +120,7 @@ export class MenuSystem implements Host {
     this.cb = cb;
     setWidgetSound((kind) => this.sound(kind));
     this.crumbEl = h('span', { class: 'nvm-top__crumb' });
-    // mouse users' way back (keyboard / pad use Esc / B); not in the arrow-key focus order
+    // the way back for mouse and touch (keyboard / pad use Esc / B); not in the arrow-key focus order
     this.backEl = h(
       'button',
       { class: 'nvm-top__back', attrs: { type: 'button', tabindex: -1, hidden: true }, on: { click: () => this.back() } },
@@ -152,6 +155,8 @@ export class MenuSystem implements Host {
     );
     this.container.addEventListener('click', this.onClickSound, true);
     this.container.addEventListener('pointermove', this.onPointerMove);
+    // iOS Safari applies :active (the touch-mode pressed look) only under an element with a touchstart listener
+    this.container.addEventListener('touchstart', noop, { passive: true });
     // a reload / tab close inside the debounce window must not lose the last settings change
     window.addEventListener('pagehide', this.onPageHide);
     document.addEventListener('visibilitychange', this.onPageHide);
@@ -246,7 +251,6 @@ export class MenuSystem implements Host {
    */
   navigate(input: PadMenuInput): boolean {
     if (!this.visible || !this.loadingEl.hidden) return false;
-    this.container.classList.add('is-pad');
     const key = PAD_KEYS[input];
     const e = new KeyboardEvent('keydown', { key: key.key, code: key.code, cancelable: true });
     markPadEvent(e);
@@ -265,6 +269,7 @@ export class MenuSystem implements Host {
     this.stack = [];
     this.container.removeEventListener('click', this.onClickSound, true);
     this.container.removeEventListener('pointermove', this.onPointerMove);
+    this.container.removeEventListener('touchstart', noop);
     window.removeEventListener('pagehide', this.onPageHide);
     document.removeEventListener('visibilitychange', this.onPageHide);
     this.container.remove();
@@ -387,6 +392,10 @@ export class MenuSystem implements Host {
 
   toggleFullscreen(): void {
     safe(() => this.cb.toggleFullscreen());
+  }
+
+  requestTilt(): Promise<TiltStatus> {
+    return this.cb.requestTilt();
   }
 
   featuredCar(): ShowroomCar {
@@ -590,7 +599,6 @@ export class MenuSystem implements Host {
     };
     // loading card: no navigation (keys pass through untouched to whoever needs them next)
     if (!this.loadingEl.hidden) return;
-    if (!isPadEvent(e)) this.container.classList.remove('is-pad');
     const screen = this.top();
     if (!screen) return;
     let handled = false;
@@ -681,7 +689,6 @@ export class MenuSystem implements Host {
 
   private readonly onPointerMove = (e: PointerEvent): void => {
     if (e.pointerType !== 'mouse') return;
-    this.container.classList.remove('is-pad');
     const screen = this.top();
     if (!screen || isTextField(document.activeElement)) return;
     const target = e.target instanceof Element ? e.target.closest<HTMLElement>('button:not([disabled]), [tabindex="0"]') : null;

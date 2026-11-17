@@ -6,7 +6,7 @@ import type { DriverDef, TeamDef } from '../../../core/types';
 import { driverName, identColor, type Roster } from '../../../meta/roster';
 import type { SeatChoice } from '../../../meta/prefs';
 import { h, setChildren } from '../dom';
-import { focusElement } from '../nav';
+import { focusElement, tapChooses } from '../nav';
 import { nationalityLabel } from '../labels';
 import { Screen, type Host, type StageRequest } from '../screen';
 import { showroomCar } from '../showroom';
@@ -134,7 +134,9 @@ export class TeamSelectScreen extends Screen {
               this.renderInfo(team);
               this.setPreview(team, this.firstDriver(team));
             },
-            click: () => this.chooseTeam(team),
+            click: (e) => {
+              if (tapChooses(e)) this.chooseTeam(team);
+            },
           },
         },
         teamChip(identColor(team.livery)),
@@ -165,7 +167,9 @@ export class TeamSelectScreen extends Screen {
           style: { '--team': identColor(team.livery), '--team-2': d.helmet.primary },
           on: {
             focus: () => this.setPreview(team, d),
-            click: () => this.o.onChosen({ teamId: team.id, driverId: d.id }),
+            click: (e) => {
+              if (tapChooses(e)) this.o.onChosen({ teamId: team.id, driverId: d.id });
+            },
           },
         },
         h('span', { class: 'nvm-pick__num', text: String(d.number) }),

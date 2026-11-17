@@ -58,6 +58,37 @@ describe('Cmd release (macOS drops the keyups of other keys while Cmd is down)',
   });
 });
 
+describe('fingers on a window blur or a hidden page', () => {
+  test('both let every finger go, and a released finger is not adopted again when the deck comes back', () => {
+    const listeners = new Map<string, () => void>();
+    const doc = { hidden: false, addEventListener: (type: string, fn: () => void) => listeners.set(type, fn), removeEventListener: () => undefined };
+    const win = { addEventListener: (type: string, fn: () => void) => listeners.set(type, fn), removeEventListener: () => undefined, document: doc };
+    const input = new InputManager(settings());
+    input.attach(win as unknown as Window);
+    const throttle = { kind: 'pedal', x: 10, spans: [{ control: 'throttle', action: 'throttle', left: 0, right: 50 }] } as const;
+
+    input.touch.setLive(true);
+    input.touch.down(1, throttle);
+    input.update(0.016);
+    expect(input.isHeld('throttle', 0)).toBe(true);
+    listeners.get('blur')?.();
+    input.touch.setLive(true);
+    input.touch.move(1, 20);
+    input.update(0.016);
+    expect(input.isHeld('throttle', 0)).toBe(false);
+
+    input.touch.down(2, throttle);
+    input.update(0.016);
+    expect(input.isHeld('throttle', 0)).toBe(true);
+    doc.hidden = true;
+    listeners.get('visibilitychange')?.();
+    input.touch.setLive(true);
+    input.update(0.016);
+    expect(input.isHeld('throttle', 0)).toBe(false);
+    input.detach();
+  });
+});
+
 describe('two pads in single player', () => {
   test('the same queued action pressed on both pads in one poll is queued once', () => {
     const core = new InputCore(settings());

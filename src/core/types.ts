@@ -401,6 +401,15 @@ export type KeyAction =
   | 'fullscreen'
   | 'hud';
 
+/**
+ * How a touch player steers. `drag`: a horizontal drag in the left thumb zone (a virtual stick). `tilt`: rolling the
+ * device like a wheel (motion sensor). `buttons`: ◀ ▶ held through the keyboard steering ramp.
+ */
+export type TouchSteering = 'drag' | 'tilt' | 'buttons';
+
+/** Device geometry from the media queries in src/app/device.ts. Every non-desktop form has a coarse primary pointer. */
+export type DeviceForm = 'desktop' | 'tablet' | 'phone';
+
 export interface Settings {
   quality: QualityLevel;
   /**
@@ -441,6 +450,8 @@ export interface Settings {
   /** gamepad stick deadzone 0..0.3 */
   deadzone: number;
   vibration: boolean;
+  /** only read on touch devices */
+  touchSteering: TouchSteering;
   /** Player 1 bindings: KeyboardEvent.code values */
   keyBindings: Record<KeyAction, string[]>;
   /** Player 2 (split-screen) bindings: KeyboardEvent.code values */
