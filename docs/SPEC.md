@@ -94,7 +94,7 @@
 | 重播 | 賽後重播：電視轉播鏡頭、播放/暫停/拖曳/倍速 | app / render / hud |
 | 鏡頭 | 追焦、遠追焦、T-cam、座艙（含 Halo、方向盤）、鼻錐、電視轉播 | render |
 | 車隊無線電 | 原創工程師訊息（中文） | race / hud |
-| 控制器 / 震動 | 鍵盤 + Gamepad（標準映射）+ 震動 | input |
+| 控制器 / 震動 | 鍵盤 + Gamepad（標準映射）+ 觸控（手機與平板：螢幕按鈕，拖曳／體感／按鈕三種轉向，見 6.9）+ 震動 | input / hud / app |
 | 成就 | 本機成就 12 項 | menus(meta) |
 | VR / HDR / Workshop / 雲端存檔 / 反作弊 | **不實作** — 文件說明 | — |
 
@@ -260,10 +260,17 @@
   起跑燈號覆蓋、暫停選單（繼續、重新開始、回溯、設定、鏡頭、行車線、結束節次/退賽、離開）、MFD（下一次進站輪胎、Box 請求/取消、ERS 模式）、
   重播控制列、FPS。
 - 分割畫面兩個 region 各一套精簡 HUD。只在數值改變時寫 DOM。
+- 觸控面板 `TouchDeck`（`touchDeck.ts`）：HUD 的元件，只在觸控模式、單一畫面時出現，跟著 HUD 建立與銷毀；每個控制項都來自 `touchLayout.ts` 的 `TOUCH_CONTROLS`（見 6.9）。
+  暫停、重播、離開觸控模式時隱藏並放開所有手指。HUD 隱藏（H）不會隱藏面板。有觸控面板時，操作說明多一頁「觸控」並先開這一頁。
+  說出按鍵的文字依輸入模式切換（`data-show-for`，見 6.9）：撞車橫幅的「按 R 回溯」在觸控時是「點「回溯」」、提示列列出觸控操作（`dom.ts` 的 `setModeText` 每種說法寫一個 span）；
+  觸控時沒有對應說法的（暫停選單與 MFD 的按鍵提示、觀戰卡的按鍵）直接隱藏。
 
 ### 6.6 menus + meta
-- 第 4.2 節所有畫面；滑鼠 + 鍵盤（方向鍵 / Enter / Esc）操作；焦點可見；原創視覺（使用 tokens.css，非模仿任何商業遊戲 UI）。
-- 設定：畫質、解析度比例、陰影、FPS、FOV、音量、單位、預設鏡頭、震動、速度模糊強度、轉向靈敏度、死區、按鍵重新綁定（P1/P2）、HUD 元件開關。
+- 第 4.2 節所有畫面；滑鼠 + 鍵盤（方向鍵 / Enter / Esc）+ 觸控操作；焦點可見；原創視覺（使用 tokens.css，非模仿任何商業遊戲 UI）。
+  觸控模式：不顯示按鍵提示（頁尾整列隱藏，高度讓給內容），用頁首的「返回」返回；聚焦即預覽的清單第一下預覽、同一項再點一下才選定（`nav.ts` 的 `tapChooses`）。
+- 設定：畫質、解析度比例、陰影、FPS、FOV、音量、單位、預設鏡頭、震動、速度模糊強度、轉向靈敏度、死區、按鍵重新綁定（P1/P2）、HUD 元件開關、
+  觸控轉向方式（`Settings.touchSteering`：`drag`／`tilt`／`buttons`，預設 `drag`；觸控模式或手機、平板才顯示）、全螢幕（只在手機與平板）。
+  觸控模式不顯示按鍵重新綁定。
 - meta：`save.ts`（版本化 localStorage、壞資料回預設）、生涯（自創車手 DriverDef id `'player'`、取代所選車隊一位車手、10 站、
   積分（POINTS_TABLE）、車手/車隊積分榜、AI 也依模擬成績累積積分、研發點數）、我的車隊（第 11 隊 TeamDef id `'myteam'`、資金、研發專案、
   簽約候補車手；評分固定為基礎車 + 動力單元）、劇情 6 章 + 挑戰賽 6 個（StoryObjective）、計時賽紀錄 + 幽靈、成就 12 項。
@@ -279,14 +286,69 @@
   無 AudioContext（無頭）時所有方法安全 no-op。
 - 輸入：鍵盤（可重綁）+ Gamepad 標準映射（RT 油門、LT 煞車、左搖桿轉向、A=DRS、X=ERS、B=回溯、Y=鏡頭、LB/RB 降/升檔、Start=暫停、
   Back=MFD、十字鍵上=Box、R3=後視）；數位轉向平滑（含回正）；one-shot 鎖存；P2 路由；視窗失焦時 reset；文字輸入時暫停擷取。
+- 觸控：`TouchDriver`（`src/input/touch.ts`，不用 DOM）每幀產生一筆 `TouchReading`（拖曳或體感的類比轉向、手指按住的動作、上一幀以來按下的動作），
+  `InputCore.update(dt, pads, touch)` 像手把一樣合併：按下走和按鍵相同的 one-shot 鎖存與佇列，踏板與 ◀ ▶ 走鍵盤的平滑（踏板每秒 8、轉向依車速），
+  轉向取鍵盤、手把、觸控三者絕對值最大的一個。觸控只驅動玩家 0；`ControlInput`、物理、連線與重播都沒有改。
+- 體感（`src/input/tilt.ts`，純函式）：重力向量轉到螢幕座標，取螢幕平面內的側傾角；螢幕與地平線平行為直行，不需要校正。
+  `InputManager` 是 `devicemotion` 監聽與權限狀態（`TiltStatus`）的唯一擁有者，只在選了體感時監聽；常數與狀態見 6.9。
 
 ### 6.8 integration（app）
 - `App` 狀態機：boot → menu → loading → session（running/paused）→ results/replay → menu；單一 canvas + `#ui-root`。
 - 固定步長累加器（SIM_DT，每幀最多 8 步），one-shot 輸入只送進第一步；事件每幀 drain 給 HUD / audio。
 - 回溯：每 0.5 s 存快照、保留 20 s，倒帶 5 s；重播：30 Hz 錄 RenderFrame，賽後播放（電視鏡頭、拖曳、倍速）。
 - 分割畫面、鏡頭切換、暫停、全螢幕（F）、HUD 切換（H）、錯誤覆蓋層（未捕捉錯誤顯示在畫面上）。
+- 裝置（`src/app/device.ts`）：`DeviceWatcher` 在 `main.ts` 裡比 App 先建立，第一次繪製前就寫好根屬性（6.9）；手機轉成直向時 App 自動暫停（和失焦同一條路徑，線上比賽不暫停）。
+  全螢幕用 `fullscreenApi`：標準 API → webkit 前綴（iPad Safari）→ 沒有（iPhone Safari）；手機進入全螢幕後嘗試鎖定橫向（瀏覽器支援時）。
+  `public/manifest.webmanifest`（`display: fullscreen`、`orientation: any`）與 `index.html` 的 apple／mobile web-app meta 讓 iPhone 從主畫面開啟時沒有瀏覽器介面；沒有 service worker。
 - 測試掛鉤：`window.render_game_to_text()`（JSON：模式、節次、玩家車位置/速度/檔位/名次/圈數、前後車、燈號、天氣；註明座標系）、
   `window.advanceTime(ms)`（以 SIM_DT 決定性推進並渲染一次）；URL 快速啟動：`?quick=race|quali|practice|tt|split&layout=<id>&laps=N&weather=<kind>&reg=2025|2026`。
+
+### 6.9 手機與平板（觸控與版面的契約）
+- **桌機不變**：主要指標為 fine 的裝置用鍵盤、滑鼠或手把操作時，畫面與行為和加入觸控前相同。這時只有 `html[data-device="desktop"]` 與 `html[data-input-mode]`（`keyboard` 或 `gamepad`），
+  沒有 `data-rotate`、`data-fullscreen` 與 `.nvh-root[data-touch]`；token 在桌機的值是 `env()` = 0、`dvh` = `vh`、`--nv-hit` = 0。
+  新增的 CSS 規則一律掛在桌機不會有的根屬性或 token 值上。
+- **裝置類型**（`DeviceForm`：`desktop`／`tablet`／`phone`）：`src/app/device.ts` 的 `DEVICE_QUERIES` 是唯一寫這些 media query 的地方，每一條都要求主要指標是 coarse，
+  所以縮小的桌機視窗不會變成手機。手機只支援橫向，直向時出現轉向提示；平板直向、橫向都可以。iPad 的窄視窗（Slide Over、三分之一寬的 Split View）算平板，
+  不會被當成直向手機，也不會出現轉向提示。主要指標為 fine 的 iPad（例如接了觸控板）算桌機，手指點畫面仍會切到觸控模式。
+- **根屬性**：CSS 只看這些屬性，不重複寫 media query。
+
+| 屬性 | 值 | 唯一寫入者 | 意義 |
+|---|---|---|---|
+| `html[data-input-mode]` | `keyboard`／`gamepad`／`touch` | `InputManager`（`src/input/index.ts`），值由 `InputCore.mode` 決定 | 最後一次刻意的輸入：按鍵（文字欄位內除外）、滑鼠按下或移動 → `keyboard`；手把按鈕、十字鍵、扳機或搖桿越過 0.5 的那一刻 → `gamepad`（搖桿飄移不算）；手指或觸控筆按下 → `touch`。開機時手機與平板為 `touch`、其他為 `keyboard`；沒有這個屬性時看起來和 `keyboard` 一樣。選單原本的 `.is-pad` 已刪除 |
+| `html[data-device]` | `desktop`／`tablet`／`phone` | `DeviceWatcher` | 裝置類型 |
+| `html[data-rotate]` | 有或沒有 | `DeviceWatcher` | 直向的手機：顯示 `.nv-rotate`（「請將手機轉為橫向」，`--nv-z-rotate: 90`，在選單與通知之上、錯誤面板之下）並觸發 `onRotate`，App 自動暫停 |
+| `html[data-fullscreen]` | `api`／`none` | `DeviceWatcher` | 只在手機與平板：有沒有網頁全螢幕 API；`none`（iPhone Safari）時設定的全螢幕面板改顯示「加入主畫面即可全螢幕遊玩」，從主畫面開啟時整個面板隱藏 |
+| `.nvh-root[data-touch]` | `1` | `TouchDeck` | 觸控面板在畫面上；`hud.css` 依此把計時塔、小地圖、遙測與底部中央區塊移出拇指區 |
+| `data-show-for` | `keyboard`、`gamepad`、`touch`，空白分隔 | 寫出說明輸入方式的文字的元件（選單 `keyCap`、提示列、HUD 的 `setModeText`） | `app.css` 的一組規則只顯示符合 `html[data-input-mode]` 的元素 |
+
+- **Token**（`src/ui/tokens.css`）：
+  - `--nv-safe-t`／`-r`／`-b`／`-l` = `env(safe-area-inset-*, 0px)`。只有 `tokens.css` 寫 `env(safe-area-inset`（`tests/hud.css.test.ts`、`tests/menus.css.test.ts` 檢查）。
+    HUD 根元素整個內縮一次，暫停選單與操作說明改成 `position: fixed` 蓋住瀏海兩側；選單的頁首、內容與頁尾各自加上安全區域。
+  - `--nv-vh` = `100vh`，支援時為 `100dvh`。原本寫 `100vh` 的地方一律改用 `var(--nv-vh)`。
+  - `--nv-hit` = `0px`，`html[data-device='tablet'|'phone']` 時為 `44px`。只當下限用：`max(<原尺寸>, var(--nv-hit))`，或 `min-height`／`min-width`。
+  - 觸控面板的佔位 token 在 `src/ui/hud/touch.css` 的 `.nvh-root[data-touch]`：`--nvt-sys-h`（左上系統列高）、`--nvt-thumb-w`、`--nvt-thumb-h`（拇指區寬高）、`--nvt-gap`。
+- **觸控控制項只有一份清單**：`src/ui/hud/touchLayout.ts` 的 `TOUCH_CONTROLS`。一列的欄位：`id`、`zone`（`sys`／`thumbL`／`thumbR`）、
+  `kind`（`tap` 按下即觸發、`hold` 按住直到抬起、`pedal` 可滑到同區另一個踏板的 hold、`surface` 拖曳轉向區、`indicator` 體感方向盤、`permission` 啟用體感的按鈕）、
+  `action`（`KeyAction`）、`label`、選填的 `how`／`note`／`schemes`（只在哪些轉向方式出現）／`lit`（就緒時發光）／`hint`，以及 `when(ctx)`。
+  加一列，面板就畫出這個控制項，「操作說明 → 觸控」頁依 `HELP_GROUPS` 的順序列出它（有 `note` 時附上何時出現），有 `hint` 時前幾場的提示列也列出它，手指按下就送出它的 `KeyAction`。
+  另外在 `touch.css` 用 `.nvt-ctl[data-control='<id>']` 指定它在區域格線中的位置。`when` 只能讀 `touchContext()` 算出的 `TouchContext`；需要新資訊就加到那裡。
+  `tests/hud.touch.test.ts` 會擋下 `action` 不是 `InputCore` 對手指處理的動作（`LATCH_FOR_ACTION`、`QUEUED_ACTIONS`、`HELD_ACTIONS`）的列。
+- **放開手指**：面板隱藏的每一條路徑（暫停、手機轉直向造成的暫停、失焦、分頁隱藏、重播、離開觸控模式、HUD 銷毀）都經過 `TouchPort.setLive(false)`，所有手指放開；
+  被放開的手指不會再被接手，要抬起再按。所以暫停前按著踏板的拇指，繼續後要抬起再按一次才會踩下（設計如此，繼續時車不會突然加速）。
+  控制項在手指下消失時只放開那個控制項（`releaseControl`），不觸發按下。回溯與重新開始（`InputManager.reset`）只丟掉排隊中的按下，手指保留。
+- **體感**：
+  - 常數（`src/input/tilt.ts`）：靈敏度 1 時 30° 滿舵（`TILT_LOCK_DEG / steeringSensitivity`，限制在 18–50°）、死區 2.5°、曲線指數 1.2、重力向量低通 τ = 50 ms；
+    螢幕平面內的重力比例低於 0.42（往後仰約 65°）開始減弱、低於 0.21（約 78°）轉向為 0 並顯示「請將裝置立起」；讀數低於 3 m/s² 視為平放。
+    這些常數與拇指區的佔位 token 都是第一版猜測，還沒在實機上調過（`docs/FEATURES.md` 第 10 節）。
+  - 方向：每次開始體感轉向時取第一個可靠的取樣；讀起來上下顛倒時，之後的讀數都轉 180°，並維持這個判斷。所以結果不依賴平台回報的重力正負號，
+    也不依賴哪一種橫向握法回報哪一個螢幕角度。
+  - 狀態（`TiltStatus`）：`off`（沒選體感，不監聽）、`needs-permission`（iOS，這次載入還沒允許）、`waiting`（已監聽、還沒有取樣）、`active`、
+    `denied`、`unavailable`（沒有 API，或 1.5 秒內沒有取樣：`TILT_FIRST_SAMPLE_MS`）、`insecure`（不是安全連線）。
+    只有 `active` 時用體感（`effectiveSteering`），其他時候用拖曳。iOS 只在使用者手勢（click、pointerup、keyup；觸控的 pointerdown 不算）裡同步發出的詢問才會顯示：App 的第一個 click（標題畫面「點一下開始」）、設定選「體感」、面板的「啟用體感轉向」三處呼叫 `requestTilt()`，同一次點擊只問一次。
+    `denied`／`unavailable`／`insecure` 的說明在 `src/input/index.ts` 的 `TILT_PROBLEM_TEXT`：設定改回原本的轉向方式並顯示說明；存檔裡已經是體感時，HUD 每節提示一次並用拖曳。
+- **自動畫質**：`guessQuality(gpu, form)`。iOS 與 iPadOS 把所有 GPU 都回報成「Apple GPU」，所以手機與平板上的「Apple GPU」從中畫質開始（Mac 的 Safari 是桌機，維持高畫質）；
+  手機與平板的紀錄鍵是 `<GPU> · <裝置類型>`（`autoRecordKey`），所以先前記成高畫質的 iPhone、iPad 會重新猜一次。
+- **區網實機測試**：`bun run dev:lan`（HTTP）與 `bun run dev:lan:https`（`vite --mode lan-https`，讀 `tools/lan-cert.sh` 產生、不納入版本控制的 `.cert/lan.key`、`.cert/lan.crt`），步驟見 README「手機與平板」。
 
 ## 7. 驗收總則
 - `bun run typecheck`、`bun test`、`bun run build` 全數通過，無 three.js 棄用警告。
